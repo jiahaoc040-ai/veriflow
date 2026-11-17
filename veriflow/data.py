@@ -15,6 +15,9 @@ import os
 
 import httpx
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()  # 自動讀取專案資料夾裡的 .env
 
 DUNE_BASE = "https://api.dune.com/api/v1"
 SYMBOLS = {"BTC": "BTC/USDT", "ETH": "ETH/USDT"}
