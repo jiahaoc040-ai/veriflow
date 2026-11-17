@@ -56,4 +56,6 @@ def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
             break
     df = pd.DataFrame(out, columns=["ts", "open", "high", "low", "close", "volume"])
     df.index = pd.to_datetime(df["ts"], unit="ms")
-    return df[["close"]]
+    # 今天（UTC）的日 K 還沒收盤，價格會一直變，不能拿來算訊號
+    today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    return df.loc[df.index < today, ["close"]]
