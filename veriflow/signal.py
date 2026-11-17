@@ -1,16 +1,18 @@
 """
-訊號引擎：把每日價格 + 穩定幣交易所流量變成「風險狀態」訊號
------------------------------------------------------------
-沿用 crypto-onchain-factors 的因子定義（不換參數）：
-  - 動能：過去 30 天報酬 > 0
-  - 穩定幣淨流入：7 天淨流入比例 (in - out) / (in + out)，再取 90 天 z-score
+訊號引擎：把每日價格 + 穩定幣總供給變成「風險狀態」訊號
+-------------------------------------------------------
+  - 動能：過去 30 天報酬 > 0（沿用 crypto-onchain-factors，唯一在測試期穩定有效的是「降低回撤」）
+  - 流動性：所有鏈穩定幣總供給的 7 天變化率，取 90 天 z-score
 
 訊號只有兩種：
-  RISK_ON  = 動能為正，且沒有穩定幣大量流出（flow_z > -1）
+  RISK_ON  = 動能為正，且穩定幣流動性沒有明顯收縮（liquidity_z > -1）
   RISK_OFF = 其他情況
 
-注意：研究結果顯示穩定幣因子在 2023 年後失效，動能的穩定效果是「降低回撤」。
-所以 VeriFlow 賣的是「風險狀態」，不是保證賺錢的預測；鏈上績效紀錄讓買方自己驗證。
+為什麼用總供給而不是交易所流量：
+  先前研究發現交易所流量因子在 2023 年失效，懷疑原因是 Dune cex.flows 只涵蓋 EVM 鏈、
+  看不到 Tron 上的 USDT。總供給涵蓋所有鏈，正好避開這個資料盲點。
+
+VeriFlow 賣的是「風險狀態」，不是保證賺錢的預測；鏈上績效紀錄讓買方自己驗證。
 """
 
 from __future__ import annotations
@@ -24,34 +26,32 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-FLOW_WINDOW = 7       # 天：淨流入比例的視窗
+CHANGE_WINDOW = 7     # 天：供給變化率的視窗
 Z_WINDOW = 90         # 天：z-score 的視窗
 MOM_LOOKBACK = 30     # 天：動能回看期間
-HEAVY_OUTFLOW_Z = 1.0 # flow_z 低於 -1 視為穩定幣大量流出
+LIQUIDITY_DROP_Z = 1.0  # liquidity_z 低於 -1 視為流動性明顯收縮
 
 RISK_ON = "RISK_ON"
 RISK_OFF = "RISK_OFF"
 
 
-def build_factors(flows: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+def build_factors(supply: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     """
-    flows：index = 日期，欄位 inflow_usd、outflow_usd
+    supply：index = 日期，欄位 supply_usd（穩定幣總供給）
     prices：index = 日期，欄位 close
-    回傳每天的 close、momentum、flow_z、signal
+    回傳每天的 close、momentum、liquidity_z、signal
     """
-    d = prices[["close"]].join(flows[["inflow_usd", "outflow_usd"]], how="inner").sort_index()
+    d = prices[["close"]].join(supply[["supply_usd"]], how="inner").sort_index()
 
-    inflow = d["inflow_usd"].rolling(FLOW_WINDOW).sum()
-    outflow = d["outflow_usd"].rolling(FLOW_WINDOW).sum()
-    ratio = (inflow - outflow) / (inflow + outflow).replace(0, np.nan)
-    d["flow_z"] = (ratio - ratio.rolling(Z_WINDOW).mean()) / ratio.rolling(Z_WINDOW).std()
+    growth = d["supply_usd"].pct_change(CHANGE_WINDOW)
+    d["liquidity_z"] = (growth - growth.rolling(Z_WINDOW).mean()) / growth.rolling(Z_WINDOW).std()
 
     d["momentum"] = d["close"].pct_change(MOM_LOOKBACK)
 
-    on = (d["momentum"] > 0) & (d["flow_z"] > -HEAVY_OUTFLOW_Z)
+    on = (d["momentum"] > 0) & (d["liquidity_z"] > -LIQUIDITY_DROP_Z)
     d["signal"] = np.where(on, RISK_ON, RISK_OFF)
     # 因子還沒算出來的前幾天不給訊號
-    d.loc[d["flow_z"].isna() | d["momentum"].isna(), "signal"] = None
+    d.loc[d["liquidity_z"].isna() | d["momentum"].isna(), "signal"] = None
     return d
 
 
@@ -61,7 +61,7 @@ class Signal:
     as_of: str          # 訊號依據的資料日期（UTC，YYYY-MM-DD）
     signal: str         # RISK_ON / RISK_OFF
     momentum: float
-    flow_z: float
+    liquidity_z: float
     close: float
     issued_at: str      # 訊號發出時間（UTC ISO）
     nonce: str          # 隨機值：避免別人用雜湊反推訊號（只有兩種可能值，不加會被猜出來）
@@ -86,7 +86,7 @@ def latest_signal(asset: str, factors: pd.DataFrame) -> Signal:
         as_of=valid.index[-1].strftime("%Y-%m-%d"),
         signal=str(row["signal"]),
         momentum=round(float(row["momentum"]), 6),
-        flow_z=round(float(row["flow_z"]), 6),
+        liquidity_z=round(float(row["liquidity_z"]), 6),
         close=round(float(row["close"]), 2),
         issued_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         nonce=secrets.token_hex(16),

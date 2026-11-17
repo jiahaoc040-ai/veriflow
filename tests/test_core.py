@@ -1,4 +1,4 @@
-"""不需要網路的測試：用假資料檢查因子、訊號、承諾雜湊與帳本評分"""
+"""不需要網路的測試：用假資料檢查因子、訊號、承諾雜湊、帳本評分與 DefiLlama 解析"""
 
 import numpy as np
 import pandas as pd
@@ -11,9 +11,8 @@ def fake_data(days=200, trend=0.002, seed=0):
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2025-01-01", periods=days, freq="D")
     close = 100 * np.exp(np.cumsum(trend + rng.normal(0, 0.02, days)))
-    flows = pd.DataFrame({"inflow_usd": rng.uniform(90, 110, days),
-                          "outflow_usd": rng.uniform(90, 110, days)}, index=idx)
-    return flows, pd.DataFrame({"close": close}, index=idx)
+    supply = pd.DataFrame({"supply_usd": 1e11 * np.exp(np.cumsum(rng.normal(0.0005, 0.002, days)))}, index=idx)
+    return supply, pd.DataFrame({"close": close}, index=idx)
 
 
 def test_factors_have_signals_after_warmup():
@@ -55,3 +54,13 @@ def test_track_record_scores_only_matured(tmp_path):
     tr = led.track_record({"BTC": prices})
     assert tr["issued"] == 2 and tr["scored"] == 1
     assert tr["hit_rate"] in (0.0, 1.0)
+
+
+def test_parse_llama():
+    from veriflow.data import parse_llama
+    rows = [{"date": "1704067200", "totalCirculatingUSD": {"peggedUSD": 1.3e11, "peggedEUR": 1e8}},
+            {"date": "1704153600", "totalCirculatingUSD": {"peggedUSD": 1.31e11}},
+            {"date": "1704240000", "totalCirculatingUSD": {}}]
+    df = parse_llama(rows)
+    assert list(df.index.strftime("%Y-%m-%d")) == ["2024-01-01", "2024-01-02"]
+    assert df["supply_usd"].iloc[0] == 1.3e11 + 1e8

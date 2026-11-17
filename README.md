@@ -35,13 +35,13 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 
 ## The signal — and why we publish its track record
 
-The signal is a **risk regime** (`RISK_ON` / `RISK_OFF`) for BTC and ETH:
+The signal is a **risk regime** (`RISK_ON` / `RISK_OFF`) for BTC and ETH, built only from free, public data:
 
-- **Momentum:** trailing 30-day return > 0
-- **Stablecoin exchange flows:** 7-day net-inflow ratio of USDT + USDC to centralized exchanges, as a 90-day z-score (Dune `cex.flows`)
-- `RISK_ON` when momentum is positive and there is no heavy stablecoin outflow (`flow_z > -1`)
+- **Momentum:** trailing 30-day return > 0 (Binance daily closes)
+- **Stablecoin liquidity:** 7-day change in total stablecoin supply across all chains, as a 90-day z-score ([DefiLlama](https://defillama.com/stablecoins))
+- `RISK_ON` when momentum is positive and liquidity is not clearly contracting (`liquidity_z > -1`)
 
-The factor definitions come from earlier research ([crypto-onchain-factors](https://github.com/jiahaoc040-ai/crypto-onchain-factors)), which tested them honestly with a train/test split. Momentum's robust effect was **lower drawdown**; the stablecoin factor **broke in early 2023**. That is exactly why VeriFlow anchors every signal on-chain: buyers should judge a signal by its verifiable live record, not by a backtest.
+The design comes from earlier research ([crypto-onchain-factors](https://github.com/jiahaoc040-ai/crypto-onchain-factors)), tested with a train/test split. Momentum's robust out-of-sample effect was **lower drawdown**. An exchange-flow stablecoin factor **broke in early 2023**, possibly because the EVM-only exchange data could not see USDT on Tron; total supply covers every chain. That history is exactly why VeriFlow anchors every signal on-chain: buyers should judge a signal by its verifiable live record, not by a backtest.
 
 *Not investment advice.*
 
@@ -53,13 +53,12 @@ Each signal is serialized to canonical JSON (sorted keys) including a random `no
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env        # fill in DUNE_API_KEY and DUNE_QUERY_ID
-pytest -q                   # offline tests, no API keys needed
+python -m pytest -q          # offline tests
 python scripts/run_signal.py BTC
 uvicorn veriflow.api:app --reload    # http://127.0.0.1:8000/docs
 ```
 
-`DUNE_QUERY_ID`: save [`sql/03_stablecoin_cex_flows.sql`](sql/03_stablecoin_cex_flows.sql) as a query on dune.com and use the number in its URL.
+No API keys are needed for the signal: prices come from Binance and stablecoin supply from DefiLlama.
 
 ## API
 

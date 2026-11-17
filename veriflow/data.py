@@ -1,56 +1,42 @@
 """
-資料來源
---------
-- 穩定幣交易所流量：Dune API（query = sql/03_stablecoin_cex_flows.sql）
-- 價格：Binance 日 K（ccxt，免 API key）
+資料來源（全部免費、不需要 API key）
+-----------------------------------
+- 穩定幣總供給：DefiLlama Stablecoins API（所有鏈，含 Tron 上的 USDT）
+- 價格：Binance 日 K（ccxt）
 
-需要的環境變數（放在 .env）：
-  DUNE_API_KEY   你的 Dune API key（dune.com → Settings → API）
-  DUNE_QUERY_ID  把 sql/03 存成 Dune query 後，網址列上的數字
+為什麼不用 Dune：Dune 免費方案已改為「僅瀏覽」，不能用 API，
+而產品要能每天自動更新，所以改用免費、公開的 DefiLlama。
 """
 
 from __future__ import annotations
-
-import os
 
 import httpx
 import pandas as pd
 from dotenv import load_dotenv
 
-load_dotenv()  # 自動讀取專案資料夾裡的 .env
+load_dotenv()  # 自動讀取專案資料夾裡的 .env（之後放 Concordium 等設定）
 
-DUNE_BASE = "https://api.dune.com/api/v1"
+LLAMA_STABLES = "https://stablecoins.llama.fi/stablecoincharts/all"
 SYMBOLS = {"BTC": "BTC/USDT", "ETH": "ETH/USDT"}
 
 
-def fetch_flows(query_id: str | None = None, api_key: str | None = None) -> pd.DataFrame:
-    """抓 Dune query 最近一次執行的結果（不重新執行，省額度）"""
-    query_id = query_id or os.environ["DUNE_QUERY_ID"]
-    api_key = api_key or os.environ["DUNE_API_KEY"]
-    r = httpx.get(
-        f"{DUNE_BASE}/query/{query_id}/results",
-        headers={"X-Dune-API-Key": api_key},
-        params={"limit": 5000},
-        timeout=60,
-    )
-    r.raise_for_status()
-    rows = r.json()["result"]["rows"]
-    df = pd.DataFrame(rows)
-    df["day"] = pd.to_datetime(df["day"]).dt.tz_localize(None).dt.normalize()
-    return df.set_index("day")[["inflow_usd", "outflow_usd"]].astype(float).sort_index()
+def parse_llama(rows: list[dict]) -> pd.DataFrame:
+    """把 DefiLlama 回傳的每日資料轉成 DataFrame(supply_usd)，index = 日期"""
+    out = []
+    for r in rows:
+        usd = r.get("totalCirculatingUSD") or {}
+        total = sum(v for v in usd.values() if isinstance(v, (int, float)))
+        if total > 0:
+            out.append((pd.to_datetime(int(r["date"]), unit="s").normalize(), float(total)))
+    df = pd.DataFrame(out, columns=["day", "supply_usd"]).drop_duplicates("day", keep="last")
+    return df.set_index("day").sort_index()
 
 
-def refresh_flows(query_id: str | None = None, api_key: str | None = None) -> str:
-    """讓 Dune 重新執行 query（每天一次就夠，會花額度），回傳 execution_id"""
-    query_id = query_id or os.environ["DUNE_QUERY_ID"]
-    api_key = api_key or os.environ["DUNE_API_KEY"]
-    r = httpx.post(
-        f"{DUNE_BASE}/query/{query_id}/execute",
-        headers={"X-Dune-API-Key": api_key},
-        timeout=60,
-    )
+def fetch_supply() -> pd.DataFrame:
+    """所有穩定幣的每日總流通量（美元計）"""
+    r = httpx.get(LLAMA_STABLES, timeout=60)
     r.raise_for_status()
-    return r.json()["execution_id"]
+    return parse_llama(r.json())
 
 
 def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:

@@ -20,7 +20,7 @@ from functools import lru_cache
 
 from fastapi import FastAPI, Header, HTTPException
 
-from .data import SYMBOLS, fetch_flows, fetch_prices
+from .data import SYMBOLS, fetch_supply, fetch_prices
 from .ledger import Ledger
 from .signal import build_factors, latest_signal
 
@@ -35,8 +35,8 @@ def _prices(asset: str):
 
 
 @lru_cache(maxsize=1)
-def _flows():
-    return fetch_flows()
+def _supply():
+    return fetch_supply()
 
 
 @app.get("/health")
@@ -51,7 +51,7 @@ def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)
         raise HTTPException(404, f"不支援的資產：{asset}，可用：{list(SYMBOLS)}")
     if GATEWAY_SECRET and x_veriflow_gateway != GATEWAY_SECRET:
         raise HTTPException(402, "Payment required：請透過 x402 付款關卡取得訊號")
-    s = latest_signal(asset, build_factors(_flows(), _prices(asset)))
+    s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
     commitment = ledger.record(s)
     return {"signal": s.__dict__, "canonical": s.canonical(), "commitment": commitment}
 
