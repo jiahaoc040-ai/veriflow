@@ -16,7 +16,8 @@ import express from "express";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
-import { NETWORK, env } from "./config.js";
+import { GATEWAY_DIR, NETWORK, env } from "./config.js";
+import { resolve } from "node:path";
 import { createAnchorer } from "./anchor.js";
 import { EligibilityService, EligibilityStore, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
@@ -29,7 +30,7 @@ const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 
 const eligibility = new EligibilityService(
   { minAge: MIN_AGE, restrictedCountries: parseCountries(process.env.RESTRICTED_COUNTRIES) },
-  new EligibilityStore(env("ELIGIBILITY_FILE", "data/eligibility.json")),
+  new EligibilityStore(resolve(GATEWAY_DIR, env("ELIGIBILITY_FILE", "data/eligibility.json"))),
   concordiumChain(),
 );
 const REQUIRE_ELIGIBILITY = env("REQUIRE_ELIGIBILITY", "true") !== "false";

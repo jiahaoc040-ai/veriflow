@@ -30,7 +30,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
 | Verify & Access buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted; unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
 | Agent Registry + badge | ⏳ |
-| MCP server | ⏳ |
+| MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility` |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
 
 ## The signal — and why we publish its track record
@@ -99,6 +99,35 @@ At payment time an x402 `onBeforeVerify` hook checks the payment's `sender`. An 
 ```bash
 cd gateway && npm test      # eligibility rules: replay, wrong account, weaker statement, expiry, …
 ```
+
+## MCP server — let any agent buy and verify
+
+```bash
+cd gateway && npm run mcp      # stdio MCP server
+```
+
+| Tool | What it does |
+|---|---|
+| `get_signal` | Pays ~1 CCD over x402 from `BUYER_KEY_FILE` (refuses more than `MAX_PAY_MICROCCD`) and returns the signal, its commitment and the anchor transaction |
+| `get_track_record` | Hit rate of matured signals (free) |
+| `list_commitments` | Every commitment with its Concordium transaction (free) |
+| `verify_signal` | Reads the anchor back from Concordium; with the `canonical` string, also checks the content hash |
+| `check_eligibility` | Has this account passed the ZK eligibility check? Returns the `/verify` link if not |
+
+Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "veriflow": {
+      "command": "/ABSOLUTE/PATH/veriflow/gateway/node_modules/.bin/tsx",
+      "args": ["/ABSOLUTE/PATH/veriflow/gateway/src/mcp.ts"]
+    }
+  }
+}
+```
+
+The server reads `gateway/.env` itself, so it works from any working directory. The gateway, facilitator and Python API must be running.
 
 ## API
 

@@ -19,7 +19,8 @@ import { Transaction } from "@concordium/web-sdk/transactions";
 import { getConcordiumGrpcUrl, parseGrpcUrl } from "@x402/concordium";
 import { NETWORK, loadAccount } from "./config.js";
 
-export const ANCHOR_PREFIX = "veriflow:v1:";
+import { ANCHOR_PREFIX } from "./anchor-format.js";
+export { ANCHOR_PREFIX };
 
 export function anchorPayload(commitment: string): ArrayBuffer {
   if (!/^[0-9a-f]{64}$/.test(commitment)) throw new Error(`commitment 格式錯誤：${commitment}`);

@@ -7,45 +7,15 @@
  *
  * 執行：npm run buyer -- BTC
  */
-import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
-import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
-import { getExplorerTxUrl } from "@x402/concordium";
-import { NETWORK, env, loadAccount } from "./config.js";
+import { createBuyerAgent } from "./agent.js";
 
 const asset = (process.argv[2] ?? "BTC").toUpperCase();
-const buyer = loadAccount(env("BUYER_KEY_FILE"));
-const gateway = env("GATEWAY_URL", "http://localhost:4020");
+const agent = createBuyerAgent();
 
-// Agent 花費護欄：只允許付 Concordium testnet 的 CCD，且單次最多 MAX_PAY_MICROCCD（預設 2 CCD）
-// 賣方如果要求更多錢或別種資產，買方 Agent 會拒絕付款。
-const MAX_PAY_MICROCCD = env("MAX_PAY_MICROCCD", "2000000");
-const client = x402Client.fromConfig({
-  schemes: [
-    {
-      network: NETWORK,
-      client: new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }),
-    },
-  ],
-  spendControls: {
-    allowedAssets: [{ network: NETWORK, asset: "CCD", maxAmountPerPayment: MAX_PAY_MICROCCD }],
-  },
-});
-const fetchWithPay = wrapFetchWithPayment(fetch, client);
-
-console.log(`buyer ${buyer.address} → ${gateway}/signal/${asset}`);
-const res = await fetchWithPay(`${gateway}/signal/${asset}`);
-console.log("status:", res.status);
-const text = await res.text();
-let body: unknown = text;
-try { body = JSON.parse(text); } catch { /* 非 JSON 就印原文 */ }
-console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
-if (!res.ok && text.includes("buyer_proof_required")) {
-  console.log(`\n這個帳號還沒通過資格驗證。用 Concordium 錢包開：${gateway}/verify?account=${buyer.address}`);
-}
-
-const header = res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
-if (header) {
-  const settlement = decodePaymentResponseHeader(header);
-  console.log("payment:", JSON.stringify(settlement));
-  if (settlement.transaction) console.log("explorer:", getExplorerTxUrl(NETWORK, settlement.transaction));
-}
+console.log(`buyer ${agent.address} → ${agent.gateway}/signal/${asset}`);
+const r = await agent.buySignal(asset);
+console.log("status:", r.status);
+console.log(typeof r.body === "string" ? r.body : JSON.stringify(r.body, null, 2));
+if (r.payment) console.log("payment:", JSON.stringify(r.payment));
+if (r.paymentExplorer) console.log("explorer:", r.paymentExplorer);
+if (r.needsVerification) console.log(`\n這個帳號還沒通過資格驗證。用 Concordium 錢包開：${r.verifyUrl}`);
