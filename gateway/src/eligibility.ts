@@ -41,6 +41,26 @@ export const MIN_AGE = 18;
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 分鐘內要完成證明
 export const ELIGIBILITY_TTL_MS = 30 * 24 * 3600 * 1000; // 驗證一次有效 30 天
 
+/**
+ * x402 Concordium 付款裡的付款人帳號。
+ * payload = { signedTransaction: { header: { sender }, signatures: { sender: … } } }
+ * sender 由買方的金鑰簽名，facilitator 會驗簽，所以不能冒用別人的地址。
+ */
+export function payerOf(payload: unknown): string | undefined {
+  const p = payload as { signedTransaction?: { header?: { sender?: unknown } } } | undefined;
+  const s = p?.signedTransaction?.header?.sender;
+  return typeof s === "string" ? s : undefined;
+}
+
+/** 鏈上查詢最多等這麼久，避免頁面一直卡在「Verifying…」 */
+export const CHAIN_TIMEOUT_MS = 30_000;
+function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${what} 逾時（${CHAIN_TIMEOUT_MS / 1000} 秒），請再試一次`)), CHAIN_TIMEOUT_MS)),
+  ]);
+}
+
 export type Policy = { minAge: number; restrictedCountries: string[] };
 
 export function parseCountries(s: string | undefined): string[] {
@@ -207,7 +227,7 @@ export class EligibilityService {
     const presentation = VerifiablePresentation.fromString(presentationJson);
     if (presentation.verifiableCredential.length !== 1) throw new Error("只接受一個 credential 的證明");
 
-    const request = await this.chain.verify(presentation);
+    const request = await withTimeout(this.chain.verify(presentation), "Concordium 節點驗證證明");
     if (request.challenge !== challenge) throw new Error("證明綁定的 challenge 不對（可能是重放別人的證明）");
 
     const want = (c.statements[0] as { statement: Atomic[] }).statement;
@@ -220,7 +240,7 @@ export class EligibilityService {
     if (!(await this.chain.identityProviders()).includes(issuer)) throw new Error(`身份提供者 ${issuer} 不在鏈上名單`);
 
     const credId = credIdFromDid(vc.credentialSubject.id);
-    const owner = await this.chain.accountOfCredential(credId);
+    const owner = await withTimeout(this.chain.accountOfCredential(credId), "查詢 credential 所屬帳號");
     if (owner !== c.account) throw new Error(`這個證明屬於帳號 ${owner}，不是 ${c.account}`);
 
     return this.store.grant({ account: c.account, credId, issuer, policy: this.policyId });

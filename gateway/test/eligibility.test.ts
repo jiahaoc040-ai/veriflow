@@ -12,6 +12,7 @@ import {
   credIdFromDid,
   idpFromDid,
   parseCountries,
+  payerOf,
   statementGap,
   type Chain,
 } from "../src/eligibility.ts";
@@ -129,4 +130,10 @@ test("helpers", () => {
   assert.equal(idpFromDid("did:ccd:testnet:idp:3"), 3);
   assert.throws(() => credIdFromDid("did:ccd:testnet:idp:3"));
   assert.equal(statementGap([], []), null);
+});
+
+test("payer is read from the signed x402 Concordium transaction", () => {
+  assert.equal(payerOf({ signedTransaction: { header: { sender: BUYER } } }), BUYER);
+  assert.equal(payerOf({ header: { sender: BUYER } }), undefined);
+  assert.equal(payerOf(undefined), undefined);
 });

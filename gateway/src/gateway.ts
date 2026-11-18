@@ -18,7 +18,7 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
 import { NETWORK, env } from "./config.js";
 import { createAnchorer } from "./anchor.js";
-import { EligibilityService, EligibilityStore, MIN_AGE, concordiumChain, parseCountries } from "./eligibility.js";
+import { EligibilityService, EligibilityStore, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
 const GATEWAY_SECRET = env("GATEWAY_SECRET");
@@ -41,7 +41,7 @@ const resourceServer = new x402ResourceServer(
   // 付款交易送去結算之前：sender 沒通過資格驗證 → 拒絕（交易不會上鏈，買方不會被扣款）
   .onBeforeVerify(async ({ paymentPayload }) => {
     if (!REQUIRE_ELIGIBILITY) return;
-    const sender = (paymentPayload.payload as { header?: { sender?: string } })?.header?.sender;
+    const sender = payerOf(paymentPayload.payload);
     if (!sender || !eligibility.status(sender)) {
       console.log(`refused unverified buyer ${sender}`);
       return {
