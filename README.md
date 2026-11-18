@@ -27,7 +27,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Signal API (`veriflow/api.py`) | ✅ works, tested; returns 402 without gateway |
 | Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
 | On-chain anchoring | ⏳ next |
-| x402 gateway (TypeScript) | ⏳ |
+| x402 gateway + self-hosted facilitator (`gateway/`) | ✅ returns 402 with Concordium payment requirements; end-to-end testnet payment ⏳ |
 | Verify & Access | ⏳ |
 | Agent Registry + badge | ⏳ |
 | MCP server | ⏳ |
@@ -59,6 +59,24 @@ uvicorn veriflow.api:app --reload    # http://127.0.0.1:8000/docs
 ```
 
 No API keys are needed for the signal: prices come from Binance and stablecoin supply from DefiLlama.
+
+## x402 payment gateway (`gateway/`)
+
+No public Concordium x402 facilitator was available, so VeriFlow runs its own with the official `@x402/concordium` package. The facilitator sponsors the transaction fee, so a buyer agent only needs the signal price in CCD.
+
+```
+buyer agent ──GET /signal/BTC──▶ gateway :4020 ──402 + requirements──▶ buyer
+buyer signs a sponsored CCD transfer ──▶ gateway ──verify/settle──▶ facilitator :4021 ──▶ Concordium testnet
+paid ──▶ gateway ──X-VeriFlow-Gateway secret──▶ Python API :8000 ──▶ signal
+```
+
+```bash
+cd gateway && npm install
+cp .env.example .env                 # fill in key files, SELLER_ADDRESS, GATEWAY_SECRET
+npm run facilitator                  # terminal 1
+npm run gateway                      # terminal 2 (Python API running on :8000 with the same GATEWAY_SECRET)
+npm run buyer -- BTC                 # terminal 3: pays 1 CCD and prints the signal + explorer link
+```
 
 ## API
 

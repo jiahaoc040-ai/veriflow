@@ -1,0 +1,27 @@
+{
+  "name": "veriflow-gateway",
+  "private": true,
+  "type": "module",
+  "description": "x402 payment gateway (Concordium) in front of the VeriFlow Python API",
+  "scripts": {
+    "facilitator": "tsx src/facilitator.ts",
+    "gateway": "tsx src/gateway.ts",
+    "buyer": "tsx src/buyer.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@concordium/web-sdk": "^12.0.2",
+    "@x402/concordium": "^2.31.0",
+    "@x402/core": "^2.31.0",
+    "@x402/express": "^2.31.0",
+    "@x402/fetch": "^2.31.0",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
