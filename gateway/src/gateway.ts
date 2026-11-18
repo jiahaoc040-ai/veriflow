@@ -90,6 +90,17 @@ app.get("/signal/:asset", async (req, res) => {
 });
 app.get("/track-record", (_req, res) => forward("/track-record", res, false));
 app.get("/commitments", (_req, res) => forward("/commitments", res, false));
+app.get("/commitments/:c", (req, res) => forward(`/commitments/${encodeURIComponent(req.params.c)}`, res, false));
+
+// 公開：從 Concordium 讀回上鏈的承諾（給儀表板的「一鍵驗證」用）
+app.get("/onchain/:tx", async (req, res) => {
+  if (!/^[0-9a-f]{64}$/.test(req.params.tx)) return res.status(400).json({ error: "tx 格式錯誤" });
+  try {
+    res.json(await anchorer.read(req.params.tx));
+  } catch (e) {
+    res.status(502).json({ error: `Concordium node error: ${String(e)}` });
+  }
+});
 app.get("/health", (_req, res) => forward("/health", res, false));
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));

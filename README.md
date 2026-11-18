@@ -31,7 +31,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Verify & Access | ⏳ |
 | Agent Registry + badge | ⏳ |
 | MCP server | ⏳ |
-| Dashboard | ⏳ |
+| Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
 
 ## The signal — and why we publish its track record
 
@@ -59,6 +59,10 @@ uvicorn veriflow.api:app --reload    # http://127.0.0.1:8000/docs
 ```
 
 No API keys are needed for the signal: prices come from Binance and stablecoin supply from DefiLlama.
+
+## Verify it yourself
+
+`streamlit run dashboard.py` shows every commitment with a **one-click verify** button. It reads the transaction back from Concordium, decodes `veriflow:v1:<hash>`, and checks it against the commitment. A buyer can paste the `canonical` signal they received; change a single character and verification fails.
 
 ## Agent guardrails
 
