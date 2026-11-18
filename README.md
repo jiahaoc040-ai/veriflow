@@ -26,8 +26,8 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Signal engine (`veriflow/signal.py`) | ✅ works, tested |
 | Signal API (`veriflow/api.py`) | ✅ works, tested; returns 402 without gateway |
 | Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
-| On-chain anchoring | ⏳ next |
-| x402 gateway + self-hosted facilitator (`gateway/`) | ✅ returns 402 with Concordium payment requirements; end-to-end testnet payment ⏳ |
+| On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
+| x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
 | Verify & Access | ⏳ |
 | Agent Registry + badge | ⏳ |
 | MCP server | ⏳ |
@@ -60,6 +60,10 @@ uvicorn veriflow.api:app --reload    # http://127.0.0.1:8000/docs
 
 No API keys are needed for the signal: prices come from Binance and stablecoin supply from DefiLlama.
 
+## Agent guardrails
+
+The demo buyer agent only pays in testnet CCD and refuses any single payment above `MAX_PAY_MICROCCD` (default 2 CCD), using x402 client spend controls. A seller that raises its price or switches asset cannot drain the buyer.
+
 ## x402 payment gateway (`gateway/`)
 
 No public Concordium x402 facilitator was available, so VeriFlow runs its own with the official `@x402/concordium` package. The facilitator sponsors the transaction fee, so a buyer agent only needs the signal price in CCD.
@@ -85,4 +89,5 @@ npm run buyer -- BTC                 # terminal 3: pays 1 CCD and prints the sig
 | GET | `/signal/{asset}` | paid (x402 gateway) |
 | GET | `/track-record` | public |
 | GET | `/commitments` | public |
+| GET | `/commitments/{c}` | public; reveals the full signal after the 7-day horizon |
 | GET | `/health` | public |

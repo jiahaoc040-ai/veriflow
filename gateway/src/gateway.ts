@@ -14,6 +14,7 @@ import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
 import { NETWORK, env } from "./config.js";
+import { createAnchorer } from "./anchor.js";
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
 const GATEWAY_SECRET = env("GATEWAY_SECRET");
@@ -57,12 +58,41 @@ async function forward(path: string, res: express.Response, paid: boolean) {
   }
 }
 
-app.get("/signal/:asset", (req, res) => forward(`/signal/${encodeURIComponent(req.params.asset)}`, res, true));
+// 付款成功 → 向 Python API 拿訊號 → 把承諾雜湊寫上鏈 → 通知 API 記下交易 hash → 回傳給買方
+const anchorer = createAnchorer(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE")));
+
+app.get("/signal/:asset", async (req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/signal/${encodeURIComponent(req.params.asset)}`, {
+      headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET },
+    });
+    const body = await r.json();
+    if (!r.ok) return res.status(r.status).json(body);
+
+    try {
+      const tx = await anchorer.anchor(body.commitment);
+      await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
+        method: "POST",
+        headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
+        body: JSON.stringify({ anchor_tx: tx }),
+      });
+      body.anchor_tx = tx;
+      console.log(`anchored ${body.commitment.slice(0, 12)}… → ${tx}`);
+    } catch (e) {
+      // 上鏈失敗不擋買方拿訊號，但要標示出來
+      body.anchor_error = String(e);
+      console.error("anchor failed:", e);
+    }
+    res.json(body);
+  } catch (e) {
+    res.status(502).json({ error: `VeriFlow API unreachable: ${String(e)}` });
+  }
+});
 app.get("/track-record", (_req, res) => forward("/track-record", res, false));
 app.get("/commitments", (_req, res) => forward("/commitments", res, false));
 app.get("/health", (_req, res) => forward("/health", res, false));
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
 app.listen(PORT, () => {
-  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD`);
+  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address}`);
 });

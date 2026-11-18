@@ -52,6 +52,13 @@ class Ledger:
         self.conn.execute("UPDATE signals SET anchor_tx=? WHERE commitment=?", (tx_hash, commitment))
         self.conn.commit()
 
+    def get(self, commitment: str) -> dict | None:
+        cur = self.conn.execute("SELECT * FROM signals WHERE commitment=?", (commitment,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return dict(zip([c[0] for c in cur.description], row))
+
     def all(self) -> pd.DataFrame:
         return pd.read_sql("SELECT * FROM signals ORDER BY issued_at", self.conn)
 

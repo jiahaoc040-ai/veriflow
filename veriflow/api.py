@@ -8,6 +8,8 @@ VeriFlow 訊號 API（FastAPI）
   GET /signal/{asset}    取得最新訊號（之後由 x402 付款關卡保護）
   GET /track-record      命中率與所有已評分訊號（公開）
   GET /commitments       所有承諾雜湊與上鏈交易（公開）
+  GET /commitments/{c}   單一承諾；滿 7 天後揭露完整內容，任何人可重算雜湊（公開）
+  POST /commitments/{c}/anchor  付款關卡回報上鏈交易 hash（只接受關卡密鑰）
 
 付款保護：x402 關卡（TypeScript）驗證付款後，帶著 X-VeriFlow-Gateway 標頭轉發過來。
 API 只接受帶正確密鑰的請求，所以沒付款的人無法繞過關卡直接拿訊號。
@@ -18,10 +20,13 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel
 
 from .data import SYMBOLS, fetch_supply, fetch_prices
-from .ledger import Ledger
+from .ledger import HORIZON_DAYS, Ledger
 from .signal import build_factors, latest_signal
 
 app = FastAPI(title="VeriFlow", version="0.1.0")
@@ -64,3 +69,37 @@ def track_record():
 @app.get("/commitments")
 def commitments():
     return ledger.all()[["commitment", "asset", "as_of", "issued_at", "anchor_tx"]].to_dict("records")
+
+
+class Anchor(BaseModel):
+    anchor_tx: str
+
+
+def _require_gateway(secret: str | None):
+    if GATEWAY_SECRET and secret != GATEWAY_SECRET:
+        raise HTTPException(403, "只接受付款關卡的請求")
+
+
+@app.post("/commitments/{commitment}/anchor")
+def set_anchor(commitment: str, body: Anchor, x_veriflow_gateway: str | None = Header(default=None)):
+    _require_gateway(x_veriflow_gateway)
+    if not ledger.get(commitment):
+        raise HTTPException(404, "找不到這個承諾")
+    ledger.set_anchor(commitment, body.anchor_tx)
+    return {"ok": True}
+
+
+@app.get("/commitments/{commitment}")
+def get_commitment(commitment: str):
+    row = ledger.get(commitment)
+    if not row:
+        raise HTTPException(404, "找不到這個承諾")
+    matured = datetime.now(timezone.utc).date() >= (
+        datetime.fromisoformat(row["as_of"]).date() + timedelta(days=HORIZON_DAYS)
+    )
+    out = {k: row[k] for k in ("commitment", "asset", "as_of", "issued_at", "anchor_tx")}
+    out["revealed"] = matured
+    if matured:
+        # 揭露完整內容：sha256(canonical) 必須等於 commitment，且等於鏈上 veriflow:v1:<commitment>
+        out["canonical"] = row["canonical"]
+    return out
