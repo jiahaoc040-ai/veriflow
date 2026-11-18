@@ -28,7 +28,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
 | On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
-| Verify & Access buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted; unverified accounts are refused before payment settles (10 rule tests) |
+| Verify & Access buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted; unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
 | Agent Registry + badge | ⏳ |
 | MCP server | ⏳ |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
