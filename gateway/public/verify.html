@@ -83,6 +83,7 @@
   $("connect").onclick = async () => {
     try {
       const w = await wallet();
+      setResult("Waiting for the wallet to approve this site (small Concordium window)…");
       const acct = w.connect ? await w.connect() : (await w.requestAccounts())[0];
       if (acct) $("account").value = acct;
       await refreshStatus();
@@ -95,6 +96,7 @@
     $("prove").disabled = true;
     try {
       const w = await wallet();
+      log("0/3 Waiting for the wallet to approve this site (a small Concordium window opens — check Chrome menu 視窗/Window if you don't see it)…");
       if (w.connect) await w.connect();
       log("1/3 Asking VeriFlow for a one-time challenge…");
       const { challenge, statements } = await post("/eligibility/challenge", { account });
