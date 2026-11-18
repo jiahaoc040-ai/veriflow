@@ -28,7 +28,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
 | On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
-| Verify & Access buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted; unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
+| Verify & Access V1 buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted, request and audit anchored on-chain (VRA/VAA); unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
 | Agent Registry + badge | ⏳ |
 | MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility` |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
@@ -86,18 +86,27 @@ npm run gateway                      # terminal 2 (Python API running on :8000 w
 npm run buyer -- BTC                 # terminal 3: pays 1 CCD and prints the signal + explorer link
 ```
 
-## Buyer eligibility (Verify & Access)
+## Buyer eligibility (Verify & Access V1)
 
-Before an agent can buy, the person behind its paying account proves once, in the Concordium Browser Wallet, that they are **18+** and **not resident in a restricted country** (`RESTRICTED_COUNTRIES`, default `US,KP,IR,CU,SY`). VeriFlow never sees the birthday or country, only a zero-knowledge proof that the conditions hold.
+Before an agent can buy, the person behind its paying account proves once, in the Concordium Wallet, that they are **18+** and **not resident in a restricted country** (`RESTRICTED_COUNTRIES`, default `US,KP,IR,CU,SY`). VeriFlow never sees the birthday or country, only a zero-knowledge proof that the conditions hold.
 
-1. Open `http://localhost:4020/verify?account=<agent account>` and click **Prove eligibility**.
-2. The gateway checks: the proof verifies against on-chain identity data; it is bound to a one-time challenge (no replay); the proven statements are at least as strict as the policy; the issuer is an on-chain identity provider; and the credential belongs to that exact account.
-3. The account is allowlisted for 30 days. Changing the policy invalidates old verifications.
+VeriFlow uses Concordium's official **Verify & Access V1** protocol, so every verification leaves two public, privacy-preserving records on-chain:
 
-At payment time an x402 `onBeforeVerify` hook checks the payment's `sender`. An unverified account gets `buyer_proof_required` and a link to `/verify`; its signed transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
+```
+/verify page ──POST /eligibility/challenge──▶ gateway
+   gateway builds the request (age ≥ 18, country ∉ list, one-time nonce, bound to the buyer account)
+   and anchors its hash on Concordium ──▶ VRA (Verification Request Anchor), waits for finality
+wallet ──requestVerifiablePresentationV1(request)──▶ ZK proof against the anchored request
+page ──POST /eligibility/verify──▶ gateway
+   cheap checks first: one account credential · statements at least as strict · on-chain IdP · credential belongs to the buyer account
+   official SDK check (VerificationAuditRecordV1.createChecked): context matches, proof valid, credential active, request anchored
+   pass ──▶ audit record hash anchored ──▶ VAA (Verification Audit Anchor) ──▶ account allowlisted for 30 days
+```
+
+At payment time an x402 `onBeforeVerify` hook reads the payer from the signed transaction (`signedTransaction.header.sender`). An unverified account gets `buyer_proof_required` and a link to `/verify`; its transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
 
 ```bash
-cd gateway && npm test      # eligibility rules: replay, wrong account, weaker statement, expiry, …
+cd gateway && npm test      # 15 rule tests: replay, wrong account, identity-only credential, weaker statement, expiry, policy change, payer lookup, …
 ```
 
 ## MCP server — let any agent buy and verify

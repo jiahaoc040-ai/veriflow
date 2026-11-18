@@ -31,7 +31,9 @@ const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 const eligibility = new EligibilityService(
   { minAge: MIN_AGE, restrictedCountries: parseCountries(process.env.RESTRICTED_COUNTRIES) },
   new EligibilityStore(resolve(GATEWAY_DIR, env("ELIGIBILITY_FILE", "data/eligibility.json"))),
-  concordiumChain(),
+  // 驗證請求（VRA）與稽核紀錄（VAA）由上鏈帳號付手續費寫上鏈
+  concordiumChain(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE"))),
+  PUBLIC_URL,
 );
 const REQUIRE_ELIGIBILITY = env("REQUIRE_ELIGIBILITY", "true") !== "false";
 
@@ -147,18 +149,21 @@ app.get("/verify", (_req, res) => res.sendFile(verifyPage.pathname));
 
 app.post("/eligibility/challenge", async (req, res) => {
   try {
-    res.json(await eligibility.challenge(String(req.body?.account ?? "")));
+    const r = await eligibility.challenge(String(req.body?.account ?? ""));
+    console.log(`verification request anchored (VRA) ${r.requestAnchorTx}`);
+    res.json(r);
   } catch (e) {
+    console.error("challenge failed:", e);
     res.status(400).json({ error: String(e instanceof Error ? e.message : e) });
   }
 });
 
 app.post("/eligibility/verify", async (req, res) => {
-  const { challenge, presentation } = req.body ?? {};
+  const { id, presentation } = req.body ?? {};
   try {
     const json = typeof presentation === "string" ? presentation : JSON.stringify(presentation);
-    const rec = await eligibility.verify(String(challenge), json);
-    console.log(`eligible: ${rec.account} (idp ${rec.issuer})`);
+    const rec = await eligibility.verify(String(id), json);
+    console.log(`eligible: ${rec.account} (idp ${rec.issuer})  VRA ${rec.requestAnchorTx}  VAA ${rec.auditAnchorTx}`);
     res.json({ eligible: true, ...rec });
   } catch (e) {
     console.log("eligibility refused:", e instanceof Error ? e.message : e);

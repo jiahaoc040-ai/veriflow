@@ -25,6 +25,7 @@
   .result { font-weight:600; margin:0 0 8px; }
   .ok { color:var(--ok); } .bad { color:var(--bad); }
   code { font:12px ui-monospace,monospace; }
+  .links { font-size:13px; margin:0 0 8px; } .links a { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -50,6 +51,7 @@
   <div class="card">
     <h2>Result</h2>
     <p id="result" class="result">Not verified yet.</p>
+    <p id="links" class="links"></p>
     <pre id="log"></pre>
   </div>
 </main>
@@ -77,7 +79,10 @@
     const s = await (await fetch("/eligibility/" + encodeURIComponent(a || "-"))).json();
     const p = s.policy;
     $("policy").innerHTML = `<li>Age ≥ ${p.minAge}</li><li>Country of residence is not ${p.restrictedCountries.join(", ")}</li>`;
-    if (a && s.eligible) setResult(`✅ ${a.slice(0, 8)}… is verified until ${s.expiresAt.slice(0, 10)}`, "ok");
+    if (a && s.eligible) {
+      setResult(`✅ ${a.slice(0, 8)}… is verified until ${s.expiresAt.slice(0, 10)}`, "ok");
+      if (s.auditAnchorTx) $("links").innerHTML = txLink("Request anchor (VRA)", s.requestAnchorTx) + "<br>" + txLink("Audit anchor (VAA)", s.auditAnchorTx);
+    }
   }
 
   $("connect").onclick = async () => {
@@ -90,24 +95,32 @@
     } catch (e) { setResult("❌ " + e.message, "bad"); }
   };
 
+  const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
+  const txLink = (label, tx) => `<a href="${EXPLORER}${tx}" target="_blank" rel="noopener">${label} ${tx.slice(0, 10)}…</a>`;
+
   $("prove").onclick = async () => {
     const account = $("account").value.trim();
     $("log").textContent = "";
+    $("links").innerHTML = "";
     $("prove").disabled = true;
     try {
       const w = await wallet();
-      log("0/3 Waiting for the wallet to approve this site (a small Concordium window opens — check Chrome menu 視窗/Window if you don't see it)…");
+      if (!w.requestVerifiablePresentationV1) throw new Error("Please update the Concordium Wallet (needs Verify & Access V1 support).");
+      log("0/4 Waiting for the wallet to approve this site (a small Concordium window opens — check Chrome menu 視窗/Window if you don't see it)…");
       if (w.connect) await w.connect();
-      log("1/3 Asking VeriFlow for a one-time challenge…");
-      const { challenge, statements } = await post("/eligibility/challenge", { account });
-      log("2/3 Approve the proof request in your wallet (choose the identity behind " + account.slice(0, 8) + "…)");
-      const vp = await w.requestVerifiablePresentation(challenge, statements);
-      const presentation = typeof vp === "string" ? vp
-        : (vp && vp.toString !== Object.prototype.toString ? vp.toString() : JSON.stringify(vp));
-      log("3/3 Verifying the zero-knowledge proof against Concordium…");
-      const r = await post("/eligibility/verify", { challenge, presentation });
+      log("1/4 VeriFlow is anchoring a one-time verification request on Concordium (~10 s)…");
+      setResult("Anchoring the verification request on-chain…");
+      const { id, request, requestAnchorTx } = await post("/eligibility/challenge", { account });
+      $("links").innerHTML = txLink("Request anchor (VRA)", requestAnchorTx);
+      log("2/4 Approve the proof request in your wallet — choose the account " + account.slice(0, 8) + "… (not another one)");
+      setResult("Waiting for your approval in the wallet…");
+      const vp = await w.requestVerifiablePresentationV1(request);
+      log("3/4 Checking the zero-knowledge proof against Concordium and anchoring the audit record (~10 s)…");
+      setResult("Verifying…");
+      const r = await post("/eligibility/verify", { id, presentation: JSON.stringify(vp) });
+      log(`4/4 identity provider #${r.issuer}, credential ${r.credId.slice(0, 16)}…`);
       setResult(`✅ Eligible. ${account.slice(0, 8)}… can now buy signals (until ${r.expiresAt.slice(0, 10)}).`, "ok");
-      log(`identity provider #${r.issuer}, credential ${r.credId.slice(0, 16)}…`);
+      $("links").innerHTML = txLink("Request anchor (VRA)", r.requestAnchorTx) + "<br>" + txLink("Audit anchor (VAA)", r.auditAnchorTx);
     } catch (e) {
       setResult("❌ Not eligible: " + (e.message || e), "bad");
     } finally {
