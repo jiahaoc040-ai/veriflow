@@ -40,3 +40,10 @@ def test_anchor_and_reveal(tmp_path, monkeypatch):
     got = c.get(f"/commitments/{cm}").json()
     assert got["anchor_tx"] == "ab" * 32 and got["revealed"] is True
     assert verify_commitment(got["canonical"], cm)
+
+
+def test_commitments_with_unanchored_signal(tmp_path, monkeypatch):
+    _, c = make_client(tmp_path, monkeypatch)
+    c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"})   # 沒有上鏈紀錄
+    r = c.get("/commitments")
+    assert r.status_code == 200 and r.json()[0]["anchor_tx"] is None

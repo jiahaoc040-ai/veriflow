@@ -68,7 +68,9 @@ def track_record():
 
 @app.get("/commitments")
 def commitments():
-    return ledger.all()[["commitment", "asset", "as_of", "issued_at", "anchor_tx"]].to_dict("records")
+    df = ledger.all()[["commitment", "asset", "as_of", "issued_at", "anchor_tx"]]
+    # 還沒上鏈的訊號 anchor_tx 是空值；pandas 會變成 NaN，JSON 不接受，要轉成 None
+    return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
 class Anchor(BaseModel):
