@@ -173,7 +173,8 @@ app.post("/eligibility/verify", async (req, res) => {
 
 app.get("/eligibility/:account", (req, res) => {
   const rec = eligibility.status(req.params.account);
-  res.json({ eligible: !!rec, policy: eligibility.describe(), ...(rec ?? {}) });
+  // policy 放最後：rec 裡也有 policy（指紋字串），不能讓它蓋掉完整的政策說明
+  res.json({ eligible: !!rec, ...(rec ?? {}), policyId: rec?.policy, policy: eligibility.describe() });
 });
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
