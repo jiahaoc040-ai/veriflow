@@ -16,10 +16,20 @@ const asset = (process.argv[2] ?? "BTC").toUpperCase();
 const buyer = loadAccount(env("BUYER_KEY_FILE"));
 const gateway = env("GATEWAY_URL", "http://localhost:4020");
 
-const client = new x402Client().register(
-  NETWORK,
-  new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }),
-);
+// Agent 花費護欄：只允許付 Concordium testnet 的 CCD，且單次最多 MAX_PAY_MICROCCD（預設 2 CCD）
+// 賣方如果要求更多錢或別種資產，買方 Agent 會拒絕付款。
+const MAX_PAY_MICROCCD = env("MAX_PAY_MICROCCD", "2000000");
+const client = x402Client.fromConfig({
+  schemes: [
+    {
+      network: NETWORK,
+      client: new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }),
+    },
+  ],
+  spendControls: {
+    allowedAssets: [{ network: NETWORK, asset: "CCD", maxAmountPerPayment: MAX_PAY_MICROCCD }],
+  },
+});
 const fetchWithPay = wrapFetchWithPayment(fetch, client);
 
 console.log(`buyer ${buyer.address} → ${gateway}/signal/${asset}`);
