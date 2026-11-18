@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeriFlow · Buyer verification</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1b1d1f; --muted:#6b7075; --line:#e3e3df; --accent:#1f6feb; --ok:#1a7f37; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111315; --card:#1a1d20; --ink:#e8e8e6; --muted:#9aa0a6; --line:#2c3035; --accent:#4c8dff; --ok:#3fb950; --bad:#f85149; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:620px; margin:48px auto; padding:0 16px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
+  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 12px; }
+  ul { margin:0; padding-left:20px; }
+  label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+  input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--ink); font:13px ui-monospace,monospace; }
+  .row { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  #log { font:12px/1.6 ui-monospace,monospace; white-space:pre-wrap; color:var(--muted); margin:0; }
+  .result { font-weight:600; margin:0 0 8px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  code { font:12px ui-monospace,monospace; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VeriFlow buyer verification</h1>
+  <p class="sub">Prove once, with a zero-knowledge proof from your Concordium wallet, that the account your agent pays from is held by an eligible person. VeriFlow learns only that the conditions hold — not your birthday, country or name.</p>
+
+  <div class="card">
+    <h2>You will prove</h2>
+    <ul id="policy"><li>Loading policy…</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>Agent's paying account</h2>
+    <label for="account">Concordium testnet address</label>
+    <input id="account" placeholder="4Vf4…" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <button id="connect" class="secondary">Use wallet's account</button>
+      <button id="prove">Prove eligibility</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Result</h2>
+    <p id="result" class="result">Not verified yet.</p>
+    <pre id="log"></pre>
+  </div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const log = (m) => { $("log").textContent += m + "\n"; };
+  const setResult = (text, cls) => { $("result").textContent = text; $("result").className = "result " + (cls || ""); };
+  $("account").value = new URLSearchParams(location.search).get("account") || "";
+
+  async function wallet() {
+    for (let i = 0; i < 20 && !window.concordium; i++) await new Promise((r) => setTimeout(r, 100));
+    if (!window.concordium) throw new Error("Concordium Browser Wallet not found. Install it and reload.");
+    return window.concordium;
+  }
+
+  async function post(path, body) {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    return j;
+  }
+
+  async function refreshStatus() {
+    const a = $("account").value.trim();
+    const s = await (await fetch("/eligibility/" + encodeURIComponent(a || "-"))).json();
+    const p = s.policy;
+    $("policy").innerHTML = `<li>Age ≥ ${p.minAge}</li><li>Country of residence is not ${p.restrictedCountries.join(", ")}</li>`;
+    if (a && s.eligible) setResult(`✅ ${a.slice(0, 8)}… is verified until ${s.expiresAt.slice(0, 10)}`, "ok");
+  }
+
+  $("connect").onclick = async () => {
+    try {
+      const w = await wallet();
+      const acct = w.connect ? await w.connect() : (await w.requestAccounts())[0];
+      if (acct) $("account").value = acct;
+      await refreshStatus();
+    } catch (e) { setResult("❌ " + e.message, "bad"); }
+  };
+
+  $("prove").onclick = async () => {
+    const account = $("account").value.trim();
+    $("log").textContent = "";
+    $("prove").disabled = true;
+    try {
+      const w = await wallet();
+      if (w.connect) await w.connect();
+      log("1/3 Asking VeriFlow for a one-time challenge…");
+      const { challenge, statements } = await post("/eligibility/challenge", { account });
+      log("2/3 Approve the proof request in your wallet (choose the identity behind " + account.slice(0, 8) + "…)");
+      const vp = await w.requestVerifiablePresentation(challenge, statements);
+      const presentation = typeof vp === "string" ? vp
+        : (vp && vp.toString !== Object.prototype.toString ? vp.toString() : JSON.stringify(vp));
+      log("3/3 Verifying the zero-knowledge proof against Concordium…");
+      const r = await post("/eligibility/verify", { challenge, presentation });
+      setResult(`✅ Eligible. ${account.slice(0, 8)}… can now buy signals (until ${r.expiresAt.slice(0, 10)}).`, "ok");
+      log(`identity provider #${r.issuer}, credential ${r.credId.slice(0, 16)}…`);
+    } catch (e) {
+      setResult("❌ Not eligible: " + (e.message || e), "bad");
+    } finally {
+      $("prove").disabled = false;
+    }
+  };
+
+  $("account").addEventListener("change", refreshStatus);
+  refreshStatus().catch((e) => log("status error: " + e.message));
+</script>
+</body>
+</html>

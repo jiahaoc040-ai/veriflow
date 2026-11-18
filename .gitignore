@@ -7,3 +7,4 @@ node_modules/
 gateway/keys/
 gateway/.env
 *.export
+gateway/data/

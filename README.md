@@ -28,7 +28,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
 | On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
-| Verify & Access | ⏳ |
+| Verify & Access buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted; unverified accounts are refused before payment settles (10 rule tests) |
 | Agent Registry + badge | ⏳ |
 | MCP server | ⏳ |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
@@ -86,6 +86,20 @@ npm run gateway                      # terminal 2 (Python API running on :8000 w
 npm run buyer -- BTC                 # terminal 3: pays 1 CCD and prints the signal + explorer link
 ```
 
+## Buyer eligibility (Verify & Access)
+
+Before an agent can buy, the person behind its paying account proves once, in the Concordium Browser Wallet, that they are **18+** and **not resident in a restricted country** (`RESTRICTED_COUNTRIES`, default `US,KP,IR,CU,SY`). VeriFlow never sees the birthday or country, only a zero-knowledge proof that the conditions hold.
+
+1. Open `http://localhost:4020/verify?account=<agent account>` and click **Prove eligibility**.
+2. The gateway checks: the proof verifies against on-chain identity data; it is bound to a one-time challenge (no replay); the proven statements are at least as strict as the policy; the issuer is an on-chain identity provider; and the credential belongs to that exact account.
+3. The account is allowlisted for 30 days. Changing the policy invalidates old verifications.
+
+At payment time an x402 `onBeforeVerify` hook checks the payment's `sender`. An unverified account gets `buyer_proof_required` and a link to `/verify`; its signed transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
+
+```bash
+cd gateway && npm test      # eligibility rules: replay, wrong account, weaker statement, expiry, …
+```
+
 ## API
 
 | Method | Path | Access |
@@ -94,4 +108,7 @@ npm run buyer -- BTC                 # terminal 3: pays 1 CCD and prints the sig
 | GET | `/track-record` | public |
 | GET | `/commitments` | public |
 | GET | `/commitments/{c}` | public; reveals the full signal after the 7-day horizon |
+| GET | `/verify` | public; wallet page for the ZK eligibility proof |
+| POST | `/eligibility/challenge`, `/eligibility/verify` | public |
+| GET | `/eligibility/{account}` | public; is this account allowed to buy? |
 | GET | `/health` | public |

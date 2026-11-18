@@ -35,7 +35,13 @@ const fetchWithPay = wrapFetchWithPayment(fetch, client);
 console.log(`buyer ${buyer.address} → ${gateway}/signal/${asset}`);
 const res = await fetchWithPay(`${gateway}/signal/${asset}`);
 console.log("status:", res.status);
-console.log(JSON.stringify(await res.json(), null, 2));
+const text = await res.text();
+let body: unknown = text;
+try { body = JSON.parse(text); } catch { /* 非 JSON 就印原文 */ }
+console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+if (!res.ok && text.includes("buyer_proof_required")) {
+  console.log(`\n這個帳號還沒通過資格驗證。用 Concordium 錢包開：${gateway}/verify?account=${buyer.address}`);
+}
 
 const header = res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
 if (header) {
