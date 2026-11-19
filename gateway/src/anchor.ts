@@ -6,7 +6,7 @@
  *
  * 只送出、不等最終確認（約 10 秒），避免拖慢買方拿訊號；交易 hash 會立刻回傳。
  */
-import { ConcordiumGRPCNodeClient, credentials } from "@concordium/web-sdk/nodejs";
+import { createGrpc } from "./grpc.js";
 import {
   AccountAddress,
   BlockHash,
@@ -16,8 +16,7 @@ import {
   TransactionStatusEnum,
 } from "@concordium/web-sdk";
 import { Transaction } from "@concordium/web-sdk/transactions";
-import { getConcordiumGrpcUrl, parseGrpcUrl } from "@x402/concordium";
-import { NETWORK, loadAccount } from "./config.js";
+import { loadAccount } from "./config.js";
 
 import { ANCHOR_PREFIX } from "./anchor-format.js";
 export { ANCHOR_PREFIX };
@@ -29,8 +28,7 @@ export function anchorPayload(commitment: string): ArrayBuffer {
 
 export function createAnchorer(keyFile: string) {
   const account = loadAccount(keyFile);
-  const [host, port] = parseGrpcUrl(getConcordiumGrpcUrl(NETWORK));
-  const grpc = new ConcordiumGRPCNodeClient(host, port, credentials.createSsl());
+  const grpc = createGrpc();
 
   return {
     address: account.address,

@@ -36,9 +36,8 @@ import {
   VerificationAuditRecordV1,
   VerificationRequestV1,
 } from "@concordium/web-sdk";
-import { ConcordiumGRPCNodeClient, credentials } from "@concordium/web-sdk/nodejs";
-import { getConcordiumGrpcUrl, parseGrpcUrl } from "@x402/concordium";
-import { NETWORK, loadAccount } from "./config.js";
+import { createGrpc } from "./grpc.js";
+import { loadAccount } from "./config.js";
 
 export const MIN_AGE = 18;
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 分鐘內要完成證明
@@ -200,8 +199,7 @@ export type Chain = {
 };
 
 export function concordiumChain(anchorKeyFile: string): Chain {
-  const [host, port] = parseGrpcUrl(getConcordiumGrpcUrl(NETWORK));
-  const grpc = new ConcordiumGRPCNodeClient(host, port, credentials.createSsl());
+  const grpc = createGrpc();
   const anchor = loadAccount(anchorKeyFile);
   const metadata = () => ({ sender: anchor.accountAddress, signer: anchor.signer });
   let ips: number[] | undefined;
