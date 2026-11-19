@@ -29,7 +29,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
 | Verify & Access V1 buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted, request and audit anchored on-chain ([VRA](https://ccdexplorer.io/testnet/transaction/61e5269537735f09a8234703a0c7c65bf9039b9bc071296b47781b4ec97b4c24), [VAA](https://ccdexplorer.io/testnet/transaction/c4dab99b0d273c3c2ee04a531238a4f5dcc4a0aef0f08db606316d6af72e3e5c)); unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
-| Agent Registry + badge | ⏳ |
+| Agent Registry + Verified by Concordium badge (`gateway/src/registry.ts`) | 🔧 tool ready: registers VeriFlow as a CIS-8004 agent on testnet `<12802,0>` and pins the Agent Card hash |
 | MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility` |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
 

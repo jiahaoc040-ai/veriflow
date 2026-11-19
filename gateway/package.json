@@ -9,7 +9,8 @@
     "buyer": "tsx src/buyer.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "mcp": "tsx src/mcp.ts"
+    "mcp": "tsx src/mcp.ts",
+    "registry": "tsx src/registry.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",
