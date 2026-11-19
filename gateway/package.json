@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "mcp": "tsx src/mcp.ts",
-    "registry": "tsx src/registry.ts"
+    "registry": "tsx src/registry.ts",
+    "diag": "tsx src/diag.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",
