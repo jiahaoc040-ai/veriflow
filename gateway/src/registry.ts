@@ -34,6 +34,8 @@ import { createGrpc } from "./grpc.js";
 export const REGISTRY_MCP = env("REGISTRY_MCP_URL", "https://agent-registry-mcp.concordium.com/mcp");
 export const REGISTRY_NETWORK = "testnet";
 export const DEFAULT_CARD_URL = "https://raw.githubusercontent.com/jiahaoc040-ai/veriflow/main/agent-card.json";
+/** VeriFlow 在 testnet Agent Registry <12802,0> 的 token id（2026-11-20 註冊） */
+export const VERIFLOW_TOKEN_ID = "1313";
 
 /** 呼叫官方 Agent Registry MCP 服務的一個工具（JSON-RPC over HTTP） */
 export async function registryTool(name: string, args: Record<string, unknown>): Promise<any> {
@@ -79,7 +81,12 @@ function contractEvents(summary: any): string[] {
   const out: string[] = [];
   const walk = (x: any) => {
     if (!x || typeof x !== "object") return;
-    if (Array.isArray(x.events)) for (const e of x.events) if (typeof e === "string") out.push(e);
+    if (Array.isArray(x.events))
+      for (const e of x.events) {
+        if (typeof e === "string") out.push(e);
+        // web-sdk v12：合約事件是 ContractEvent 物件（bytes 在 .buffer）
+        else if (e?.buffer instanceof Uint8Array) out.push(Buffer.from(e.buffer).toString("hex"));
+      }
     for (const v of Object.values(x)) if (v && typeof v === "object") walk(v);
   };
   walk(summary);
