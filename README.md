@@ -1,10 +1,20 @@
 # VeriFlow
 
-**On-chain exchange-flow signals for AI agents — sold only to verified, eligible buyers, with a track record no one can fake.**
+**Crypto risk-regime signals for AI agents — sold over x402 only to verified, eligible buyers, by a verified seller, with a track record no one can fake.**
+
+[![test](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml)
+[![docker](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml)
+[![contract](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/contract.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/contract.yml)
+[![security](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/security.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/security.yml)
+[![codeql](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/codeql.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/codeql.yml)
+![Concordium testnet](https://img.shields.io/badge/Concordium-testnet-0d1b2a)
+![agent](https://img.shields.io/badge/Agent%20Registry-%231313%20verified-2ea44f)
 
 **Live demo: https://veriflow-yrhp.onrender.com** (testnet) — dashboard with in-browser verification · [`/verify`](https://veriflow-yrhp.onrender.com/verify) buyer eligibility · [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json)
 
-Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/programmes/concordium-trusted-agents-hackathon) (Encode Club, 2026).
+**Docs:** [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
+
+Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026). **Nothing is mocked:** every payment, proof, commitment and registry entry below is a real Concordium testnet transaction you can open on CCDExplorer.
 
 ## The problem
 
@@ -16,10 +26,63 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | Problem | Concordium piece | What it does |
 |---|---|---|
 | Who is the buyer? | Verify & Access (ZK proofs) | Buyer proves *age ≥ 18* and *country not restricted* — nothing else is revealed |
-| Is the seller accountable? | Verified by Concordium badge + Agent Registry (ERC-8004 Agent Card) | VeriFlow is registered and linked to a verified human |
+| Is the seller accountable — and really the one being paid? | Verified by Concordium badge + Agent Registry (ERC-8004 Agent Card, on-chain `agentWallet`) | VeriFlow is agent #1313, linked to a verified human; the buyer agent checks the badge, the card hash and that `payTo` is the agent's on-chain wallet **before signing** |
 | How does an agent pay? | x402 on Concordium | Pay per signal, fees sponsored |
 | How do agents find and call it? | MCP server | Any MCP agent (e.g. Claude) can call `get_signal` |
-| Is the track record real? | Commit–reveal on Concordium | Each signal's hash is anchored on-chain **before** the outcome; anyone can recompute it later |
+| Is the track record real? | Commit–reveal contract on Concordium | Each signal's hash is anchored on-chain **before** the outcome (block time checked), one per asset every daily close whether or not anyone buys; anyone can recompute it later |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Buyer["Buyer side"]
+    H["Human owner<br/>(Concordium wallet)"]
+    A["Buyer agent<br/>Claude + VeriFlow MCP"]
+  end
+  subgraph Seller["VeriFlow (one container)"]
+    G["x402 gateway<br/>+ facilitator (sponsors fees)"]
+    P["Signal API<br/>(Python)"]
+    D["Daily scheduler"]
+  end
+  subgraph Chain["Concordium testnet"]
+    R["Agent Registry CIS-8004<br/>agent #1313 · badge · agentWallet"]
+    C["Commit–reveal contract<br/>&lt;13094,0&gt;"]
+    V["Verify & Access V1<br/>request + audit anchors"]
+  end
+  H -- "ZK proof once: 18+, not restricted" --> V
+  A -- "1. check seller (badge, card hash, payTo = agentWallet)" --> R
+  A -- "2. pay over x402" --> G
+  G -- "eligible payer?" --> V
+  G --> P
+  P -- "commitment" --> G
+  G -- "commit hash before outcome" --> C
+  D -- "every daily close" --> G
+  A -- "3. read anchor directly, recheck hash + time" --> C
+```
+
+```mermaid
+sequenceDiagram
+  participant B as Buyer agent (MCP)
+  participant R as Agent Registry
+  participant G as VeriFlow gateway
+  participant F as Facilitator
+  participant C as Concordium
+  B->>G: GET /signal/ETH
+  G-->>B: 402 PAYMENT-REQUIRED (payTo, 1 CCD, buyerProof)
+  B->>R: agent_by_token_address + check_badge
+  B->>B: own SHA-256 of Agent Card, payTo == agentWallet?
+  alt seller fails any check
+    B-->>B: abort before signing (wallet never asked)
+  else verified
+    B->>G: PAYMENT-SIGNATURE (sponsored transfer)
+    G->>F: verify: payer passed ZK eligibility?
+    F->>C: settle (fee sponsored)
+    G->>C: commit sha256(signal) to contract
+    G-->>B: signal + canonical JSON + anchor tx
+    B->>C: read anchor tx directly (not via VeriFlow)
+    B->>B: hash matches, anchored within a day of the close
+  end
+```
 
 ## Status
 
