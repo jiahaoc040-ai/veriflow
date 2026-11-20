@@ -86,8 +86,17 @@ class Ledger:
             return pd.read_sql(text("SELECT * FROM signals ORDER BY issued_at"), conn)
 
     def track_record(self, prices: dict[str, pd.DataFrame]) -> dict:
-        """prices：{'BTC': DataFrame(close)}。只評分已經過了 7 天的訊號"""
+        """prices：{'BTC': DataFrame(close)}。只評分已經過了 7 天的訊號
+
+        - 只算有上鏈的訊號：沒上鏈的不能證明是事前發的，不能進績效
+        - 同一資產同一收盤日只算一次（取最早上鏈的那筆）：每次付費購買都會產生新的承諾（nonce 不同、
+          訊號相同），如果每筆都算，同一天的結果會被重複計分、灌水命中率
+        """
         df = self.all()
+        issued = int(len(df))
+        if not df.empty:
+            df = (df[df["anchor_tx"].notna()].sort_values("issued_at", kind="stable")
+                  .drop_duplicates(["asset", "as_of"], keep="first"))
         scored = []
         for _, r in df.iterrows():
             p = prices.get(r["asset"])
@@ -103,7 +112,8 @@ class Ledger:
                            "anchor_tx": r["anchor_tx"]})
         n = len(scored)
         return {
-            "issued": int(len(df)),
+            "issued": issued,
+            "signal_days": int(len(df)),
             "scored": n,
             "hit_rate": round(sum(s["hit"] for s in scored) / n, 4) if n else None,
             "horizon_days": HORIZON_DAYS,

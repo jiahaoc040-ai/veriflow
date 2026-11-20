@@ -49,11 +49,27 @@ def test_track_record_scores_only_matured(tmp_path):
     f = build_factors(flows, prices)
     led = Ledger(tmp_path / "t.db")
     s = latest_signal("BTC", f.iloc[:-10])             # 10 天前的訊號 → 已到期
-    led.record(s)
-    led.record(latest_signal("BTC", f))                # 今天的訊號 → 未到期
+    led.set_anchor(led.record(s), "aa" * 32)
+    led.set_anchor(led.record(latest_signal("BTC", f)), "bb" * 32)   # 今天的訊號 → 未到期
     tr = led.track_record({"BTC": prices})
     assert tr["issued"] == 2 and tr["scored"] == 1
     assert tr["hit_rate"] in (0.0, 1.0)
+
+
+def test_track_record_counts_each_day_once_and_only_anchored(tmp_path):
+    """同一天賣了好幾次（nonce 不同、訊號相同）只算一次；沒上鏈的不算"""
+    flows, prices = fake_data()
+    f = build_factors(flows, prices)
+    led = Ledger(tmp_path / "t.db")
+    old = f.iloc[:-10]
+    first = led.record(latest_signal("BTC", old))
+    led.set_anchor(first, "aa" * 32)
+    for _ in range(3):                                  # 同一天又賣了 3 次
+        led.set_anchor(led.record(latest_signal("BTC", old)), "cc" * 32)
+    led.record(latest_signal("BTC", f.iloc[:-12]))      # 另一天，但從沒上鏈
+    tr = led.track_record({"BTC": prices})
+    assert tr["issued"] == 5 and tr["signal_days"] == 1 and tr["scored"] == 1
+    assert tr["signals"][0]["commitment"] == first      # 取最早上鏈的那筆
 
 
 def test_parse_llama():

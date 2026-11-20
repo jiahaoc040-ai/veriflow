@@ -55,7 +55,7 @@
 
   <div class="card">
     <h2>On-chain commitments</h2>
-    <p class="muted lead">Each signal's SHA-256 is written to Concordium when it is sold, before the outcome. Verification runs in your browser: it reads the transaction from the chain via this server and recomputes the hash locally.</p>
+    <p class="muted lead">Each signal's SHA-256 is written to Concordium before the outcome: one per asset every daily close, whether or not anyone buys, plus every sale. The hit rate counts each asset-day once and only anchored signals. Verification runs in your browser: it reads the transaction from the chain via this server and recomputes the hash locally.</p>
     <div class="scroll"><table>
       <thead><tr><th>Date</th><th>Asset</th><th>Commitment</th><th>Anchor</th><th></th></tr></thead>
       <tbody id="rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
