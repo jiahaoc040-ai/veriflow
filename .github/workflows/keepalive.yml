@@ -2,7 +2,6 @@ name: keepalive
 
 # Render's free plan sleeps after 15 idle minutes; a judge opening the page
 # would wait ~1 minute. Ping the public URL every 10 minutes instead.
-# Set the repository variable PUBLIC_URL (Settings → Variables → Actions).
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -10,7 +9,6 @@ on:
 
 jobs:
   ping:
-    if: vars.PUBLIC_URL != ''
     runs-on: ubuntu-latest
     steps:
-      - run: curl -fsS --max-time 120 "${{ vars.PUBLIC_URL }}/health"
+      - run: curl -fsS --max-time 120 "${{ vars.PUBLIC_URL || 'https://veriflow-yrhp.onrender.com' }}/health"

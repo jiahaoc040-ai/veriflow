@@ -2,6 +2,8 @@
 
 **On-chain exchange-flow signals for AI agents — sold only to verified, eligible buyers, with a track record no one can fake.**
 
+**Live demo: https://veriflow-yrhp.onrender.com** — dashboard with in-browser verification · [`/verify`](https://veriflow-yrhp.onrender.com/verify) buyer eligibility · [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json)
+
 Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/programmes/concordium-trusted-agents-hackathon) (Encode Club, 2026).
 
 ## The problem
