@@ -166,6 +166,23 @@ Anyone can check it without trusting us: resolve the badge with CIS-8004 `agent_
 
 > ⚠️ `agent-card.json` is hash-pinned on-chain. Editing it breaks the badge until the new hash is pinned with `npm run registry -- set-uri 1313`. `npm test` fails if the file changes, as a reminder.
 
+## Deploy (one container)
+
+The `Dockerfile` runs the Python API, the facilitator and the gateway together; the public port serves the dashboard (`/`), buyer verification (`/verify`), the paid `/signal/{asset}` and the Agent Card (`/.well-known/agent-card.json`). CI builds the image and smoke-tests it against Postgres on every change.
+
+Tested target: **Hugging Face Spaces (Docker) + Neon Postgres**, both free without a card. Render works the same way (set `PORT`).
+
+| Secret / variable | Value |
+|---|---|
+| `FACILITATOR_KEY_JSON` | contents of the **testnet** sponsor/anchor account `.export` file |
+| `SELLER_ADDRESS` | account that receives payments |
+| `GATEWAY_SECRET` | any long random string |
+| `DATABASE_URL` | Postgres connection string (signals and buyer approvals survive restarts) |
+| `PUBLIC_URL` | the deployment's public URL |
+| `REGISTRY_CONTRACT` | optional: commit through the Rust contract |
+
+The buyer agent's key never goes to the server: agents pay from their own machine (demo buyer or MCP server).
+
 ## API
 
 | Method | Path | Access |
