@@ -188,7 +188,7 @@ page ──POST /eligibility/verify──▶ gateway
 At payment time an x402 `onBeforeVerify` hook reads the payer from the signed transaction (`signedTransaction.header.sender`). An unverified account gets `buyer_proof_required` and a link to `/verify`; its transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
 
 ```bash
-cd gateway && npm test      # 15 rule tests: replay, wrong account, identity-only credential, weaker statement, expiry, policy change, payer lookup, …
+cd gateway && npm test      # 48 tests: eligibility rules (replay, wrong account, weaker statement, …), seller check, MCP over stdio, contract encoding, verifiers
 ```
 
 ## MCP server — let any agent buy and verify

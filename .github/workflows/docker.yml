@@ -11,6 +11,9 @@ on:
     paths: ["Dockerfile", "deploy/**", "requirements.txt", "veriflow/**", "gateway/**", "agent-card.json", ".github/workflows/docker.yml"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   image:
     runs-on: ubuntu-latest

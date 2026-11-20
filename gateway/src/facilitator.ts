@@ -16,6 +16,7 @@ import { ExactConcordiumScheme } from "@x402/concordium/exact/facilitator";
 import { toConcordiumFacilitatorSigner } from "@x402/concordium";
 import { NETWORK, env, loadAccount } from "./config.js";
 import { grpcEndpoint, isTransient } from "./grpc.js";
+import { RateLimiter, rateLimit } from "./security.js";
 
 const sponsor = loadAccount(env("FACILITATOR_KEY_FILE"));
 
@@ -37,12 +38,14 @@ const transientResult = (r: { isValid?: boolean; invalidReason?: string }) => r.
 
 const app = express();
 app.use(express.json({ limit: "256kb" }));
+// 只聽 127.0.0.1（gateway 自己呼叫），仍設上限：每次 verify/settle 都會打 Concordium 節點
+const limitCalls = rateLimit([{ limiter: new RateLimiter(Number(env("FACILITATOR_CALLS_PER_MIN", "300")), 60_000), key: (req) => req.ip ?? "local", what: "per caller" }]);
 
 app.get("/supported", (_req, res) => {
   res.json(facilitator.getSupported());
 });
 
-app.post("/verify", async (req, res) => {
+app.post("/verify", limitCalls, async (req, res) => {
   const { paymentPayload, paymentRequirements } = req.body;
   for (let attempt = 1; ; attempt++) {
     try {
@@ -62,7 +65,7 @@ app.post("/verify", async (req, res) => {
   }
 });
 
-app.post("/settle", async (req, res) => {
+app.post("/settle", limitCalls, async (req, res) => {
   try {
     const result = await facilitator.settle(req.body.paymentPayload, req.body.paymentRequirements);
     console.log("settled:", JSON.stringify(result));

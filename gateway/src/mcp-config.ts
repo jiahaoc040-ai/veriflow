@@ -7,7 +7,7 @@
  *
  * 會檢查：Node 版本、買方金鑰檔讀得到（只印地址，不印金鑰）、買方帳號在目標網站是否已通過資格驗證。
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { env, loadAccount } from "./config.js";
 import { PUBLIC_GATEWAY, SERVER_NAME, claudeConfigPath, claudeLogDir, mcpServerEntry, mergeConfig } from "./mcp-launch.js";
@@ -61,7 +61,12 @@ if (!install) {
 }
 
 // 5. 寫入（先備份；原檔壞掉就不寫）
-const existing = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+let existing: string | undefined;
+try {
+  existing = readFileSync(path, "utf8");
+} catch (e) {
+  if ((e as NodeJS.ErrnoException).code !== "ENOENT") stop(`讀不到設定檔 ${path}：${e instanceof Error ? e.message : String(e)}`);
+}
 let merged: string;
 try {
   merged = mergeConfig(existing, entry);
@@ -71,7 +76,7 @@ try {
 mkdirSync(dirname(path), { recursive: true });
 if (existing !== undefined) {
   const backup = `${path}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  copyFileSync(path, backup);
+  writeFileSync(backup, existing, { flag: "wx" }); // 備份剛剛讀到的內容；wx：絕不覆蓋既有檔案
   ok(`原設定已備份：${backup}`);
 }
 writeFileSync(path, merged);

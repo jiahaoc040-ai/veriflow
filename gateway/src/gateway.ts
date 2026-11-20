@@ -170,17 +170,17 @@ app.get("/onchain/:tx", limitRead, async (req, res) => {
     res.status(502).json({ error: `Concordium node error: ${String(e)}` });
   }
 });
-app.get("/health", (_req, res) => forward("/health", res, false));
+app.get("/health", limitRead, (_req, res) => forward("/health", res, false));
 
 // ── 買方資格驗證（Verify & Access）─────────────────────
 const verifyPage = new URL("../public/verify.html", import.meta.url);
-app.get("/verify", (_req, res) => res.sendFile(verifyPage.pathname, NO_CACHE_FILE));
+app.get("/verify", limitRead, (_req, res) => res.sendFile(verifyPage.pathname, NO_CACHE_FILE));
 
 // 公開儀表板（瀏覽器自己重算雜湊驗證，不用信任這台伺服器）與 Agent Card
 const dashboardPage = new URL("../public/index.html", import.meta.url);
-app.get("/", (_req, res) => res.sendFile(dashboardPage.pathname, NO_CACHE_FILE));
+app.get("/", limitRead, (_req, res) => res.sendFile(dashboardPage.pathname, NO_CACHE_FILE));
 const agentCard = new URL("../../agent-card.json", import.meta.url);
-app.get("/.well-known/agent-card.json", (_req, res) => res.type("application/json").sendFile(agentCard.pathname, NO_CACHE_FILE));
+app.get("/.well-known/agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(agentCard.pathname, NO_CACHE_FILE));
 
 app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
   try {

@@ -127,7 +127,7 @@ test("server starts from / with a minimal environment and lists the 6 tools with
   assert.deepEqual(tools.map((t) => t.name).sort(), ["check_eligibility", "check_seller", "get_signal", "get_track_record", "list_commitments", "verify_signal"]);
   for (const t of tools) assert.equal(t.annotations?.readOnlyHint, t.name !== "get_signal", t.name);
   assert.match(client.getInstructions() ?? "", /zero-knowledge/);
-  assert.match(stderr, new RegExp(`veriflow MCP ready \\(buyer ${BUYER}, gateway ${gateway.replace(/[.:/]/g, "\\$&")}\\)`));
+  assert.ok(stderr.includes(`veriflow MCP ready (buyer ${BUYER}, gateway ${gateway})`), stderr);
 });
 
 test("free tools answer from the seller's public endpoints", async () => {

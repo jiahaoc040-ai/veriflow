@@ -24,7 +24,7 @@
  * 付款時（x402 onBeforeVerify）：付款交易的 sender 不在白名單 → 拒絕，買方的錢不會被扣。
  */
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   AccountAddress,
@@ -150,13 +150,23 @@ export type Persistence = {
   save(rec: Eligible): Promise<void>;
 };
 
+/** 讀 JSON 檔；檔案不存在就當空的（直接讀、處理 ENOENT，不先檢查再讀，避免檢查與使用之間被換掉） */
+function readJsonOrEmpty(file: string): Record<string, Eligible> {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw e;
+  }
+}
+
 export function filePersistence(file: string): Persistence {
   return {
     async load() {
-      return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      return readJsonOrEmpty(file);
     },
     async save(rec) {
-      const all = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      const all = readJsonOrEmpty(file);
       all[rec.account] = rec;
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, JSON.stringify(all, null, 2));
