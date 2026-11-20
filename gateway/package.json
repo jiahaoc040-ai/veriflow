@@ -11,7 +11,8 @@
     "test": "tsx --test test/*.test.ts",
     "mcp": "tsx src/mcp.ts",
     "registry": "tsx src/registry.ts",
-    "diag": "tsx src/diag.ts"
+    "diag": "tsx src/diag.ts",
+    "contract": "tsx src/contract.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",

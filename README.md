@@ -29,6 +29,7 @@ Built for the [Concordium Trusted Agents Hackathon](https://www.encodeclub.com/p
 | On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
 | Verify & Access V1 buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted, request and audit anchored on-chain ([VRA](https://ccdexplorer.io/testnet/transaction/61e5269537735f09a8234703a0c7c65bf9039b9bc071296b47781b4ec97b4c24), [VAA](https://ccdexplorer.io/testnet/transaction/c4dab99b0d273c3c2ee04a531238a4f5dcc4a0aef0f08db606316d6af72e3e5c)); unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
+| Rust smart contract (`contract/`) | 🔧 on-chain commit–reveal registry; tests + CI build ready, testnet deploy pending |
 | Agent Registry + Verified by Concordium badge (`gateway/src/registry.ts`, [`agent-card.json`](agent-card.json)) | ✅ registered as CIS-8004 agent #1313 on testnet `<12802,0>` ([tx](https://ccdexplorer.io/testnet/transaction/fe34bd0b8299a07855dd664648c78caf08fcb33433f92a635d9b1bde189462eb)), badge `JyP9UWYKh54TD2MUJDfqC`, card hash pinned ([tx](https://ccdexplorer.io/testnet/transaction/e33d24fbf3869ca57453c43cb5b94e05da4172579e47004c95585a99c53342b3)); official `check_badge`: all 15 checks pass |
 | MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility` |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
@@ -137,6 +138,25 @@ Claude Desktop (`claude_desktop_config.json`):
 ```
 
 The server reads `gateway/.env` itself, so it works from any working directory. The gateway, facilitator and Python API must be running.
+
+## Smart contract — on-chain commit–reveal (`contract/`, Rust)
+
+Register-data anchors prove *when* a hash was written. The VeriFlow registry contract makes the rules themselves enforceable by the chain:
+
+| Entrypoint | Who | Rule enforced on-chain |
+|---|---|---|
+| `commit` | seller only | records block time; a commitment can never be overwritten |
+| `reveal` | **anyone**, after the horizon (7 days) | the contract computes SHA-256 of the content and accepts it only if it matches a commitment; the signal value is stored with the content |
+| `commitment`, `view` | anyone | read a commitment and its reveal; totals |
+
+Because reveal is permissionless, the seller cannot "forget" a losing call: once the horizon passes, any buyer can publish the signal they received and the chain checks it.
+
+```bash
+cd contract && cargo test                 # unit tests (end-to-end tests run in CI against the compiled Wasm)
+cd gateway && npm run contract -- deploy  # deploys the CI-built module from the GitHub release, prints REGISTRY_CONTRACT
+```
+
+With `REGISTRY_CONTRACT` set, the gateway commits every paid signal through the contract. `/onchain/<tx>` decodes the contract's `Committed` event into the same `veriflow:v1:<hash>` form, so the dashboard and MCP `verify_signal` keep working unchanged. The TypeScript client's encoding is tested byte-for-byte against fixtures generated from the Rust types.
 
 ## Verified by Concordium
 

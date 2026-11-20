@@ -110,7 +110,7 @@ app.get("/signal/:asset", async (req, res) => {
     if (!r.ok) return res.status(r.status).json(body);
 
     try {
-      const tx = await anchorer.anchor(body.commitment);
+      const tx = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
       await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
         method: "POST",
         headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
@@ -179,6 +179,6 @@ app.get("/eligibility/:account", (req, res) => {
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
 app.listen(PORT, () => {
-  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address}`);
+  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });
