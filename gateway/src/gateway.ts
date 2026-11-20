@@ -69,6 +69,8 @@ const app = express();
 app.disable("x-powered-by");
 // 部署在反向代理後面（Hugging Face / Render）時，用 X-Forwarded-For 取得真實 IP、X-Forwarded-Proto 判斷 HTTPS
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+// sendFile 預設會設 Cache-Control: public, max-age=0，蓋掉安全標頭的 no-store
+const NO_CACHE_FILE = { cacheControl: false, lastModified: false } as const;
 const pages = [new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname];
 app.use(securityHeaders(inlineScriptHashes(pages), ["/verify"], inlineScriptHashes(pages, "style")));
 app.use(express.json({ limit: "256kb" }));
@@ -171,13 +173,13 @@ app.get("/health", (_req, res) => forward("/health", res, false));
 
 // ── 買方資格驗證（Verify & Access）─────────────────────
 const verifyPage = new URL("../public/verify.html", import.meta.url);
-app.get("/verify", (_req, res) => res.sendFile(verifyPage.pathname));
+app.get("/verify", (_req, res) => res.sendFile(verifyPage.pathname, NO_CACHE_FILE));
 
 // 公開儀表板（瀏覽器自己重算雜湊驗證，不用信任這台伺服器）與 Agent Card
 const dashboardPage = new URL("../public/index.html", import.meta.url);
-app.get("/", (_req, res) => res.sendFile(dashboardPage.pathname));
+app.get("/", (_req, res) => res.sendFile(dashboardPage.pathname, NO_CACHE_FILE));
 const agentCard = new URL("../../agent-card.json", import.meta.url);
-app.get("/.well-known/agent-card.json", (_req, res) => res.type("application/json").sendFile(agentCard.pathname));
+app.get("/.well-known/agent-card.json", (_req, res) => res.type("application/json").sendFile(agentCard.pathname, NO_CACHE_FILE));
 
 app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
   try {
