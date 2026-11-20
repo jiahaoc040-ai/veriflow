@@ -1,13 +1,14 @@
 /**
- * VeriFlow MCP server
- * -------------------
+ * VeriFlow MCP server（本機版，stdio，會付款）
+ * -----------------------------------------
  * 讓任何 MCP agent（例如 Claude）直接：
  *   get_signal         付款（x402，testnet CCD）買一個 RISK_ON / RISK_OFF 訊號
+ *   check_seller       付款前驗證賣方（badge、Registry、Agent Card 雜湊、收款地址＝鏈上 agentWallet）
  *   get_track_record   看命中率（公開）
  *   list_commitments   看所有鏈上承諾（公開）
  *   verify_signal      直接向 Concordium 節點讀回承諾並驗證（不經過賣方的伺服器）；可貼上訊號內容一起驗
  *   check_eligibility  買方帳號是否已通過零知識資格驗證
- *   check_seller       付款前驗證賣方（badge、Registry、Agent Card 雜湊、收款地址＝鏈上 agentWallet）
+ * 免費的四個工具與公開版（mcp-http.ts，POST /mcp）共用 mcp-tools.ts。
  *
  * 付款用 BUYER_KEY_FILE 的帳號，花費護欄同示範 buyer（只付 CCD、單次上限 MAX_PAY_MICROCCD）。
  * 執行（stdio）：npm run mcp
@@ -19,66 +20,25 @@ console.log = console.error;
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { ContractAddress } from "@concordium/web-sdk";
 import { createBuyerAgent } from "./agent.js";
-import { readAnchorTx, type OnChainAnchor } from "./anchor.js";
-import { registryAddress, TESTNET_REGISTRY_INDEX } from "./contract.js";
-import { createGrpc, grpcEndpoint } from "./grpc.js";
-import { allOk, verifyCommitment } from "./verify.js";
+import { ABOUT, EXPLORER, createChainReader, errText, fail, json, registerPublicTools } from "./mcp-tools.js";
 
 const agent = createBuyerAgent();
-const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
-
-const json = (x: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(x, null, 2) }] });
-const fail = (msg: string) => ({ content: [{ type: "text" as const, text: msg }], isError: true });
 
 const INSTRUCTIONS =
-  "VeriFlow sells a crypto risk-regime signal (RISK_ON / RISK_OFF for BTC or ETH). Each signal's SHA-256 commitment is " +
-  "anchored on Concordium testnet before its 7-day outcome is known, so the track record cannot be edited afterwards. " +
+  ABOUT +
   "Typical flow: (1) check_eligibility — the paying account must have passed a one-time zero-knowledge check " +
   "(age >= 18, not resident in a restricted country); if it has not, give the human the verify_url and stop, never try " +
   "to work around it. (2) get_track_record and list_commitments to judge the seller's verifiable history. " +
   "(3) check_seller — before any payment the buyer verifies the seller in Concordium's Agent Registry: identity-verified " +
   "badge, Active, Agent Card hash, and that the x402 payTo is the agent's on-chain wallet; get_signal runs the same check " +
-  "itself and refuses to pay if anything fails. (4) get_signal pays about 1 testnet CCD. (5) verify_signal with the returned commitment and canonical string: it " +
-  "reads the anchor straight from a Concordium node, so you do not have to trust VeriFlow's server. " +
-  "Payments are Concordium testnet CCD only. Not investment advice.";
+  "itself and refuses to pay if anything fails. (4) get_signal pays about 1 testnet CCD. (5) verify_signal with the " +
+  "returned commitment and canonical string: it reads the anchor straight from a Concordium node, so you do not have to " +
+  "trust VeriFlow's server. Payments are Concordium testnet CCD only. Not investment advice.";
 
-const server = new McpServer({ name: "veriflow", version: "0.2.0" }, { instructions: INSTRUCTIONS });
-
-// ── 直接讀鏈：買方 agent 自己向 Concordium 節點確認，不必相信賣方的 /onchain ──
-const NODE = grpcEndpoint().join(":");
-const REGISTRY = registryAddress() ?? ContractAddress.create(TESTNET_REGISTRY_INDEX, 0n);
-let grpc: ReturnType<typeof createGrpc> | undefined;
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
-
-/** 讀一次：先直接問 Concordium 節點；連不到（例如公司網路擋 20000 port）才退回 VeriFlow 的 /onchain，並清楚標示 */
-async function readOnce(tx: string, direct: boolean): Promise<{ onchain: OnChainAnchor; source: string; direct: boolean }> {
-  if (direct) {
-    try {
-      grpc ??= createGrpc();
-      const onchain = await readAnchorTx(grpc, tx, REGISTRY);
-      return { onchain, source: `Concordium node ${NODE} — read directly, VeriFlow's server is not involved`, direct: true };
-    } catch (e) {
-      grpc = undefined; // 下次重建連線
-      const onchain = (await agent.get(`/onchain/${tx}`)) as OnChainAnchor;
-      return { onchain, source: `VeriFlow gateway /onchain (fallback: could not reach Concordium node ${NODE}: ${errText(e)})`, direct: false };
-    }
-  }
-  const onchain = (await agent.get(`/onchain/${tx}`)) as OnChainAnchor;
-  return { onchain, source: `VeriFlow gateway /onchain (fallback: could not reach Concordium node ${NODE})`, direct: false };
-}
-
-/** 剛買到的訊號，上鏈交易可能還沒被打包：最多等約 30 秒 */
-async function readSettled(tx: string) {
-  let r = await readOnce(tx, true);
-  for (let i = 0; r.onchain.status === "pending" && i < 10; i++) {
-    await sleep(3000);
-    r = await readOnce(tx, r.direct);
-  }
-  return r;
-}
+const server = new McpServer({ name: "veriflow", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+const readSettled = createChainReader(agent, "read directly by this buyer agent, VeriFlow's server is not involved");
+registerPublicTools(server, agent, readSettled, agent.address);
 
 server.registerTool(
   "get_signal",
@@ -113,85 +73,7 @@ server.registerTool(
         how_to_verify: "Call verify_signal with this commitment and canonical string.",
       });
     } catch (e) {
-      return fail(`Could not buy signal: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  },
-);
-
-server.registerTool(
-  "get_track_record",
-  {
-    title: "VeriFlow track record",
-    description: "Hit rate of all signals whose 7-day horizon has passed. Every scored signal was committed on-chain before its outcome. Free.",
-    inputSchema: {},
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  },
-  async () => {
-    try {
-      return json(await agent.get("/track-record"));
-    } catch (e) {
-      return fail(String(e));
-    }
-  },
-);
-
-server.registerTool(
-  "list_commitments",
-  {
-    title: "List on-chain commitments",
-    description: "All issued signals: commitment hash, asset, date, and the Concordium transaction that anchors it. Free.",
-    inputSchema: {},
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  },
-  async () => {
-    try {
-      return json(await agent.get("/commitments"));
-    } catch (e) {
-      return fail(String(e));
-    }
-  },
-);
-
-server.registerTool(
-  "verify_signal",
-  {
-    title: "Verify a signal against Concordium",
-    description:
-      "Read the commitment's anchor transaction straight from a Concordium node (not from VeriFlow's server) and check it: " +
-      "confirmed, carries this commitment, and — with the canonical signal JSON you received (or the public one after " +
-      "7 days) — that the content hashes to the commitment (any edit fails) and was anchored within a day of its data " +
-      "close, long before the 7-day outcome.",
-    inputSchema: {
-      commitment: z.string().regex(/^[0-9a-f]{64}$/).describe("64-char SHA-256 commitment"),
-      canonical: z.string().optional().describe("Exact canonical signal JSON string, if you have it"),
-    },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  },
-  async ({ commitment, canonical }) => {
-    try {
-      const c = (await agent.get(`/commitments/${commitment}`)) as { anchor_tx?: string; canonical?: string; revealed?: boolean };
-      if (!c.anchor_tx) return fail("This commitment exists but has not been anchored on-chain.");
-      const { onchain, source } = await readSettled(c.anchor_tx);
-      const content = canonical ?? c.canonical;
-      const checks = verifyCommitment(commitment, onchain, content);
-      return json({
-        verified: allOk(checks),
-        checks,
-        anchor_tx: c.anchor_tx,
-        anchor_explorer: EXPLORER + c.anchor_tx,
-        anchored_at: onchain.block_time ?? undefined,
-        read_from: source,
-        registry_contract: `<${REGISTRY.index},${REGISTRY.subindex}>`,
-        content_checked: content !== undefined,
-        note:
-          onchain.status === "pending"
-            ? "The anchor transaction is not in a block yet; try again in a minute."
-            : content === undefined
-              ? "Signal content is revealed after the 7-day horizon; only the on-chain anchor was checked."
-              : undefined,
-      });
-    } catch (e) {
-      return fail(`Verification failed: ${errText(e)}`);
+      return fail(`Could not buy signal: ${errText(e)}`);
     }
   },
 );
@@ -214,25 +96,6 @@ server.registerTool(
       return json({ verified: v.ok, ...v, checked_in: "Concordium Agent Registry <12802,0> via agent-registry-mcp.concordium.com" });
     } catch (e) {
       return fail(`Seller check failed: ${errText(e)}`);
-    }
-  },
-);
-
-server.registerTool(
-  "check_eligibility",
-  {
-    title: "Check buyer eligibility",
-    description: "Whether a Concordium account has passed VeriFlow's zero-knowledge eligibility check (age ≥ 18, not in a restricted country). Defaults to this agent's own account.",
-    inputSchema: { account: z.string().optional().describe("Concordium address; defaults to this agent's paying account") },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  },
-  async ({ account }) => {
-    try {
-      const a = account ?? agent.address;
-      const r = (await agent.get(`/eligibility/${encodeURIComponent(a)}`)) as { eligible: boolean };
-      return json({ account: a, ...r, verify_url: r.eligible ? undefined : `${agent.gateway}/verify?account=${a}` });
-    } catch (e) {
-      return fail(String(e));
     }
   },
 );
