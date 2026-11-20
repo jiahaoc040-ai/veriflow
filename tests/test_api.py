@@ -64,3 +64,18 @@ def test_price_cache_refreshes_each_hour(monkeypatch):
     now[0] += api_mod.CACHE_SECONDS
     api_mod._prices_at("BTC", api_mod._hour_bucket())
     assert calls == ["BTC", "BTC"]              # 下一小時：重新抓
+
+
+def test_daily_signal_once_per_day_and_retries_unanchored(tmp_path, monkeypatch):
+    """每日訊號：同一收盤日只上鏈一筆；上鏈失敗的那筆會被重送，不會另發新的"""
+    api, c = make_client(tmp_path, monkeypatch)
+    gw = {"X-VeriFlow-Gateway": "s"}
+    assert c.post("/daily/BTC").status_code == 403            # 只有付款關卡能呼叫
+    first = c.post("/daily/BTC", headers=gw).json()
+    assert first["status"] == "new"
+    again = c.post("/daily/BTC", headers=gw).json()           # 還沒上鏈 → 重送同一筆
+    assert again == {**first, "status": "retry"}
+    c.post(f"/commitments/{first['commitment']}/anchor", json={"anchor_tx": "cd" * 32}, headers=gw)
+    assert c.post("/daily/BTC", headers=gw).json()["status"] == "exists"
+    assert c.post("/daily/ETH", headers=gw).json()["status"] == "new"   # 各資產分開
+    assert c.post("/daily/DOGE", headers=gw).status_code == 404

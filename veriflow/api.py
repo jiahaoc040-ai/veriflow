@@ -98,6 +98,30 @@ def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)
     return {"signal": s.__dict__, "canonical": s.canonical(), "commitment": commitment}
 
 
+@app.post("/daily/{asset}")
+def daily_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)):
+    """
+    每日公開訊號（只接受付款關卡呼叫）：每個資產每個收盤日至少一筆上鏈的訊號，
+    讓績效紀錄每天累積，不依賴有沒有人付費購買。
+      - 這一天已經有上鏈的訊號 → {"status": "exists"}，不重複發
+      - 有訊號但上鏈失敗過 → 回傳那一筆，讓關卡重新上鏈
+      - 都沒有 → 發一筆新的
+    """
+    _require_gateway(x_veriflow_gateway)
+    asset = asset.upper()
+    if asset not in SYMBOLS:
+        raise HTTPException(404, f"不支援的資產：{asset}")
+    s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
+    rows = ledger.for_day(asset, s.as_of)
+    if any(r["anchor_tx"] for r in rows):
+        return {"status": "exists", "asset": asset, "as_of": s.as_of}
+    if rows:
+        r = rows[0]
+        return {"status": "retry", "asset": asset, "as_of": s.as_of, "commitment": r["commitment"]}
+    commitment = ledger.record(s)
+    return {"status": "new", "asset": asset, "as_of": s.as_of, "commitment": commitment}
+
+
 @app.get("/track-record")
 def track_record():
     return ledger.track_record({a: _prices(a) for a in SYMBOLS})

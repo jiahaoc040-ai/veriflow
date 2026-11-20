@@ -73,6 +73,14 @@ class Ledger:
             row = conn.execute(text("SELECT * FROM signals WHERE commitment=:c"), {"c": commitment}).mappings().first()
         return dict(row) if row else None
 
+    def for_day(self, asset: str, as_of: str) -> list[dict]:
+        """某資產某個收盤日的所有訊號（每日自動發訊號用來避免重複）"""
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT * FROM signals WHERE asset=:a AND as_of=:d ORDER BY issued_at"), {"a": asset, "d": as_of}
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
     def all(self) -> pd.DataFrame:
         with self.engine.connect() as conn:
             return pd.read_sql(text("SELECT * FROM signals ORDER BY issued_at"), conn)

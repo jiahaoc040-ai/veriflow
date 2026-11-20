@@ -19,6 +19,7 @@ import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
 import { GATEWAY_DIR, NETWORK, env } from "./config.js";
 import { resolve } from "node:path";
 import { createAnchorer } from "./anchor.js";
+import { startDailySignals } from "./daily.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
@@ -220,7 +221,23 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
+// 每日公開訊號：績效紀錄每天累積（DAILY_SIGNALS=off 可關閉；本機開發預設關閉）
+const DAILY = env("DAILY_SIGNALS", "off") !== "off";
+if (DAILY) {
+  startDailySignals(
+    {
+      apiUrl: API_URL,
+      secret: GATEWAY_SECRET,
+      assets: env("DAILY_ASSETS", "BTC,ETH").split(",").map((a) => a.trim().toUpperCase()).filter(Boolean),
+      anchor: (c, asset) => anchorer.anchor(c, asset),
+      log: (m) => console.log(m),
+    },
+    Number(env("DAILY_INTERVAL_MIN", "30")) * 60_000,
+  );
+}
+
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
+  console.log(`daily public signals: ${DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });

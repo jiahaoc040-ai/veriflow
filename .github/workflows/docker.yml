@@ -40,6 +40,7 @@ jobs:
             -e FACILITATOR_KEY_JSON="$KEY" \
             -e SELLER_ADDRESS=2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX \
             -e GATEWAY_SECRET=ci-secret \
+            -e DAILY_SIGNALS=off \
             -e DATABASE_URL=postgresql://postgres:test@127.0.0.1:5432/postgres \
             -e PUBLIC_URL=http://127.0.0.1:7860 \
             veriflow
