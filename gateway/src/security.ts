@@ -58,12 +58,13 @@ export function rateLimit(rules: { limiter: RateLimiter; key: KeyFn; what: strin
   };
 }
 
-/** 頁面裡 inline <script> 的 CSP 雜湊（啟動時算一次） */
-export function inlineScriptHashes(htmlFiles: string[]): string[] {
+/** 頁面裡 inline <script>（或 <style>）的 CSP 雜湊（啟動時算一次） */
+export function inlineScriptHashes(htmlFiles: string[], tag: "script" | "style" = "script"): string[] {
   const out = new Set<string>();
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "g");
   for (const f of htmlFiles) {
     const html = readFileSync(f, "utf8");
-    for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+    for (const m of html.matchAll(re)) {
       out.add(`'sha256-${createHash("sha256").update(m[1], "utf8").digest("base64")}'`);
     }
   }
@@ -75,11 +76,12 @@ export function inlineScriptHashes(htmlFiles: string[]): string[] {
  * 把它的 API 注入到頁面裡，那段程式受頁面 CSP 管；它載入 Concordium SDK 時需要 eval 與 WebAssembly，
  * 所以只有這些頁面加上 'unsafe-eval' 'wasm-unsafe-eval'。script 來源仍然只限本站 + 雜湊白名單。
  */
-export function securityHeaders(scriptHashes: string[], walletPaths: string[] = []) {
+export function securityHeaders(scriptHashes: string[], walletPaths: string[] = [], styleHashes: string[] = []) {
   const build = (wallet: boolean) => [
     "default-src 'self'",
     `script-src 'self' ${scriptHashes.join(" ")}${wallet ? " 'unsafe-eval' 'wasm-unsafe-eval'" : ""}`,
-    "style-src 'self' 'unsafe-inline'",
+    // 樣式也只允許頁面裡我們自己的 <style>（雜湊白名單），不允許任意 inline 樣式
+    `style-src 'self' ${styleHashes.join(" ")}`.trim(),
     "img-src 'self' data:",
     "connect-src 'self'",
     "base-uri 'none'",
@@ -95,6 +97,11 @@ export function securityHeaders(scriptHashes: string[], walletPaths: string[] = 
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+    // COEP 會限制跨來源資源；錢包頁不加，避免影響錢包的注入與彈出視窗
+    if (!walletPaths.includes(req.path)) res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    // 全部都是動態內容（訊號、驗證狀態、鏈上資料），不讓瀏覽器或中間代理快取
+    res.setHeader("Cache-Control", "no-store");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     next();

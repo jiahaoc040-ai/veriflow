@@ -69,12 +69,8 @@ const app = express();
 app.disable("x-powered-by");
 // 部署在反向代理後面（Hugging Face / Render）時，用 X-Forwarded-For 取得真實 IP、X-Forwarded-Proto 判斷 HTTPS
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
-app.use(
-  securityHeaders(
-    inlineScriptHashes([new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname]),
-    ["/verify"],
-  ),
-);
+const pages = [new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname];
+app.use(securityHeaders(inlineScriptHashes(pages), ["/verify"], inlineScriptHashes(pages, "style")));
 app.use(express.json({ limit: "256kb" }));
 
 // 速率限制：challenge 每次都花 CCD 上鏈，限制最嚴；全站上限換 IP 也繞不過
@@ -211,6 +207,14 @@ app.get("/eligibility/:account", (req, res) => {
   const rec = eligibility.status(req.params.account);
   // policy 放最後：rec 裡也有 policy（指紋字串），不能讓它蓋掉完整的政策說明
   res.json({ eligible: !!rec, ...(rec ?? {}), policyId: rec?.policy, policy: eligibility.describe() });
+});
+
+// 找不到的路徑與未預期錯誤：自己回 JSON，保留上面設好的安全標頭
+// （Express 預設的錯誤頁會換成它自己的 CSP，ZAP 會抓到缺少 frame-ancestors 等規則）
+app.use((_req, res) => res.status(404).json({ error: "not_found" }));
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("unhandled:", err);
+  if (!res.headersSent) res.status(500).json({ error: "internal_error" });
 });
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));

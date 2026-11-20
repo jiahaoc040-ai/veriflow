@@ -33,6 +33,7 @@
   .checks li { margin:2px 0; }
   .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
   .scroll { overflow-x:auto; }
+  .small { font-size:12px; } .lead { margin-top:0; font-size:13px; } .verdict { margin:6px 0 0; font-weight:600; }
 </style>
 </head>
 <body>
@@ -54,7 +55,7 @@
 
   <div class="card">
     <h2>On-chain commitments</h2>
-    <p class="muted" style="margin-top:0;font-size:13px">Each signal's SHA-256 is written to Concordium when it is sold, before the outcome. Verification runs in your browser: it reads the transaction from the chain via this server and recomputes the hash locally.</p>
+    <p class="muted lead">Each signal's SHA-256 is written to Concordium when it is sold, before the outcome. Verification runs in your browser: it reads the transaction from the chain via this server and recomputes the hash locally.</p>
     <div class="scroll"><table>
       <thead><tr><th>Date</th><th>Asset</th><th>Commitment</th><th>Anchor</th><th></th></tr></thead>
       <tbody id="rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
@@ -63,13 +64,13 @@
 
   <div class="card">
     <h2>Verify a signal you bought</h2>
-    <p class="muted" style="margin-top:0;font-size:13px">Paste the <code>canonical</code> string from your purchase. Change one character and it fails.</p>
+    <p class="muted lead">Paste the <code>canonical</code> string from your purchase. Change one character and it fails.</p>
     <textarea id="pasted" placeholder='{"as_of":"2026-11-17","asset":"BTC",…}'></textarea>
     <p><button class="primary" id="verifyPasted">Verify</button></p>
     <div id="pastedOut"></div>
   </div>
 
-  <p class="muted" style="font-size:12px">Not investment advice. Testnet demo for the Concordium Trusted Agents Hackathon.</p>
+  <p class="muted small">Not investment advice. Testnet demo for the Concordium Trusted Agents Hackathon.</p>
 </main>
 <script>
   const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
@@ -100,7 +101,7 @@
   function render(checks, note) {
     const all = checks.every((c) => c.ok);
     return `<ul class="checks">${checks.map((c) => `<li class="${c.ok ? "ok" : "bad"}">${c.ok ? "✅" : "❌"} ${esc(c.name)} <span class="muted mono">${esc(String(c.detail).slice(0, 80))}</span></li>`).join("")}</ul>
-      <p class="${all ? "ok" : "bad"}" style="margin:6px 0 0;font-weight:600">${all ? "Verified: committed on-chain before the outcome, content unchanged." : "Does not match the on-chain record."}</p>${note ? `<p class="muted" style="font-size:12px">${esc(note)}</p>` : ""}`;
+      <p class="verdict ${all ? "ok" : "bad"}">${all ? "Verified: committed on-chain before the outcome, content unchanged." : "Does not match the on-chain record."}</p>${note ? `<p class="muted small">${esc(note)}</p>` : ""}`;
   }
 
   async function load() {
