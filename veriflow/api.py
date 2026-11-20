@@ -30,7 +30,8 @@ from .ledger import HORIZON_DAYS, Ledger
 from .signal import build_factors, latest_signal
 
 app = FastAPI(title="VeriFlow", version="0.1.0")
-ledger = Ledger(os.environ.get("VERIFLOW_DB", "veriflow.db"))
+# 部署時設 DATABASE_URL（Postgres），本機預設 SQLite 檔案
+ledger = Ledger(os.environ.get("DATABASE_URL") or os.environ.get("VERIFLOW_DB", "veriflow.db"))
 GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")  # 空字串 = 開發模式，不檢查
 
 

@@ -144,13 +144,62 @@ export type Eligible = {
   expiresAt: string;
 };
 
-/** 白名單 + 未使用的請求（白名單存成 JSON 檔，重開不會掉） */
+/** 白名單存在哪裡：本機 JSON 檔，或部署時的 Postgres（DATABASE_URL） */
+export type Persistence = {
+  load(): Promise<Record<string, Eligible>>;
+  save(rec: Eligible): Promise<void>;
+};
+
+export function filePersistence(file: string): Persistence {
+  return {
+    async load() {
+      return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+    },
+    async save(rec) {
+      const all = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      all[rec.account] = rec;
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(all, null, 2));
+    },
+  };
+}
+
+export function postgresPersistence(url: string): Persistence {
+  // 動態載入，本機不用 Postgres 時不需要連線
+  let pool: import("pg").Pool | undefined;
+  const db = async () => {
+    if (!pool) {
+      const { default: pg } = await import("pg");
+      pool = new pg.Pool({ connectionString: url, max: 3, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
+      await pool.query("CREATE TABLE IF NOT EXISTS eligibility (account TEXT PRIMARY KEY, record JSONB NOT NULL)");
+    }
+    return pool;
+  };
+  return {
+    async load() {
+      const { rows } = await (await db()).query("SELECT account, record FROM eligibility");
+      return Object.fromEntries(rows.map((r: { account: string; record: Eligible }) => [r.account, r.record]));
+    },
+    async save(rec) {
+      await (await db()).query(
+        "INSERT INTO eligibility (account, record) VALUES ($1, $2) ON CONFLICT (account) DO UPDATE SET record = EXCLUDED.record",
+        [rec.account, JSON.stringify(rec)],
+      );
+    },
+  };
+}
+
+/** 白名單 + 未使用的請求（白名單寫入 Persistence，重開不會掉；未完成的請求只放記憶體） */
 export class EligibilityStore {
   private challenges = new Map<string, Challenge>();
   private eligible: Record<string, Eligible> = {};
 
-  constructor(private file?: string, private now: () => number = Date.now) {
-    if (file && existsSync(file)) this.eligible = JSON.parse(readFileSync(file, "utf8"));
+  constructor(private persistence?: Persistence, private now: () => number = Date.now) {}
+
+  /** 啟動時從儲存載入白名單 */
+  async init() {
+    if (this.persistence) this.eligible = await this.persistence.load();
+    return this;
   }
 
   put(id: string, c: Omit<Challenge, "expires">) {
@@ -166,11 +215,11 @@ export class EligibilityStore {
     return c;
   }
 
-  grant(e: Omit<Eligible, "verifiedAt" | "expiresAt">): Eligible {
+  async grant(e: Omit<Eligible, "verifiedAt" | "expiresAt">): Promise<Eligible> {
     const t = this.now();
     const rec = { ...e, verifiedAt: new Date(t).toISOString(), expiresAt: new Date(t + ELIGIBILITY_TTL_MS).toISOString() };
+    await this.persistence?.save(rec); // 先寫進儲存，成功才算數
     this.eligible[e.account] = rec;
-    this.save();
     return rec;
   }
 
@@ -178,12 +227,6 @@ export class EligibilityStore {
     const e = this.eligible[account];
     if (!e || e.policy !== policy || Date.parse(e.expiresAt) < this.now()) return null;
     return e;
-  }
-
-  private save() {
-    if (!this.file) return;
-    mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(this.eligible, null, 2));
   }
 }
 
@@ -300,7 +343,7 @@ export class EligibilityService {
     // 最後才做官方檢查 + 稽核上鏈（要花手續費，前面便宜的檢查先擋掉）
     const auditAnchorTx = await withTimeout(this.chain.auditAndAnchor(id, c.request, parsed), "官方驗證與稽核上鏈");
 
-    return this.store.grant({
+    return await this.store.grant({
       account: c.account,
       credId,
       issuer,

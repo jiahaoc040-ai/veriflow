@@ -6,15 +6,15 @@
   2. 之後任何人都能拿公開的訊號內容重算雜湊，對照鏈上紀錄
   3. 評分：RISK_ON 之後 7 天價格上漲 = 命中；RISK_OFF 之後 7 天下跌 = 命中
 
-上鏈的部分（anchor）是下一步：Concordium register data 交易。
+儲存：本機預設 SQLite 檔案；部署時設 DATABASE_URL=postgresql://… 改用 Postgres（平台重開資料不會掉）。
 """
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import create_engine, text
 
 from .signal import RISK_ON, Signal
 
@@ -34,33 +34,48 @@ CREATE TABLE IF NOT EXISTS signals (
 """
 
 
+def _engine_url(target: str | Path) -> str:
+    """檔案路徑 → SQLite；postgres:// 或 postgresql:// → Postgres（psycopg 驅動）"""
+    t = str(target)
+    if t.startswith(("postgres://", "postgresql://")):
+        return "postgresql+psycopg://" + t.split("://", 1)[1]
+    if "://" in t:
+        return t
+    return f"sqlite:///{t}"
+
+
 class Ledger:
-    def __init__(self, path: str | Path = "veriflow.db"):
-        self.conn = sqlite3.connect(str(path), check_same_thread=False)
-        self.conn.execute(SCHEMA)
+    def __init__(self, target: str | Path = "veriflow.db"):
+        self.engine = create_engine(_engine_url(target), pool_pre_ping=True, future=True)
+        with self.engine.begin() as c:
+            c.execute(text(SCHEMA))
 
     def record(self, s: Signal) -> str:
         c = s.commitment()
-        self.conn.execute(
-            "INSERT OR IGNORE INTO signals VALUES (?,?,?,?,?,?,?,NULL)",
-            (c, s.asset, s.as_of, s.signal, s.close, s.canonical(), s.issued_at),
-        )
-        self.conn.commit()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO signals (commitment, asset, as_of, signal, close, canonical, issued_at, anchor_tx) "
+                    "VALUES (:c, :asset, :as_of, :signal, :close, :canonical, :issued_at, NULL) "
+                    "ON CONFLICT (commitment) DO NOTHING"
+                ),
+                {"c": c, "asset": s.asset, "as_of": s.as_of, "signal": s.signal, "close": s.close,
+                 "canonical": s.canonical(), "issued_at": s.issued_at},
+            )
         return c
 
     def set_anchor(self, commitment: str, tx_hash: str) -> None:
-        self.conn.execute("UPDATE signals SET anchor_tx=? WHERE commitment=?", (tx_hash, commitment))
-        self.conn.commit()
+        with self.engine.begin() as conn:
+            conn.execute(text("UPDATE signals SET anchor_tx=:tx WHERE commitment=:c"), {"tx": tx_hash, "c": commitment})
 
     def get(self, commitment: str) -> dict | None:
-        cur = self.conn.execute("SELECT * FROM signals WHERE commitment=?", (commitment,))
-        row = cur.fetchone()
-        if row is None:
-            return None
-        return dict(zip([c[0] for c in cur.description], row))
+        with self.engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM signals WHERE commitment=:c"), {"c": commitment}).mappings().first()
+        return dict(row) if row else None
 
     def all(self) -> pd.DataFrame:
-        return pd.read_sql("SELECT * FROM signals ORDER BY issued_at", self.conn)
+        with self.engine.connect() as conn:
+            return pd.read_sql(text("SELECT * FROM signals ORDER BY issued_at"), conn)
 
     def track_record(self, prices: dict[str, pd.DataFrame]) -> dict:
         """prices：{'BTC': DataFrame(close)}。只評分已經過了 7 天的訊號"""

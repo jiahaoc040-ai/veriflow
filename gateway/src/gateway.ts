@@ -19,7 +19,7 @@ import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
 import { GATEWAY_DIR, NETWORK, env } from "./config.js";
 import { resolve } from "node:path";
 import { createAnchorer } from "./anchor.js";
-import { EligibilityService, EligibilityStore, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
+import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
 const GATEWAY_SECRET = env("GATEWAY_SECRET");
@@ -30,7 +30,12 @@ const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 
 const eligibility = new EligibilityService(
   { minAge: MIN_AGE, restrictedCountries: parseCountries(process.env.RESTRICTED_COUNTRIES) },
-  new EligibilityStore(resolve(GATEWAY_DIR, env("ELIGIBILITY_FILE", "data/eligibility.json"))),
+  // 部署時設 DATABASE_URL（Postgres），本機預設 JSON 檔
+  await new EligibilityStore(
+    process.env.DATABASE_URL
+      ? postgresPersistence(process.env.DATABASE_URL)
+      : filePersistence(resolve(GATEWAY_DIR, env("ELIGIBILITY_FILE", "data/eligibility.json"))),
+  ).init(),
   // 驗證請求（VRA）與稽核紀錄（VAA）由上鏈帳號付手續費寫上鏈
   concordiumChain(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE"))),
   PUBLIC_URL,
