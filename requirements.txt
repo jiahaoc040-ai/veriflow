@@ -1,5 +1,5 @@
 numpy
-pandas>=1.5
+pandas>=3.1.1
 httpx
 ccxt
 fastapi
@@ -7,5 +7,5 @@ uvicorn
 python-dotenv
 pytest
 streamlit
-sqlalchemy>=2.0
-psycopg[binary]>=3.1
+sqlalchemy>=2.1.9
+psycopg[binary]>=3.3.9

@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
     paths: ["contract/**", ".github/workflows/contract.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["contract/**", ".github/workflows/contract.yml"]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +22,7 @@ jobs:
       run:
         working-directory: contract
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Rust toolchain with Wasm targets
         run: |
@@ -27,7 +30,7 @@ jobs:
           rustup target add wasm32-unknown-unknown wasm32v1-none
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/cargo-concordium
@@ -50,7 +53,7 @@ jobs:
         run: cargo test
 
       - name: Upload module artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: veriflow-registry-module
           path: contract/concordium-out/

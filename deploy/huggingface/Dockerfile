@@ -1,6 +1,6 @@
 # Hugging Face Space wrapper: builds VeriFlow straight from the public GitHub repo.
 # To deploy a newer commit, use "Factory rebuild" in the Space settings.
-FROM node:20-bookworm-slim
+FROM node:26-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends git python3 python3-pip python3-venv ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
