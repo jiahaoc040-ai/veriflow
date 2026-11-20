@@ -1,0 +1,48 @@
+name: zap
+
+# Passive ZAP baseline scan of OUR deployed site. Results are also emitted as
+# check-run annotations so they can be read without downloading artifacts.
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/zap.yml"]
+  schedule:
+    - cron: "17 3 * * 1"   # weekly
+  workflow_dispatch:
+
+env:
+  TARGET: https://veriflow-yrhp.onrender.com
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the free instance
+        run: curl -fsS --retry 5 --retry-delay 15 --max-time 120 "$TARGET/health"
+
+      - name: ZAP baseline (passive)
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ env.TARGET }}
+          allow_issue_writing: false
+          fail_action: false
+          cmd_options: "-j"   # also run the AJAX spider so the JS pages are crawled
+
+      - name: Findings as annotations
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          try:
+              r = json.load(open("report_json.json"))
+          except Exception as e:
+              print(f"::error title=ZAP::no report ({e})"); raise SystemExit
+          alerts = [a for s in r.get("site", []) for a in s.get("alerts", [])]
+          risk = {"3": "High", "2": "Medium", "1": "Low", "0": "Info"}
+          alerts.sort(key=lambda a: -int(a.get("riskcode", 0)))
+          lines = [f"{risk.get(a.get('riskcode'),'?')} | {a.get('name')} | {a.get('count')} url(s) | e.g. {a['instances'][0]['uri'] if a.get('instances') else ''}" for a in alerts]
+          print(f"::notice title=ZAP summary::{len(alerts)} alert types")
+          for l in lines[:40]:
+              level = "warning" if l.startswith(("High", "Medium")) else "notice"
+              print(f"::{level} title=ZAP::{l}")
+          PY
