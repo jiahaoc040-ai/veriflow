@@ -1,0 +1,61 @@
+name: docker
+
+# Builds the deployment image and smoke-tests it against a real Postgres from
+# a US-hosted runner (checks the Binance public-data mirror works there too).
+on:
+  push:
+    branches: [main]
+    paths: ["Dockerfile", "deploy/**", "requirements.txt", "veriflow/**", "gateway/**", "agent-card.json", ".github/workflows/docker.yml"]
+  workflow_dispatch:
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t veriflow .
+
+      - name: Start container with throwaway secrets
+        run: |
+          # a syntactically valid but unfunded throwaway key: the smoke test never signs anything
+          KEY=$(node -e '
+            const c=require("crypto");
+            const hex=n=>c.randomBytes(n).toString("hex");
+            console.log(JSON.stringify({type:"concordium-browser-wallet-account",v:0,environment:"testnet",
+              value:{accountKeys:{keys:{"0":{keys:{"0":{signKey:hex(32),verifyKey:hex(32)}},threshold:1}},threshold:1},
+              credentials:{"0":"00"},address:"2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"}}))')
+          docker run -d --name vf --network host \
+            -e FACILITATOR_KEY_JSON="$KEY" \
+            -e SELLER_ADDRESS=2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX \
+            -e GATEWAY_SECRET=ci-secret \
+            -e DATABASE_URL=postgresql://postgres:test@127.0.0.1:5432/postgres \
+            -e PUBLIC_URL=http://127.0.0.1:7860 \
+            veriflow
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:7860/health && break; sleep 2; done
+
+      - name: Smoke test
+        run: |
+          set -x
+          curl -fsS http://127.0.0.1:7860/health
+          curl -fsS http://127.0.0.1:7860/ | grep -q "On-chain commitments"
+          curl -fsS http://127.0.0.1:7860/verify | grep -q "VeriFlow buyer verification"
+          curl -fsS http://127.0.0.1:7860/.well-known/agent-card.json | sha256sum | grep -q 1dbe6d737822e9ea67117bd8b87bd6cfd18a02d22027055e36292092ffbe5f21
+          curl -fsS http://127.0.0.1:7860/commitments
+          curl -fsS http://127.0.0.1:7860/eligibility/2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX
+          # unpaid request must get 402 with the buyer-proof requirement advertised
+          code=$(curl -s -o /tmp/402.json -w '%{http_code}' http://127.0.0.1:7860/signal/BTC); test "$code" = 402
+          # prices from a US runner through the Binance public-data mirror
+          curl -fsS --max-time 120 http://127.0.0.1:7860/track-record | head -c 300
+
+      - name: Container logs
+        if: always()
+        run: docker logs vf 2>&1 | tail -80

@@ -1,0 +1,10 @@
+.git
+**/node_modules
+contract/target
+gateway/keys
+gateway/data
+**/.env
+*.db
+*.export
+__pycache__
+.venv

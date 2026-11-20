@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import os
+
 import httpx
 import pandas as pd
 from dotenv import load_dotenv
@@ -43,7 +45,12 @@ def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
     """Binance 日 K 收盤價"""
     import ccxt  # 延後 import：測試時不需要網路
 
-    ex = ccxt.binance()
+    # 只需要現貨；不載入期貨市場（fapi/dapi 網域在部分地區也會被擋）
+    ex = ccxt.binance({"options": {"fetchMarkets": {"types": ["spot"]}}})
+    # 雲端主機多在美國，api.binance.com 會擋美國 IP；公開行情可改走官方鏡像 data-api.binance.vision
+    public_api = os.environ.get("BINANCE_PUBLIC_API")
+    if public_api:
+        ex.urls["api"]["public"] = public_api
     since_ms = ex.parse8601(f"{since}T00:00:00Z")
     out = []
     while True:
