@@ -43,7 +43,7 @@ End-to-end on the public deployment (2026-11-20): buyer proved eligibility with 
 
 The signal is a **risk regime** (`RISK_ON` / `RISK_OFF`) for BTC and ETH, built only from free, public data:
 
-- **Momentum:** trailing 30-day return > 0 (Binance daily closes)
+- **Momentum:** trailing 30-day return > 0 (Binance daily closes; OKX spot daily closes as a fallback when a cloud host's IP is blocked by Binance — same UTC day boundary)
 - **Stablecoin liquidity:** 7-day change in total stablecoin supply across all chains, as a 90-day z-score ([DefiLlama](https://defillama.com/stablecoins))
 - `RISK_ON` when momentum is positive and liquidity is not clearly contracting (`liquidity_z > -1`)
 
