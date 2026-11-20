@@ -6,7 +6,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,12 @@ import { claudeConfigPath, claudeLogDir, mcpServerEntry, mergeConfig, SERVER_NAM
 
 const BUYER = "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"; // 測試用地址
 const C1 = "ab".repeat(32);
+const TOKEN = "JyP9UWYKh54TD2MUJDfqC";
+const SELLER_WALLET = "3WSAJwTZqVRypnGMkUjW28QDES8h1FUBoCwrzQ1rdN35NGavf8";
+const CARD = JSON.stringify({
+  name: "VeriFlow",
+  capabilities: { extensions: [{ uri: "https://docs.concordium.com/a2a-extensions/concordium-badge/v1", params: { tokenAddress: `ccd:x/cis-2:${TOKEN}` } }] },
+});
 const COMMITMENTS = [{ commitment: C1, asset: "BTC", as_of: "2026-11-19", issued_at: "2026-11-20T05:00:42+00:00", anchor_tx: null }];
 
 let http: Server;
@@ -32,6 +38,30 @@ function fakeGateway(): Promise<string> {
       res.end(JSON.stringify(body));
     };
     const url = req.url ?? "";
+    if (url === "/.well-known/agent-card.json" || url === "/card.json") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(CARD);
+    }
+    if (url === "/signal/BTC") {
+      // 未付款：x402 的 402，PAYMENT-REQUIRED 標頭說要付給誰
+      const required = { x402Version: 2, accepts: [{ scheme: "exact", network: "ccd:test", amount: "1000000", asset: "CCD", payTo: SELLER_WALLET }] };
+      res.writeHead(402, { "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(required)).toString("base64") });
+      return res.end("{}");
+    }
+    if (url === "/mcp" && req.method === "POST") {
+      // 假的 Concordium Agent Registry MCP
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        const { id, params } = JSON.parse(body);
+        const result =
+          params.name === "agent_by_token_address"
+            ? { token_id: "1313", owner_account: "4dNM", agent_uri: `${gateway}/card.json`, metadata_hash_hex: createHash("sha256").update(CARD).digest("hex"), agent_wallet: SELLER_WALLET, status: "Active" }
+            : { badge_valid: true, checks: { status_active: true }, issues: [] };
+        send(200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }], isError: false } });
+      });
+      return;
+    }
     if (url === "/commitments") return send(200, COMMITMENTS);
     if (url === "/track-record") return send(200, { n: 0, hit_rate: null, horizon_days: 7 });
     if (url === `/eligibility/${BUYER}`) return send(200, { eligible: false, policy: { minAge: 18 } });
@@ -67,7 +97,7 @@ before(async () => {
   const transport = new StdioClientTransport({
     command: entry.command,
     args: entry.args,
-    env: { ...entry.env, BUYER_KEY_FILE: throwawayKeyFile() }, // SDK 只另外帶 HOME、PATH 等少數變數，跟 Claude Desktop 一樣
+    env: { ...entry.env, BUYER_KEY_FILE: throwawayKeyFile(), REGISTRY_MCP_URL: `${gateway}/mcp` }, // SDK 只另外帶 HOME、PATH 等少數變數，跟 Claude Desktop 一樣
     cwd: "/", // Claude Desktop 不會在專案資料夾裡啟動我們
     stderr: "pipe",
   });
@@ -92,9 +122,9 @@ test("launch command: absolute node + tsx loader URL + absolute mcp.ts, public g
   assert.ok(!JSON.stringify(e).includes("signKey"), "no key material in the config");
 });
 
-test("server starts from / with a minimal environment and lists the 5 tools with safety hints", async () => {
+test("server starts from / with a minimal environment and lists the 6 tools with safety hints", async () => {
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["check_eligibility", "get_signal", "get_track_record", "list_commitments", "verify_signal"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["check_eligibility", "check_seller", "get_signal", "get_track_record", "list_commitments", "verify_signal"]);
   for (const t of tools) assert.equal(t.annotations?.readOnlyHint, t.name !== "get_signal", t.name);
   assert.match(client.getInstructions() ?? "", /zero-knowledge/);
   assert.match(stderr, new RegExp(`veriflow MCP ready \\(buyer ${BUYER}, gateway ${gateway.replace(/[.:/]/g, "\\$&")}\\)`));
@@ -109,6 +139,14 @@ test("free tools answer from the seller's public endpoints", async () => {
   assert.equal(elig.verify_url, `${gateway}/verify?account=${BUYER}`);
 });
 
+test("check_seller: asks the x402 endpoint whom to pay, then verifies that seller in the Agent Registry", async () => {
+  const v = JSON.parse(text(await client.callTool({ name: "check_seller", arguments: {} })));
+  assert.equal(v.verified, true, JSON.stringify(v.checks));
+  assert.equal(v.payTo, SELLER_WALLET);
+  assert.equal(v.tokenAddress, TOKEN);
+  assert.equal(v.checks.length, 5);
+});
+
 test("errors come back as tool errors, not crashes", async () => {
   const unanchored = await client.callTool({ name: "verify_signal", arguments: { commitment: C1 } });
   assert.equal(unanchored.isError, true);
@@ -117,7 +155,7 @@ test("errors come back as tool errors, not crashes", async () => {
   assert.equal(unknown.isError, true);
   assert.match(text(unknown), /404/);
   // 伺服器還活著
-  assert.equal((await client.listTools()).tools.length, 5);
+  assert.equal((await client.listTools()).tools.length, 6);
 });
 
 test("stdout carries only MCP messages (nothing printed into the protocol stream)", () => {

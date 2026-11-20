@@ -7,6 +7,7 @@
  *   list_commitments   看所有鏈上承諾（公開）
  *   verify_signal      直接向 Concordium 節點讀回承諾並驗證（不經過賣方的伺服器）；可貼上訊號內容一起驗
  *   check_eligibility  買方帳號是否已通過零知識資格驗證
+ *   check_seller       付款前驗證賣方（badge、Registry、Agent Card 雜湊、收款地址＝鏈上 agentWallet）
  *
  * 付款用 BUYER_KEY_FILE 的帳號，花費護欄同示範 buyer（只付 CCD、單次上限 MAX_PAY_MICROCCD）。
  * 執行（stdio）：npm run mcp
@@ -37,7 +38,9 @@ const INSTRUCTIONS =
   "Typical flow: (1) check_eligibility — the paying account must have passed a one-time zero-knowledge check " +
   "(age >= 18, not resident in a restricted country); if it has not, give the human the verify_url and stop, never try " +
   "to work around it. (2) get_track_record and list_commitments to judge the seller's verifiable history. " +
-  "(3) get_signal pays about 1 testnet CCD. (4) verify_signal with the returned commitment and canonical string: it " +
+  "(3) check_seller — before any payment the buyer verifies the seller in Concordium's Agent Registry: identity-verified " +
+  "badge, Active, Agent Card hash, and that the x402 payTo is the agent's on-chain wallet; get_signal runs the same check " +
+  "itself and refuses to pay if anything fails. (4) get_signal pays about 1 testnet CCD. (5) verify_signal with the returned commitment and canonical string: it " +
   "reads the anchor straight from a Concordium node, so you do not have to trust VeriFlow's server. " +
   "Payments are Concordium testnet CCD only. Not investment advice.";
 
@@ -91,6 +94,8 @@ server.registerTool(
   async ({ asset }) => {
     try {
       const r = await agent.buySignal(asset);
+      if (r.refused)
+        return { ...json({ paid: false, reason: "The seller failed verification, so nothing was signed or paid.", seller_check: r.sellerCheck }), isError: true };
       if (r.needsVerification)
         return fail(
           `The buyer account ${agent.address} has not proven eligibility (age ≥ 18, not in a restricted country). ` +
@@ -104,6 +109,7 @@ server.registerTool(
         payment_tx: r.payment?.transaction,
         payment_explorer: r.paymentExplorer,
         anchor_explorer: b.anchor_tx ? EXPLORER + b.anchor_tx : undefined,
+        seller_check: r.sellerCheck,
         how_to_verify: "Call verify_signal with this commitment and canonical string.",
       });
     } catch (e) {
@@ -186,6 +192,28 @@ server.registerTool(
       });
     } catch (e) {
       return fail(`Verification failed: ${errText(e)}`);
+    }
+  },
+);
+
+server.registerTool(
+  "check_seller",
+  {
+    title: "Verify the seller before paying",
+    description:
+      "Without paying, ask VeriFlow's x402 endpoint whom it wants to be paid, then check that seller in Concordium's Agent " +
+      "Registry (CIS-8004): Verified by Concordium badge (identity-verified owner), Active, Agent Card unchanged since it was " +
+      "pinned on-chain (hash computed here), and payTo equal to the agent's on-chain wallet. get_signal runs this same check " +
+      "automatically and refuses to pay if any item fails.",
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  async () => {
+    try {
+      const v = await agent.checkSeller();
+      return json({ verified: v.ok, ...v, checked_in: "Concordium Agent Registry <12802,0> via agent-registry-mcp.concordium.com" });
+    } catch (e) {
+      return fail(`Seller check failed: ${errText(e)}`);
     }
   },
 );

@@ -36,7 +36,7 @@ End-to-end on the public deployment (2026-11-20): buyer proved eligibility with 
 | Rust smart contract (`contract/`) | ✅ on-chain commit–reveal registry deployed on testnet at `<13094,0>` ([init tx](https://ccdexplorer.io/testnet/transaction/590bb53e65c96599613b547370be32ecad8fef7aaf6dac405021eb35c6e01b88), module `7685e945…`); the gateway commits paid signals through it ([commit tx](https://ccdexplorer.io/testnet/transaction/d538e13d0624acbedc1f7b97a77da43cc82ded28522febcdab2b8f522741e0ab)); CI builds the Wasm and runs 8 end-to-end tests |
 | Agent Registry + Verified by Concordium badge (`gateway/src/registry.ts`, [`agent-card.json`](agent-card.json)) | ✅ registered as CIS-8004 agent #1313 on testnet `<12802,0>` ([tx](https://ccdexplorer.io/testnet/transaction/fe34bd0b8299a07855dd664648c78caf08fcb33433f92a635d9b1bde189462eb)), badge `JyP9UWYKh54TD2MUJDfqC`, card hash pinned ([tx](https://ccdexplorer.io/testnet/transaction/e33d24fbf3869ca57453c43cb5b94e05da4172579e47004c95585a99c53342b3)); official `check_badge`: all 15 checks pass |
 | Daily public signals (`gateway/src/daily.ts`, `POST /daily/{asset}`) | ✅ the deployed server commits one BTC and one ETH signal per daily close through the contract, whether or not anyone buys — so the live track record grows every day and cannot be cherry-picked; a failed anchor is retried next round, never duplicated |
-| MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal` (reads Concordium directly), `check_eligibility`; one-command Claude Desktop install (`npm run mcp:config -- --install`) |
+| MCP server (`gateway/src/mcp.ts`) | ✅ 6 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal` (reads Concordium directly), `check_eligibility`; one-command Claude Desktop install (`npm run mcp:config -- --install`); `check_seller` verifies the seller before paying |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
 
 ## The signal — and why we publish its track record
@@ -70,9 +70,20 @@ No API keys are needed for the signal: prices come from Binance and stablecoin s
 
 `streamlit run dashboard.py` shows every commitment with a **one-click verify** button. It reads the transaction back from Concordium, decodes `veriflow:v1:<hash>`, and checks it against the commitment. A buyer can paste the `canonical` signal they received; change a single character and verification fails. With the content in hand it also checks the anchoring block's time: a signal must be on-chain within a day of its data close, so a record written after the outcome was known fails verification. The same checks run in the public dashboard (in the browser), `veriflow/verify.py`, and the MCP `verify_signal` tool.
 
+## Trust in both directions
+
+| Who checks | What | How |
+|---|---|---|
+| **Seller → buyer** | The paying account's owner is 18+ and not resident in a restricted country | Verify & Access V1 zero-knowledge proof, request and audit anchored on-chain; checked in the x402 facilitator before a payment settles |
+| **Buyer → seller** | The agent being paid is identity-verified, Active, its Agent Card is unchanged, and the money goes to **its own on-chain wallet** | Concordium Agent Registry (CIS-8004 `<12802,0>`, official hosted MCP): `agent_by_token_address` + `check_badge`, the card's SHA-256 recomputed by the buyer, x402 `payTo` must equal the registered `agentWallet` |
+
+The buyer check runs in an x402 client hook (`onBeforePaymentCreation`, `gateway/src/counterparty.ts`), so a seller that fails it is never even signed for — the wallet is not asked. It fails closed: if the registry is unreachable, the agent does not pay. This stops the impersonation attack where a scam endpoint copies an honest agent's badge and Agent Card but asks to be paid at its own address.
+
+VeriFlow binds its x402 `payTo` to agent #1313 on-chain with `npm run registry -- set-wallet 1313`: the payout account signs the official 162-byte `setAgentWallet` authorization (the command checks every byte — token, owner, wallet, deadline, contract, chain — before signing) and the owner submits it. Any buyer agent, not just ours, can then check that paying VeriFlow pays VeriFlow.
+
 ## Agent guardrails
 
-The demo buyer agent only pays in testnet CCD and refuses any single payment above `MAX_PAY_MICROCCD` (default 2 CCD), using x402 client spend controls. A seller that raises its price or switches asset cannot drain the buyer.
+The demo buyer agent only pays in testnet CCD and refuses any single payment above `MAX_PAY_MICROCCD` (default 2 CCD), using x402 client spend controls. A seller that raises its price or switches asset cannot drain the buyer. Before signing, it verifies the seller as above (`REQUIRE_SELLER_BADGE=true`).
 
 ## x402 payment gateway (`gateway/`)
 
@@ -124,8 +135,9 @@ cd gateway && npm test      # 15 rule tests: replay, wrong account, identity-onl
 | `list_commitments` | Every commitment with its Concordium transaction (free) |
 | `verify_signal` | Reads the anchor **straight from a Concordium node** — the buyer's agent does not have to trust VeriFlow's server — and checks: confirmed, carries this commitment, and (with the `canonical` string) the content hashes to it and was anchored within a day of its data close, long before the 7-day outcome |
 | `check_eligibility` | Has this account passed the ZK eligibility check? Returns the `/verify` link if not |
+| `check_seller` | Without paying, asks the x402 endpoint whom to pay and verifies that seller in the Agent Registry (badge, Active, own card hash, `payTo` = on-chain `agentWallet`). `get_signal` runs the same check and refuses to pay on any failure |
 
-The server also sends MCP `instructions` (check eligibility → judge the track record → buy → verify) and tool annotations (`get_signal` is the only non-read-only tool), so a client knows which call spends money.
+The server also sends MCP `instructions` (check eligibility → judge the track record → verify the seller → buy → verify the signal) and tool annotations (`get_signal` is the only non-read-only tool), so a client knows which call spends money.
 
 **Claude Desktop, one command** (fills in absolute paths, keeps your other MCP servers, backs up the old config):
 

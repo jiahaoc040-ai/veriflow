@@ -12,6 +12,10 @@
  *   npm run registry -- register            鑄造 Agent NFT，印出 token id
  *   npm run registry -- set-uri <tokenId>   讀取公開的 Agent Card、算 SHA-256、釘上鏈
  *   npm run registry -- status <tokenId>    官方 badge 檢查
+ *   npm run registry -- set-wallet <tokenId>
+ *        把收款帳號（SELLER_KEY_FILE，＝x402 的 payTo）登記成 agent 的鏈上 agentWallet。
+ *        收款帳號簽「授權訊息」（簽之前逐位元組檢查內容），擁有者帳號送出交易。
+ *        買方 agent（自己的或別人的）付款前會比對 payTo＝agentWallet，擋掉冒充者。
  *
  * 擁有者帳號：REGISTRY_OWNER_KEY_FILE（預設 = FACILITATOR_KEY_FILE）
  * Agent Card 網址：AGENT_CARD_URL（預設 GitHub 上的 agent-card.json）
@@ -74,6 +78,35 @@ export function mintedTokenId(eventHexes: string[]): string | undefined {
     return v.toString();
   }
   return undefined;
+}
+
+/** testnet 的 genesis hash（setAgentWallet 授權訊息會綁定鏈，避免跨鏈重放） */
+export const TESTNET_GENESIS = "4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796";
+const SET_WALLET_PREFIX = "CIS-8004/v1/setAgentWallet";
+
+/**
+ * 解析並檢查 setAgentWallet 的 162 位元組授權訊息——簽名之前一定要確認內容就是我們要授權的那件事，
+ * 不能盲簽遠端服務給的位元組。版面（官方 set_agent_wallet_canonical_bytes）：
+ *   前綴(26) ‖ token_id u64 LE(8) ‖ owner(32) ‖ new_wallet(32) ‖ nonce u64 LE(8) ‖ deadline u64 LE(8) ‖ 合約 index,subindex u64 LE(16) ‖ genesis(32)
+ */
+export function checkSetWalletMessage(
+  bytes: Uint8Array,
+  want: { tokenId: string; owner: string; wallet: string; deadlineMs: number; contract: { index: bigint; subindex: bigint }; genesis: string },
+): { nonce: bigint } {
+  const b = Buffer.from(bytes);
+  if (b.length !== 162) throw new Error(`授權訊息長度 ${b.length}，應該是 162`);
+  const fail = (what: string) => {
+    throw new Error(`授權訊息的 ${what} 不符，拒絕簽名`);
+  };
+  if (b.subarray(0, 26).toString("utf8") !== SET_WALLET_PREFIX) fail("前綴");
+  if (b.readBigUInt64LE(26) !== BigInt(want.tokenId)) fail("token id");
+  if (!b.subarray(34, 66).equals(Buffer.from(AccountAddress.fromBase58(want.owner).decodedAddress))) fail("擁有者");
+  if (!b.subarray(66, 98).equals(Buffer.from(AccountAddress.fromBase58(want.wallet).decodedAddress))) fail("新錢包");
+  const nonce = b.readBigUInt64LE(98);
+  if (b.readBigUInt64LE(106) !== BigInt(want.deadlineMs)) fail("期限");
+  if (b.readBigUInt64LE(114) !== want.contract.index || b.readBigUInt64LE(122) !== want.contract.subindex) fail("合約");
+  if (b.subarray(130, 162).toString("hex") !== want.genesis) fail("鏈（genesis hash）");
+  return { nonce };
 }
 
 /** 從最終確認的交易摘要裡收集所有合約事件（hex） */
@@ -157,6 +190,46 @@ async function main() {
     console.log("\nAgent Card pinned on-chain. Badge check:");
   }
 
+  if (cmd === "set-wallet") {
+    if (!arg) throw new Error("usage: npm run registry -- set-wallet <tokenId>");
+    const wallet = loadAccount(env("SELLER_KEY_FILE", "keys/seller.export"));
+    const seller = process.env.SELLER_ADDRESS;
+    if (seller && seller !== wallet.address)
+      throw new Error(`SELLER_KEY_FILE 是 ${wallet.address}，但 x402 收款地址 SELLER_ADDRESS 是 ${seller}——要登記的應該是收款地址`);
+    const deadlineMs = Date.now() + 15 * 60_000;
+    const msg = await registryTool("set_agent_wallet_canonical_bytes", {
+      network: REGISTRY_NETWORK,
+      token_id: arg,
+      new_wallet: wallet.address,
+      deadline_unix_ms: deadlineMs,
+    });
+    const bytes = Buffer.from(String(msg.bytes_hex), "hex");
+    const { nonce } = checkSetWalletMessage(bytes, {
+      tokenId: arg,
+      owner: ownerB58,
+      wallet: wallet.address,
+      deadlineMs,
+      contract: { index: BigInt(msg.contract_address?.index ?? 12802), subindex: BigInt(msg.contract_address?.subindex ?? 0) },
+      genesis: TESTNET_GENESIS,
+    });
+    console.log(`授權訊息檢查通過（agent #${arg}、擁有者 ${ownerB58}、新錢包 ${wallet.address}、nonce ${nonce}）`);
+    const sigs = await wallet.signer.sign(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) as ArrayBuffer);
+    const signatureHex = Object.values(Object.values(sigs)[0] ?? {})[0];
+    if (!signatureHex) throw new Error("收款帳號沒有可用的簽名金鑰");
+    const built = await registryTool("build_set_agent_wallet", {
+      network: REGISTRY_NETWORK,
+      token_id: arg,
+      new_wallet: wallet.address,
+      deadline_unix_ms: deadlineMs,
+      signature_hex: signatureHex,
+      sender: ownerB58,
+    });
+    await submit(owner, built);
+    const now = await registryTool("get_agent_wallet", { network: REGISTRY_NETWORK, token_id: arg });
+    console.log(`\n✅ agent #${arg} 的鏈上 agentWallet：${JSON.stringify(now)}`);
+    return;
+  }
+
   if (cmd === "set-uri" || cmd === "status") {
     if (!arg) throw new Error("usage: npm run registry -- status <tokenId>");
     const info = await registryTool("contract_info", { network: REGISTRY_NETWORK });
@@ -171,7 +244,7 @@ async function main() {
     return;
   }
 
-  console.log("usage: npm run registry -- register | set-uri <tokenId> | status <tokenId>");
+  console.log("usage: npm run registry -- register | set-uri <tokenId> | set-wallet <tokenId> | status <tokenId>");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

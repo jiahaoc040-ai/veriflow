@@ -81,5 +81,5 @@ const quit = process.platform === "darwin" ? "選單列 Claude → Quit Claude�
 console.log(`
 下一步：
   1. 完全結束 Claude Desktop（${quit}），再重新打開——只關視窗不算
-  2. 對話框左下角「+」→ Connectors，應該看到 ${SERVER_NAME}（5 個工具）
+  2. 對話框左下角「+」→ Connectors，應該看到 ${SERVER_NAME}（6 個工具）
   3. 有問題看記錄：${claudeLogDir()}/mcp-server-${SERVER_NAME}.log`);
