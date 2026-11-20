@@ -181,6 +181,8 @@ Tested target: **Hugging Face Spaces (Docker) + Neon Postgres**, both free witho
 | `PUBLIC_URL` | the deployment's public URL |
 | `REGISTRY_CONTRACT` | optional: commit through the Rust contract |
 
+**Hardening for a public URL.** Every `/eligibility/challenge` call anchors a transaction and spends CCD, so it is rate-limited per IP, per account and by a site-wide hourly budget (`CHALLENGES_PER_HOUR`, default 60) that rotating IPs cannot bypass. Pages are served with a strict CSP (inline scripts allowed only by SHA-256 hash), `nosniff`, `no-referrer`, HSTS over HTTPS, and framing limited to Hugging Face. CI runs Trivy (vulnerable dependencies and committed secrets) on every push; a ZAP baseline scan of the deployed URL can be run from the Actions tab.
+
 The buyer agent's key never goes to the server: agents pay from their own machine (demo buyer or MCP server).
 
 ## API

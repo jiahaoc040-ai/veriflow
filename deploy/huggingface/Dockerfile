@@ -21,7 +21,8 @@ ENV PORT=7860 \
     API_URL=http://127.0.0.1:8000 \
     FACILITATOR_URL=http://127.0.0.1:4021 \
     BINANCE_PUBLIC_API=https://data-api.binance.vision/api/v3 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TRUST_PROXY=1
 
 EXPOSE 7860
 ENTRYPOINT ["/usr/bin/tini", "--"]

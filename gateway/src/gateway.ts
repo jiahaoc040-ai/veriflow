@@ -19,6 +19,7 @@ import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
 import { GATEWAY_DIR, NETWORK, env } from "./config.js";
 import { resolve } from "node:path";
 import { createAnchorer } from "./anchor.js";
+import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
@@ -61,7 +62,26 @@ const resourceServer = new x402ResourceServer(
   });
 
 const app = express();
+app.disable("x-powered-by");
+// 部署在反向代理後面（Hugging Face / Render）時，用 X-Forwarded-For 取得真實 IP、X-Forwarded-Proto 判斷 HTTPS
+if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+app.use(
+  securityHeaders(
+    inlineScriptHashes([new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname]),
+  ),
+);
 app.use(express.json({ limit: "256kb" }));
+
+// 速率限制：challenge 每次都花 CCD 上鏈，限制最嚴；全站上限換 IP 也繞不過
+const MIN = 60_000;
+const ip = (req: express.Request) => req.ip ?? "unknown";
+const limitChallenge = rateLimit([
+  { limiter: new RateLimiter(5, 10 * MIN), key: ip, what: "per IP" },
+  { limiter: new RateLimiter(3, 60 * MIN), key: (req) => String(req.body?.account ?? ""), what: "per account" },
+  { limiter: new RateLimiter(Number(env("CHALLENGES_PER_HOUR", "60")), 60 * MIN), key: () => "all", what: "site-wide hourly budget" },
+]);
+const limitVerify = rateLimit([{ limiter: new RateLimiter(10, 10 * MIN), key: ip, what: "per IP" }]);
+const limitRead = rateLimit([{ limiter: new RateLimiter(120, MIN), key: ip, what: "per IP" }]);
 
 app.use(
   paymentMiddleware(
@@ -138,10 +158,10 @@ app.get("/commitments", (_req, res) => forward("/commitments", res, false));
 app.get("/commitments/:c", (req, res) => forward(`/commitments/${encodeURIComponent(req.params.c)}`, res, false));
 
 // 公開：從 Concordium 讀回上鏈的承諾（給儀表板的「一鍵驗證」用）
-app.get("/onchain/:tx", async (req, res) => {
-  if (!/^[0-9a-f]{64}$/.test(req.params.tx)) return res.status(400).json({ error: "tx 格式錯誤" });
+app.get("/onchain/:tx", limitRead, async (req, res) => {
+  if (!/^[0-9a-f]{64}$/.test(String(req.params.tx))) return res.status(400).json({ error: "tx 格式錯誤" });
   try {
-    res.json(await anchorer.read(req.params.tx));
+    res.json(await anchorer.read(String(req.params.tx)));
   } catch (e) {
     res.status(502).json({ error: `Concordium node error: ${String(e)}` });
   }
@@ -158,7 +178,7 @@ app.get("/", (_req, res) => res.sendFile(dashboardPage.pathname));
 const agentCard = new URL("../../agent-card.json", import.meta.url);
 app.get("/.well-known/agent-card.json", (_req, res) => res.type("application/json").sendFile(agentCard.pathname));
 
-app.post("/eligibility/challenge", async (req, res) => {
+app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
   try {
     const r = await eligibility.challenge(String(req.body?.account ?? ""));
     console.log(`verification request anchored (VRA) ${r.requestAnchorTx}`);
@@ -169,7 +189,7 @@ app.post("/eligibility/challenge", async (req, res) => {
   }
 });
 
-app.post("/eligibility/verify", async (req, res) => {
+app.post("/eligibility/verify", limitVerify, async (req, res) => {
   const { id, presentation } = req.body ?? {};
   try {
     const json = typeof presentation === "string" ? presentation : JSON.stringify(presentation);
