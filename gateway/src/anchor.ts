@@ -14,6 +14,8 @@ import { createGrpc } from "./grpc.js";
 import {
   AccountAddress,
   BlockHash,
+  ConcordiumGRPCClient,
+  ContractAddress,
   DataBlob,
   TransactionExpiry,
   TransactionHash,
@@ -41,30 +43,8 @@ export function createAnchorer(keyFile: string) {
     address: account.address,
     mode: registry ? `contract <${registry.index},${registry.subindex}>` : "register data",
 
-    /** 從鏈上讀回一筆 register data 交易：狀態、發送者、資料（hex 與解碼後文字） */
-    async read(txHash: string) {
-      const status = await grpc.getBlockItemStatus(TransactionHash.fromHexString(txHash));
-      if (status.status === TransactionStatusEnum.Received) return { tx: txHash, status: "pending" };
-      const outcome = status.status === TransactionStatusEnum.Finalized ? status.outcome : status.outcomes[0];
-      const s = outcome?.summary as any;
-      let dataHex: string | undefined = s?.dataRegistered?.data;
-      // 合約模式：從 VeriFlow 合約的 Committed 事件取出承諾
-      if (!dataHex && registry && s?.transactionType === "update") {
-        for (const e of contractEventsOf(s, registry.index)) {
-          const ev = decodeCommittedEvent(e);
-          if (ev) dataHex = Buffer.from(ANCHOR_PREFIX + ev.commitment, "utf8").toString("hex");
-        }
-      }
-      return {
-        tx: txHash,
-        status: status.status, // "finalized" | "committed"
-        block_hash: outcome ? BlockHash.toHexString(outcome.blockHash) : null,
-        sender: s?.sender ? AccountAddress.toBase58(s.sender) : null,
-        transaction_type: s?.transactionType ?? null,
-        data_hex: dataHex ?? null,
-        data_text: dataHex ? Buffer.from(dataHex, "hex").toString("utf8") : null,
-      };
-    },
+    /** 從鏈上讀回一筆上鏈交易（見 readAnchorTx） */
+    read: (txHash: string) => readAnchorTx(grpc, txHash, registry),
     async anchor(commitment: string, asset = "BTC"): Promise<string> {
       if (registryClient) {
         anchorPayload(commitment); // 格式檢查
@@ -83,6 +63,52 @@ export function createAnchorer(keyFile: string) {
       const hash = await grpc.sendTransaction(finalized);
       return TransactionHash.toHexString(hash);
     },
+  };
+}
+
+/** 從 Concordium 讀回的一筆上鏈交易 */
+export type OnChainAnchor = {
+  tx: string;
+  status: string; // "pending" | "committed" | "finalized"
+  block_hash?: string | null;
+  block_time?: string | null; // 區塊時間（ISO，UTC）：證明「什麼時候」上鏈
+  sender?: string | null;
+  transaction_type?: string | null;
+  data_hex?: string | null;
+  data_text?: string | null;
+};
+
+/**
+ * 從鏈上讀回一筆上鏈交易：狀態、區塊時間、發送者、資料（hex 與解碼後文字）。
+ * 不需要任何私鑰——買方的 agent（MCP verify_signal）直接用它向 Concordium 節點驗證，不必相信賣方的伺服器。
+ * 合約模式：只認指定合約（registry）發出的 Committed 事件，轉成同樣的 veriflow:v1:<hash> 格式。
+ */
+export async function readAnchorTx(
+  grpc: ConcordiumGRPCClient,
+  txHash: string,
+  registry?: ContractAddress.Type,
+): Promise<OnChainAnchor> {
+  const status = await grpc.getBlockItemStatus(TransactionHash.fromHexString(txHash));
+  if (status.status === TransactionStatusEnum.Received) return { tx: txHash, status: "pending" };
+  const outcome = status.status === TransactionStatusEnum.Finalized ? status.outcome : status.outcomes[0];
+  const s = outcome?.summary as any;
+  let dataHex: string | undefined = s?.dataRegistered?.data;
+  if (!dataHex && registry && s?.transactionType === "update") {
+    for (const e of contractEventsOf(s, registry.index)) {
+      const ev = decodeCommittedEvent(e);
+      if (ev) dataHex = Buffer.from(ANCHOR_PREFIX + ev.commitment, "utf8").toString("hex");
+    }
+  }
+  const blockTime = outcome ? (await grpc.getBlockInfo(outcome.blockHash)).blockSlotTime.toISOString() : null;
+  return {
+    tx: txHash,
+    status: status.status, // "finalized" | "committed"
+    block_hash: outcome ? BlockHash.toHexString(outcome.blockHash) : null,
+    block_time: blockTime,
+    sender: s?.sender ? AccountAddress.toBase58(s.sender) : null,
+    transaction_type: s?.transactionType ?? null,
+    data_hex: dataHex ?? null,
+    data_text: dataHex ? Buffer.from(dataHex, "hex").toString("utf8") : null,
   };
 }
 

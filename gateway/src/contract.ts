@@ -34,6 +34,8 @@ import { env, loadAccount } from "./config.js";
 import { createGrpc } from "./grpc.js";
 
 export const CONTRACT_NAME = "veriflow_registry";
+/** VeriFlow 在 testnet 上的合約 <13094,0>（買方 agent 驗證時，只認這個合約發出的承諾事件） */
+export const TESTNET_REGISTRY_INDEX = 13094n;
 export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/registry-module/module.wasm.v1";
 const DAY_MS = 24 * 3600 * 1000;
 

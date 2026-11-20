@@ -36,7 +36,7 @@ End-to-end on the public deployment (2026-11-20): buyer proved eligibility with 
 | Rust smart contract (`contract/`) | ✅ on-chain commit–reveal registry deployed on testnet at `<13094,0>` ([init tx](https://ccdexplorer.io/testnet/transaction/590bb53e65c96599613b547370be32ecad8fef7aaf6dac405021eb35c6e01b88), module `7685e945…`); the gateway commits paid signals through it ([commit tx](https://ccdexplorer.io/testnet/transaction/d538e13d0624acbedc1f7b97a77da43cc82ded28522febcdab2b8f522741e0ab)); CI builds the Wasm and runs 8 end-to-end tests |
 | Agent Registry + Verified by Concordium badge (`gateway/src/registry.ts`, [`agent-card.json`](agent-card.json)) | ✅ registered as CIS-8004 agent #1313 on testnet `<12802,0>` ([tx](https://ccdexplorer.io/testnet/transaction/fe34bd0b8299a07855dd664648c78caf08fcb33433f92a635d9b1bde189462eb)), badge `JyP9UWYKh54TD2MUJDfqC`, card hash pinned ([tx](https://ccdexplorer.io/testnet/transaction/e33d24fbf3869ca57453c43cb5b94e05da4172579e47004c95585a99c53342b3)); official `check_badge`: all 15 checks pass |
 | Daily public signals (`gateway/src/daily.ts`, `POST /daily/{asset}`) | ✅ the deployed server commits one BTC and one ETH signal per daily close through the contract, whether or not anyone buys — so the live track record grows every day and cannot be cherry-picked; a failed anchor is retried next round, never duplicated |
-| MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility` |
+| MCP server (`gateway/src/mcp.ts`) | ✅ 5 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal` (reads Concordium directly), `check_eligibility`; one-command Claude Desktop install (`npm run mcp:config -- --install`) |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
 
 ## The signal — and why we publish its track record
@@ -68,7 +68,7 @@ No API keys are needed for the signal: prices come from Binance and stablecoin s
 
 ## Verify it yourself
 
-`streamlit run dashboard.py` shows every commitment with a **one-click verify** button. It reads the transaction back from Concordium, decodes `veriflow:v1:<hash>`, and checks it against the commitment. A buyer can paste the `canonical` signal they received; change a single character and verification fails.
+`streamlit run dashboard.py` shows every commitment with a **one-click verify** button. It reads the transaction back from Concordium, decodes `veriflow:v1:<hash>`, and checks it against the commitment. A buyer can paste the `canonical` signal they received; change a single character and verification fails. With the content in hand it also checks the anchoring block's time: a signal must be on-chain within a day of its data close, so a record written after the outcome was known fails verification. The same checks run in the public dashboard (in the browser), `veriflow/verify.py`, and the MCP `verify_signal` tool.
 
 ## Agent guardrails
 
@@ -117,32 +117,38 @@ cd gateway && npm test      # 15 rule tests: replay, wrong account, identity-onl
 
 ## MCP server — let any agent buy and verify
 
-```bash
-cd gateway && npm run mcp      # stdio MCP server
-```
-
 | Tool | What it does |
 |---|---|
 | `get_signal` | Pays ~1 CCD over x402 from `BUYER_KEY_FILE` (refuses more than `MAX_PAY_MICROCCD`) and returns the signal, its commitment and the anchor transaction |
 | `get_track_record` | Hit rate of matured signals (free) |
 | `list_commitments` | Every commitment with its Concordium transaction (free) |
-| `verify_signal` | Reads the anchor back from Concordium; with the `canonical` string, also checks the content hash |
+| `verify_signal` | Reads the anchor **straight from a Concordium node** — the buyer's agent does not have to trust VeriFlow's server — and checks: confirmed, carries this commitment, and (with the `canonical` string) the content hashes to it and was anchored within a day of its data close, long before the 7-day outcome |
 | `check_eligibility` | Has this account passed the ZK eligibility check? Returns the `/verify` link if not |
 
-Claude Desktop (`claude_desktop_config.json`):
+The server also sends MCP `instructions` (check eligibility → judge the track record → buy → verify) and tool annotations (`get_signal` is the only non-read-only tool), so a client knows which call spends money.
+
+**Claude Desktop, one command** (fills in absolute paths, keeps your other MCP servers, backs up the old config):
+
+```bash
+cd gateway && npm run mcp:config -- --install   # buys from the public deployment
+# then quit Claude Desktop completely and reopen it: "+" → Connectors → veriflow
+```
+
+It checks the buyer key and whether that account has passed eligibility, then writes:
 
 ```json
 {
   "mcpServers": {
     "veriflow": {
-      "command": "/ABSOLUTE/PATH/veriflow/gateway/node_modules/.bin/tsx",
-      "args": ["/ABSOLUTE/PATH/veriflow/gateway/src/mcp.ts"]
+      "command": "/absolute/path/to/node",
+      "args": ["--import", "file:///…/gateway/node_modules/tsx/dist/loader.mjs", "/…/gateway/src/mcp.ts"],
+      "env": { "GATEWAY_URL": "https://veriflow-yrhp.onrender.com" }
     }
   }
 }
 ```
 
-The server reads `gateway/.env` itself, so it works from any working directory. The gateway, facilitator and Python API must be running.
+Absolute paths because Claude Desktop starts servers with a short `PATH` and outside the project folder (`npx`/`tsx` there fail with `ENOENT` or `env: node: No such file or directory`). No secrets go into the config — the server reads `gateway/.env` and `keys/` itself. Use `--local` to point it at a gateway on `localhost:4020`. Logs: `~/Library/Logs/Claude/mcp-server-veriflow.log` (macOS). `test/mcp.test.ts` launches the server exactly this way — from `/`, with a minimal environment — and talks to it over stdio.
 
 ## Smart contract — on-chain commit–reveal (`contract/`, Rust)
 
