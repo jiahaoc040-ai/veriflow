@@ -106,12 +106,16 @@
 
   async function load() {
     try {
-      const [tr, cs] = await Promise.all([get("/track-record"), get("/commitments")]);
+      // 承諾列表先顯示；績效要抓價格（剛重啟時較慢），之後再補上，不擋住頁面
+      get("/track-record").then((tr) => {
+        $("issued").textContent = tr.issued;
+        $("scored").textContent = tr.scored;
+        $("scoredLabel").textContent = `scored after ${tr.horizon_days} days`;
+        $("hit").textContent = tr.hit_rate == null ? "–" : Math.round(tr.hit_rate * 100) + "%";
+      }).catch(() => { $("hit").textContent = "?"; });
+      const cs = await get("/commitments");
       commitments = cs;
-      $("issued").textContent = tr.issued;
-      $("scored").textContent = tr.scored;
-      $("scoredLabel").textContent = `scored after ${tr.horizon_days} days`;
-      $("hit").textContent = tr.hit_rate == null ? "–" : Math.round(tr.hit_rate * 100) + "%";
+      $("issued").textContent = cs.length;
       const rows = [...cs].sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at)));
       $("rows").innerHTML = rows.length ? rows.map((c, i) => `
         <tr><td>${esc(c.as_of)}</td><td>${esc(c.asset)}</td><td class="mono">${esc(c.commitment.slice(0, 16))}…</td>

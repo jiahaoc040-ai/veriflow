@@ -47,3 +47,20 @@ def test_commitments_with_unanchored_signal(tmp_path, monkeypatch):
     c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"})   # 沒有上鏈紀錄
     r = c.get("/commitments")
     assert r.status_code == 200 and r.json()[0]["anchor_tx"] is None
+
+
+def test_price_cache_refreshes_each_hour(monkeypatch):
+    """服務一直醒著時，價格每小時要重新抓，不能永遠用第一次的資料"""
+    import veriflow.api as api_mod
+
+    calls = []
+    monkeypatch.setattr(api_mod, "fetch_prices", lambda a: calls.append(a) or a)
+    api_mod._prices_at.cache_clear()
+    now = [1_000_000.0]
+    monkeypatch.setattr(api_mod.time, "time", lambda: now[0])
+    api_mod._prices_at("BTC", api_mod._hour_bucket())
+    api_mod._prices_at("BTC", api_mod._hour_bucket())
+    assert calls == ["BTC"]                     # 同一小時：用快取
+    now[0] += api_mod.CACHE_SECONDS
+    api_mod._prices_at("BTC", api_mod._hour_bucket())
+    assert calls == ["BTC", "BTC"]              # 下一小時：重新抓

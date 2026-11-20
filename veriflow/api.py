@@ -18,6 +18,7 @@ API 只接受帶正確密鑰的請求，所以沒付款的人無法繞過關卡�
 from __future__ import annotations
 
 import os
+import time
 from functools import lru_cache
 
 from datetime import datetime, timedelta, timezone
@@ -30,19 +31,54 @@ from .ledger import HORIZON_DAYS, Ledger
 from .signal import build_factors, latest_signal
 
 app = FastAPI(title="VeriFlow", version="0.1.0")
+
+
+@app.on_event("startup")
+def _warm_caches():
+    """啟動後在背景先抓價格與穩定幣資料，第一個訪客（評審）不用等 10 秒以上"""
+    import threading
+
+    def warm():
+        for a in SYMBOLS:
+            try:
+                _prices(a)
+            except Exception as e:  # noqa: BLE001 — 只是預熱，失敗就等第一次請求再抓
+                print(f"warm-up {a} failed: {e}")
+        try:
+            _supply()
+        except Exception as e:  # noqa: BLE001
+            print(f"warm-up supply failed: {e}")
+
+    threading.Thread(target=warm, daemon=True).start()
 # 部署時設 DATABASE_URL（Postgres），本機預設 SQLite 檔案
 ledger = Ledger(os.environ.get("DATABASE_URL") or os.environ.get("VERIFLOW_DB", "veriflow.db"))
 GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")  # 空字串 = 開發模式，不檢查
 
 
+CACHE_SECONDS = int(os.environ.get("DATA_CACHE_SECONDS", "3600"))
+
+
+def _hour_bucket() -> int:
+    """快取每小時換一次：部署後服務一直醒著，不能永遠用第一天抓到的資料"""
+    return int(time.time() // CACHE_SECONDS)
+
+
 @lru_cache(maxsize=8)
-def _prices(asset: str):
+def _prices_at(asset: str, bucket: int):
     return fetch_prices(asset)
 
 
-@lru_cache(maxsize=1)
-def _supply():
+@lru_cache(maxsize=2)
+def _supply_at(bucket: int):
     return fetch_supply()
+
+
+def _prices(asset: str):
+    return _prices_at(asset, _hour_bucket())
+
+
+def _supply():
+    return _supply_at(_hour_bucket())
 
 
 @app.get("/health")
