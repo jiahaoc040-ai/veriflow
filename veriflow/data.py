@@ -91,6 +91,11 @@ def _fetch_okx(inst: str, start: int) -> list[list]:
             if after:
                 params["after"] = after
             r = c.get(OKX_API, params=params)
+            for wait in (1, 2, 4):  # 429：等一下再試同一頁
+                if r.status_code != 429:
+                    break
+                time.sleep(wait)
+                r = c.get(OKX_API, params=params)
             r.raise_for_status()
             body = r.json()
             if body.get("code") != "0":

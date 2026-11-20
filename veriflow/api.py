@@ -66,9 +66,16 @@ def _hour_bucket() -> int:
 _fetch_lock = threading.Lock()
 
 
+# 訊號只需要約 100 天（90 天 z-score + 7 天變化），績效只需要最近的價格；抓 400 天就夠，
+# 不必每小時把 2020 年至今全部重抓（備援來源 OKX 每頁 100 根，全抓要 20 多次請求，會被限流）
+PRICE_HISTORY_DAYS = int(os.environ.get("PRICE_HISTORY_DAYS", "400"))
+_last_good: dict[str, object] = {}
+
+
 @lru_cache(maxsize=4)
 def _prices_cached(asset: str, bucket: int):
-    return fetch_prices(asset)
+    since = (datetime.now(timezone.utc) - timedelta(days=PRICE_HISTORY_DAYS)).strftime("%Y-%m-%d")
+    return fetch_prices(asset, since=since)
 
 
 @lru_cache(maxsize=1)
@@ -76,9 +83,28 @@ def _supply_cached(bucket: int):
     return fetch_supply()
 
 
+def _still_current(df) -> bool:
+    """資料已經包含昨天（UTC）的收盤：今天之內不會有新的收盤，沿用也不會讓訊號過時"""
+    try:
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        return df.index[-1].strftime("%Y-%m-%d") >= yesterday
+    except (AttributeError, IndexError):
+        return False
+
+
 def _prices_at(asset: str, bucket: int):
     with _fetch_lock:
-        return _prices_cached(asset, bucket)
+        try:
+            df = _prices_cached(asset, bucket)
+        except Exception as e:  # noqa: BLE001
+            # 每小時的更新失敗（來源暫時擋我們）：手上的資料如果已經含昨天收盤，就照用——內容完全一樣
+            last = _last_good.get(asset)
+            if last is not None and _still_current(last):
+                print(f"price refresh {asset} failed, using cached data through {last.index[-1].date()}: {e}")
+                return last
+            raise
+        _last_good[asset] = df
+        return df
 
 
 def _supply_at(bucket: int):

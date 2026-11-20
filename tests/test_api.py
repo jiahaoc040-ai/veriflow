@@ -54,7 +54,7 @@ def test_price_cache_refreshes_each_hour(monkeypatch):
     import veriflow.api as api_mod
 
     calls = []
-    monkeypatch.setattr(api_mod, "fetch_prices", lambda a: calls.append(a) or a)
+    monkeypatch.setattr(api_mod, "fetch_prices", lambda a, since=None: calls.append(a) or a)
     api_mod._prices_cached.cache_clear()
     now = [1_000_000.0]
     monkeypatch.setattr(api_mod.time, "time", lambda: now[0])
@@ -146,3 +146,29 @@ def test_okx_fallback_when_binance_bans_the_host(monkeypatch):
     monkeypatch.setattr(data.httpx, "Client", FakeClient)
     df = data.fetch_prices("BTC", since="2026-01-01")
     assert list(df["close"]) == [101.0, 102.0]
+
+
+def test_price_refresh_failure_reuses_data_that_is_still_current(monkeypatch):
+    """每小時更新失敗（來源限流）：手上的資料已含昨天收盤就照用；已經過時就報錯，不發舊訊號"""
+    import pandas as pd
+    import pytest
+    import veriflow.api as api_mod
+
+    today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    current = pd.DataFrame({"close": [1.0, 2.0]}, index=[today - pd.Timedelta(days=2), today - pd.Timedelta(days=1)])
+    seen = {}
+    monkeypatch.setattr(api_mod, "fetch_prices", lambda a, since=None: seen.setdefault("since", since) and current)
+    api_mod._prices_cached.cache_clear()
+    api_mod._last_good.clear()
+    assert api_mod._prices_at("BTC", 1) is current
+    # 只抓最近一段，不是 2020 年至今
+    assert pd.Timestamp(seen["since"]) > today - pd.Timedelta(days=api_mod.PRICE_HISTORY_DAYS + 2)
+
+    def down(a, since=None):
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(api_mod, "fetch_prices", down)
+    assert api_mod._prices_at("BTC", 2) is current          # 照用，內容一樣
+    api_mod._last_good["BTC"] = current.iloc[:1]              # 只到前天：已過時
+    with pytest.raises(RuntimeError):
+        api_mod._prices_at("BTC", 3)
