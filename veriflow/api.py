@@ -18,6 +18,7 @@ API 只接受帶正確密鑰的請求，所以沒付款的人無法繞過關卡�
 from __future__ import annotations
 
 import os
+import threading
 import time
 from functools import lru_cache
 
@@ -36,8 +37,6 @@ app = FastAPI(title="VeriFlow", version="0.1.0")
 @app.on_event("startup")
 def _warm_caches():
     """啟動後在背景先抓價格與穩定幣資料，第一個訪客（評審）不用等 10 秒以上"""
-    import threading
-
     def warm():
         for a in SYMBOLS:
             try:
@@ -63,14 +62,29 @@ def _hour_bucket() -> int:
     return int(time.time() // CACHE_SECONDS)
 
 
-@lru_cache(maxsize=8)
-def _prices_at(asset: str, bucket: int):
+# 同一份資料同時只抓一次（預熱和第一個請求不會各抓一份，免費主機記憶體只有 512 MB）
+_fetch_lock = threading.Lock()
+
+
+@lru_cache(maxsize=4)
+def _prices_cached(asset: str, bucket: int):
     return fetch_prices(asset)
 
 
-@lru_cache(maxsize=2)
-def _supply_at(bucket: int):
+@lru_cache(maxsize=1)
+def _supply_cached(bucket: int):
     return fetch_supply()
+
+
+def _prices_at(asset: str, bucket: int):
+    with _fetch_lock:
+        return _prices_cached(asset, bucket)
+
+
+def _supply_at(bucket: int):
+    with _fetch_lock:
+        return _supply_cached(bucket)
+
 
 
 def _prices(asset: str):

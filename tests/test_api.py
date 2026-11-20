@@ -55,7 +55,7 @@ def test_price_cache_refreshes_each_hour(monkeypatch):
 
     calls = []
     monkeypatch.setattr(api_mod, "fetch_prices", lambda a: calls.append(a) or a)
-    api_mod._prices_at.cache_clear()
+    api_mod._prices_cached.cache_clear()
     now = [1_000_000.0]
     monkeypatch.setattr(api_mod.time, "time", lambda: now[0])
     api_mod._prices_at("BTC", api_mod._hour_bucket())
@@ -79,3 +79,17 @@ def test_daily_signal_once_per_day_and_retries_unanchored(tmp_path, monkeypatch)
     assert c.post("/daily/BTC", headers=gw).json()["status"] == "exists"
     assert c.post("/daily/ETH", headers=gw).json()["status"] == "new"   # 各資產分開
     assert c.post("/daily/DOGE", headers=gw).status_code == 404
+
+
+def test_parse_klines_drops_unclosed_today():
+    """Binance /klines 的格式；今天（UTC）還沒收盤的那根不能用"""
+    import pandas as pd
+
+    from veriflow.data import parse_klines
+
+    today = pd.Timestamp.now(tz="UTC").normalize()
+    ms = lambda t: int(t.timestamp() * 1000)
+    rows = [[ms(today - pd.Timedelta(days=d)), "1", "2", "0.5", str(100 + d), "9"] for d in (2, 1, 0)]
+    df = parse_klines(rows)
+    assert list(df["close"]) == [102.0, 101.0]
+    assert df.index[-1] == (today - pd.Timedelta(days=1)).tz_localize(None)
