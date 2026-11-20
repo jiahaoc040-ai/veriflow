@@ -10,6 +10,7 @@ import { z } from "zod";
 import { readAnchorTx, type OnChainAnchor } from "./anchor.js";
 import { registryAddress, TESTNET_REGISTRY_INDEX } from "./contract.js";
 import { createGrpc, grpcEndpoint } from "./grpc.js";
+import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { allOk, verifyCommitment } from "./verify.js";
 
 export const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
@@ -58,6 +59,62 @@ export function createChainReader(api: PublicApi, whoReads: string) {
   };
 }
 
+/** 免費操作本身（MCP 工具與 A2A 技能共用；回傳純資料，錯誤丟例外） */
+export function publicOps(api: PublicApi, readSettled: ReturnType<typeof createChainReader>) {
+  return {
+    trackRecord: () => api.get("/track-record"),
+    commitments: () => api.get("/commitments"),
+    async eligibility(account: string) {
+      const r = (await api.get(`/eligibility/${encodeURIComponent(account)}`)) as { eligible: boolean };
+      return { account, ...r, verify_url: r.eligible ? undefined : `${api.gateway}/verify?account=${account}` };
+    },
+    /** 回傳 null＝這個承諾還沒上鏈 */
+    async verifySignal(commitment: string, canonical?: string) {
+      const c = (await api.get(`/commitments/${commitment}`)) as { anchor_tx?: string; canonical?: string };
+      if (!c.anchor_tx) return null;
+      const { onchain, source } = await readSettled(c.anchor_tx);
+      const content = canonical ?? c.canonical;
+      const checks = verifyCommitment(commitment, onchain, content);
+      return {
+        verified: allOk(checks),
+        checks,
+        anchor_tx: c.anchor_tx,
+        anchor_explorer: EXPLORER + c.anchor_tx,
+        anchored_at: onchain.block_time ?? undefined,
+        read_from: source,
+        registry_contract: `<${REGISTRY.index},${REGISTRY.subindex}>`,
+        content_checked: content !== undefined,
+        note:
+          onchain.status === "pending"
+            ? "The anchor transaction is not in a block yet; try again in a minute."
+            : content === undefined
+              ? "Signal content is revealed after the 7-day horizon; only the on-chain anchor was checked."
+              : undefined,
+      };
+    },
+    /** 不付款：問 x402 端點要付給誰、多少、需要什麼證明 */
+    async howToBuy(signalBaseUrl: string) {
+      const r = await fetch(`${signalBaseUrl}/signal/BTC`);
+      const header = r.headers.get("PAYMENT-REQUIRED");
+      if (r.status !== 402 || !header) throw new Error(`expected an x402 402 response, got HTTP ${r.status}`);
+      return {
+        endpoint: `${api.gateway}/signal/{BTC|ETH}`,
+        protocol: "x402 v2, Concordium exact scheme, fees sponsored by VeriFlow's facilitator",
+        accepts: decodePaymentRequiredHeader(header).accepts,
+        before_paying: [
+          `The paying account's owner proves once, with the Concordium wallet, age >= 18 and not resident in a restricted country: ${api.gateway}/verify`,
+          "Verify the seller: agent #1313 in the Concordium Agent Registry (CIS-8004 <12802,0>) — badge valid, Active, Agent Card hash, and payTo equal to its on-chain agentWallet",
+        ],
+        buy_with: [
+          "VeriFlow's local MCP server (pays from your own key, verifies the seller first): git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway && npm ci && npm run mcp:config -- --install",
+          "Any x402 client with the @x402/concordium exact scheme",
+        ],
+        after_paying: "Verify with the returned commitment and canonical string (MCP verify_signal or the A2A verify skill).",
+      };
+    },
+  };
+}
+
 /** 四個免費工具；defaultAccount：本機版預設查自己的付款帳號，公開版必須指定 */
 export function registerPublicTools(
   server: McpServer,
@@ -65,6 +122,7 @@ export function registerPublicTools(
   readSettled: ReturnType<typeof createChainReader>,
   defaultAccount?: string,
 ) {
+  const ops = publicOps(api, readSettled);
   server.registerTool(
     "get_track_record",
     {
@@ -77,7 +135,7 @@ export function registerPublicTools(
     },
     async () => {
       try {
-        return json(await api.get("/track-record"));
+        return json(await ops.trackRecord());
       } catch (e) {
         return fail(errText(e));
       }
@@ -94,7 +152,7 @@ export function registerPublicTools(
     },
     async () => {
       try {
-        return json(await api.get("/commitments"));
+        return json(await ops.commitments());
       } catch (e) {
         return fail(errText(e));
       }
@@ -117,27 +175,8 @@ export function registerPublicTools(
     },
     async ({ commitment, canonical }) => {
       try {
-        const c = (await api.get(`/commitments/${commitment}`)) as { anchor_tx?: string; canonical?: string };
-        if (!c.anchor_tx) return fail("This commitment exists but has not been anchored on-chain.");
-        const { onchain, source } = await readSettled(c.anchor_tx);
-        const content = canonical ?? c.canonical;
-        const checks = verifyCommitment(commitment, onchain, content);
-        return json({
-          verified: allOk(checks),
-          checks,
-          anchor_tx: c.anchor_tx,
-          anchor_explorer: EXPLORER + c.anchor_tx,
-          anchored_at: onchain.block_time ?? undefined,
-          read_from: source,
-          registry_contract: `<${REGISTRY.index},${REGISTRY.subindex}>`,
-          content_checked: content !== undefined,
-          note:
-            onchain.status === "pending"
-              ? "The anchor transaction is not in a block yet; try again in a minute."
-              : content === undefined
-                ? "Signal content is revealed after the 7-day horizon; only the on-chain anchor was checked."
-                : undefined,
-        });
+        const v = await ops.verifySignal(commitment, canonical);
+        return v ? json(v) : fail("This commitment exists but has not been anchored on-chain.");
       } catch (e) {
         return fail(`Verification failed: ${errText(e)}`);
       }
@@ -162,8 +201,7 @@ export function registerPublicTools(
       try {
         const a = account ?? defaultAccount;
         if (!a) return fail("Pass the Concordium account address to check.");
-        const r = (await api.get(`/eligibility/${encodeURIComponent(a)}`)) as { eligible: boolean };
-        return json({ account: a, ...r, verify_url: r.eligible ? undefined : `${api.gateway}/verify?account=${a}` });
+        return json(await ops.eligibility(a));
       } catch (e) {
         return fail(errText(e));
       }

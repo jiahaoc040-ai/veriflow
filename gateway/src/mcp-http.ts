@@ -11,8 +11,7 @@
 import type { Express, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { decodePaymentRequiredHeader } from "@x402/core/http";
-import { ABOUT, createChainReader, errText, fail, json, registerPublicTools, type PublicApi } from "./mcp-tools.js";
+import { ABOUT, createChainReader, errText, fail, json, publicOps, registerPublicTools, type PublicApi } from "./mcp-tools.js";
 
 export const REMOTE_INSTRUCTIONS =
   ABOUT +
@@ -36,6 +35,7 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
   function build() {
     const server = new McpServer({ name: "veriflow-hosted", version: "0.3.0" }, { instructions: REMOTE_INSTRUCTIONS });
     registerPublicTools(server, api, readSettled);
+    const ops = publicOps(api, readSettled);
     server.registerTool(
       "how_to_buy",
       {
@@ -48,24 +48,7 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
       },
       async () => {
         try {
-          const r = await fetch(`${opts.selfUrl}/signal/BTC`);
-          const header = r.headers.get("PAYMENT-REQUIRED");
-          if (r.status !== 402 || !header) return fail(`expected an x402 402 response, got HTTP ${r.status}`);
-          const required = decodePaymentRequiredHeader(header);
-          return json({
-            endpoint: `${opts.publicUrl}/signal/{BTC|ETH}`,
-            protocol: "x402 v2, Concordium exact scheme, fees sponsored by VeriFlow's facilitator",
-            accepts: required.accepts,
-            before_paying: [
-              `The paying account's owner proves once, with the Concordium wallet, age >= 18 and not resident in a restricted country: ${opts.publicUrl}/verify`,
-              "Verify the seller: agent #1313 in the Concordium Agent Registry (CIS-8004 <12802,0>) — badge valid, Active, Agent Card hash, and payTo equal to its on-chain agentWallet",
-            ],
-            buy_with: [
-              "VeriFlow's local MCP server (pays from your own key, verifies the seller first): git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway && npm ci && npm run mcp:config -- --install",
-              "Any x402 client with the @x402/concordium exact scheme",
-            ],
-            after_paying: "Call verify_signal with the returned commitment and canonical string.",
-          });
+          return json(await ops.howToBuy(opts.selfUrl));
         } catch (e) {
           return fail(errText(e));
         }

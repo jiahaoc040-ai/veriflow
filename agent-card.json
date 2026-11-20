@@ -2,8 +2,10 @@
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "VeriFlow",
   "description": "Pay-per-signal crypto risk-regime signals (RISK_ON / RISK_OFF for BTC and ETH) for AI agents, sold over x402 in CCD. Every signal is committed on Concordium as a SHA-256 hash before its outcome is known, so the track record cannot be edited or cherry-picked. Buyers first prove with Concordium Verify & Access V1 (zero-knowledge) that they are 18+ and not resident in a restricted country; VeriFlow learns nothing else. Not investment advice.",
-  "version": "0.1.0",
-  "url": "https://raw.githubusercontent.com/jiahaoc040-ai/veriflow/main/agent-card.json",
+  "version": "0.2.0",
+  "protocolVersion": "0.3.0",
+  "url": "https://veriflow-yrhp.onrender.com/a2a",
+  "preferredTransport": "JSONRPC",
   "provider": {
     "organization": "VeriFlow",
     "url": "https://github.com/jiahaoc040-ai/veriflow"
@@ -37,39 +39,88 @@
       }
     ]
   },
-  "defaultInputModes": ["application/json"],
-  "defaultOutputModes": ["application/json"],
+  "defaultInputModes": [
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
   "skills": [
     {
-      "id": "get_signal",
-      "name": "Buy a signal",
-      "description": "Pay about 1 CCD over x402 for the latest RISK_ON / RISK_OFF signal for BTC or ETH; returns the signal, its commitment and the Concordium anchor transaction.",
-      "tags": ["trading-signal", "x402", "concordium", "crypto"]
+      "id": "how_to_buy",
+      "name": "Buy a signal (x402)",
+      "description": "Live x402 terms for the latest RISK_ON / RISK_OFF signal for BTC or ETH: pay about 1 testnet CCD at /signal/{asset} from your own wallet, fees sponsored. The payer's owner must first pass a zero-knowledge eligibility check; payTo is this agent's on-chain agentWallet.",
+      "tags": [
+        "trading-signal",
+        "x402",
+        "concordium",
+        "crypto"
+      ],
+      "examples": [
+        "How do I buy a signal?"
+      ]
     },
     {
       "id": "verify_signal",
       "name": "Verify a signal",
-      "description": "Read a commitment back from Concordium and check that the signal content hashes to it.",
-      "tags": ["verification", "commit-reveal", "concordium"]
+      "description": "Read a commitment's anchor from Concordium and check that the signal content hashes to it and was anchored within a day of its data close.",
+      "tags": [
+        "verification",
+        "commit-reveal",
+        "concordium"
+      ],
+      "examples": [
+        "Verify <64-char commitment>"
+      ]
     },
     {
-      "id": "get_track_record",
+      "id": "track_record",
       "name": "Track record",
-      "description": "Hit rate of all signals whose 7-day horizon has passed, each committed on-chain before its outcome.",
-      "tags": ["track-record", "transparency"]
+      "description": "Hit rate of anchored signals whose 7-day horizon has passed, each asset-day counted once.",
+      "tags": [
+        "track-record",
+        "transparency"
+      ],
+      "examples": [
+        "What is your track record?"
+      ]
     },
     {
-      "id": "check_eligibility",
+      "id": "commitments",
+      "name": "On-chain commitments",
+      "description": "Every issued signal with the Concordium transaction that anchors it.",
+      "tags": [
+        "commit-reveal",
+        "audit"
+      ],
+      "examples": [
+        "List your commitments"
+      ]
+    },
+    {
+      "id": "eligibility",
       "name": "Check buyer eligibility",
-      "description": "Whether a Concordium account has passed the zero-knowledge eligibility check (Verify & Access V1).",
-      "tags": ["verify-and-access", "zero-knowledge", "compliance"]
+      "description": "Whether a Concordium account has passed the zero-knowledge eligibility check (Verify & Access V1: age >= 18, not resident in a restricted country).",
+      "tags": [
+        "verify-and-access",
+        "zero-knowledge",
+        "compliance"
+      ],
+      "examples": [
+        "Is <account> eligible?"
+      ]
     }
   ],
   "services": [
     {
       "name": "A2A",
-      "endpoint": "https://raw.githubusercontent.com/jiahaoc040-ai/veriflow/main/agent-card.json",
-      "version": "1.0"
+      "endpoint": "https://veriflow-yrhp.onrender.com/.well-known/agent-card.json",
+      "version": "0.3.0"
+    },
+    {
+      "name": "MCP",
+      "endpoint": "https://veriflow-yrhp.onrender.com/mcp",
+      "version": "2025-06-18"
     }
   ],
   "x402Support": true,

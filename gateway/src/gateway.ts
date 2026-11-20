@@ -22,6 +22,7 @@ import { resolve } from "node:path";
 import { createAnchorer } from "./anchor.js";
 import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
+import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
@@ -217,7 +218,10 @@ app.get("/eligibility/:account", (req, res) => {
 });
 
 // 公開版 MCP（Streamable HTTP）：免費工具 + 購買說明，不碰任何人的金鑰
-mountRemoteMcp(app, { selfUrl: `http://127.0.0.1:${env("GATEWAY_PORT", "4020")}`, publicUrl: PUBLIC_URL });
+const SELF_URL = `http://127.0.0.1:${env("GATEWAY_PORT", "4020")}`;
+mountRemoteMcp(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
+// A2A（Agent Card 的 url 指向這裡）：同樣只有唯讀技能
+mountA2A(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
 
 // 找不到的路徑與未預期錯誤：自己回 JSON，保留上面設好的安全標頭
 // （Express 預設的錯誤頁會換成它自己的 CSP，ZAP 會抓到缺少 frame-ancestors 等規則）

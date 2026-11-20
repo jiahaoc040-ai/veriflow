@@ -55,7 +55,7 @@ jobs:
           curl -fsS http://127.0.0.1:7860/health
           curl -fsS http://127.0.0.1:7860/ | grep -q "On-chain commitments"
           curl -fsS http://127.0.0.1:7860/verify | grep -q "VeriFlow buyer verification"
-          curl -fsS http://127.0.0.1:7860/.well-known/agent-card.json | sha256sum | grep -q 1dbe6d737822e9ea67117bd8b87bd6cfd18a02d22027055e36292092ffbe5f21
+          curl -fsS http://127.0.0.1:7860/.well-known/agent-card.json | sha256sum | grep -q a9f6616c58a1e8ee4f0b37a54b9824445d19afa66b7ee46247f8d8406a699143
           curl -fsS http://127.0.0.1:7860/commitments
           # hosted MCP (Streamable HTTP): read-only tools incl. how_to_buy
           curl -fsS -X POST http://127.0.0.1:7860/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
