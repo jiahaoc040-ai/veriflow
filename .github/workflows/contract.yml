@@ -19,7 +19,7 @@ jobs:
       run:
         working-directory: contract
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Rust toolchain with Wasm targets
         run: |
