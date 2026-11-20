@@ -1,6 +1,6 @@
 # VeriFlow: Python signal API + x402 facilitator + gateway in one container.
 # Works on Hugging Face Spaces (Docker, port 7860) and Render (PORT env).
-FROM node:20-bookworm-slim
+FROM node:26-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
