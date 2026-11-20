@@ -43,6 +43,10 @@ const eligibility = new EligibilityService(
 );
 const REQUIRE_ELIGIBILITY = env("REQUIRE_ELIGIBILITY", "true") !== "false";
 
+// 免費主機只有 512 MB：EMBED_FACILITATOR=1 時 facilitator 跑在同一個 Node 程序裡（省約 130 MB）。
+// 必須在建立付款中介層「之前」啟動並等它開始監聽，否則中介層啟動時查詢 /supported 會失敗。
+if (process.env.EMBED_FACILITATOR) await (await import("./facilitator.js")).listening;
+
 const resourceServer = new x402ResourceServer(
   new HTTPFacilitatorClient({ url: env("FACILITATOR_URL", "http://localhost:4021") }),
 )
@@ -207,9 +211,6 @@ app.get("/eligibility/:account", (req, res) => {
   // policy 放最後：rec 裡也有 policy（指紋字串），不能讓它蓋掉完整的政策說明
   res.json({ eligible: !!rec, ...(rec ?? {}), policyId: rec?.policy, policy: eligibility.describe() });
 });
-
-// 免費主機只有 512 MB：EMBED_FACILITATOR=1 時 facilitator 跑在同一個 Node 程序裡（省約 130 MB）
-if (process.env.EMBED_FACILITATOR) await import("./facilitator.js");
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
 app.listen(PORT, () => {

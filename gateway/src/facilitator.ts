@@ -77,6 +77,8 @@ app.post("/settle", async (req, res) => {
 const PORT = Number(env("FACILITATOR_PORT", "4021"));
 // 部署時只給本機用（gateway 在同一台呼叫它），不對外
 const HOST = env("FACILITATOR_HOST", "0.0.0.0");
-app.listen(PORT, HOST, () => {
+/** gateway 內嵌時要等這個：x402 中介層啟動時就會問 facilitator 支援哪些付款方式 */
+export const listening = new Promise<void>((resolve) => app.listen(PORT, HOST, () => {
+  resolve();
   console.log(`facilitator on http://localhost:${PORT}  sponsor=${sponsor.address}  network=${NETWORK}`);
-});
+}));
