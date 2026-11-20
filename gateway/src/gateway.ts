@@ -147,6 +147,12 @@ app.get("/health", (_req, res) => forward("/health", res, false));
 const verifyPage = new URL("../public/verify.html", import.meta.url);
 app.get("/verify", (_req, res) => res.sendFile(verifyPage.pathname));
 
+// 公開儀表板（瀏覽器自己重算雜湊驗證，不用信任這台伺服器）與 Agent Card
+const dashboardPage = new URL("../public/index.html", import.meta.url);
+app.get("/", (_req, res) => res.sendFile(dashboardPage.pathname));
+const agentCard = new URL("../../agent-card.json", import.meta.url);
+app.get("/.well-known/agent-card.json", (_req, res) => res.type("application/json").sendFile(agentCard.pathname));
+
 app.post("/eligibility/challenge", async (req, res) => {
   try {
     const r = await eligibility.challenge(String(req.body?.account ?? ""));

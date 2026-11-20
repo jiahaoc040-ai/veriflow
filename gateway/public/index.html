@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeriFlow</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1b1d1f; --muted:#6b7075; --line:#e3e3df; --accent:#1f6feb; --ok:#1a7f37; --bad:#cf222e; --chip:#eef1f5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111315; --card:#1a1d20; --ink:#e8e8e6; --muted:#9aa0a6; --line:#2c3035; --accent:#4c8dff; --ok:#3fb950; --bad:#f85149; --chip:#24282d; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:880px; margin:40px auto; padding:0 16px; }
+  h1 { font-size:26px; margin:0; }
+  .tag { color:var(--muted); margin:4px 0 20px; }
+  .badges { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:24px; }
+  .badge { background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:4px 12px; font-size:13px; color:var(--ink); text-decoration:none; }
+  .badge b { color:var(--ok); }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+  @media (max-width:600px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+  .metric .n { font-size:28px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .metric .l { color:var(--muted); font-size:13px; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 12px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  code, .mono { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+  a { color:var(--accent); }
+  button { padding:6px 12px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--accent); font-weight:600; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border:0; padding:10px 16px; }
+  textarea { width:100%; min-height:90px; padding:10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--ink); font:12px ui-monospace,monospace; }
+  .checks { margin:8px 0 0; padding:0; list-style:none; font-size:13px; }
+  .checks li { margin:2px 0; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VeriFlow</h1>
+  <p class="tag">Crypto risk-regime signals for AI agents — sold over x402 only to verified buyers, with a track record anyone can check on Concordium.</p>
+
+  <div class="badges" id="badges">
+    <a class="badge" href="/verify">Buyer verification (Verify &amp; Access V1)</a>
+    <a class="badge" id="badge" href="https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC" target="_blank" rel="noopener">Verified by Concordium · agent #1313</a>
+    <a class="badge" href="https://github.com/jiahaoc040-ai/veriflow" target="_blank" rel="noopener">Source &amp; MCP server</a>
+  </div>
+
+  <div class="grid">
+    <div class="card metric"><div class="n" id="issued">–</div><div class="l">signals issued</div></div>
+    <div class="card metric"><div class="n" id="scored">–</div><div class="l" id="scoredLabel">scored after 7 days</div></div>
+    <div class="card metric"><div class="n" id="hit">–</div><div class="l">hit rate</div></div>
+  </div>
+
+  <div class="card">
+    <h2>On-chain commitments</h2>
+    <p class="muted" style="margin-top:0;font-size:13px">Each signal's SHA-256 is written to Concordium when it is sold, before the outcome. Verification runs in your browser: it reads the transaction from the chain via this server and recomputes the hash locally.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Date</th><th>Asset</th><th>Commitment</th><th>Anchor</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Verify a signal you bought</h2>
+    <p class="muted" style="margin-top:0;font-size:13px">Paste the <code>canonical</code> string from your purchase. Change one character and it fails.</p>
+    <textarea id="pasted" placeholder='{"as_of":"2026-11-17","asset":"BTC",…}'></textarea>
+    <p><button class="primary" id="verifyPasted">Verify</button></p>
+    <div id="pastedOut"></div>
+  </div>
+
+  <p class="muted" style="font-size:12px">Not investment advice. Testnet demo for the Concordium Trusted Agents Hackathon.</p>
+</main>
+<script>
+  const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const get = async (p) => { const r = await fetch(p); if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`); return r.json(); };
+  let commitments = [];
+
+  async function sha256(text) {
+    const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Same three checks as veriflow/verify.py and the MCP verify_signal tool
+  async function check(commitment, onchain, canonical) {
+    const st = onchain && onchain.status;
+    const out = [
+      { ok: st === "finalized" || st === "committed", name: "transaction confirmed on Concordium", detail: st || "not found" },
+      { ok: onchain && onchain.data_text === "veriflow:v1:" + commitment, name: "on-chain data equals the commitment", detail: (onchain && onchain.data_text) || "no data" },
+    ];
+    if (canonical !== undefined && canonical !== null) {
+      const h = await sha256(canonical);
+      out.push({ ok: h === commitment, name: "content hashes to the commitment", detail: h });
+    }
+    return out;
+  }
+
+  function render(checks, note) {
+    const all = checks.every((c) => c.ok);
+    return `<ul class="checks">${checks.map((c) => `<li class="${c.ok ? "ok" : "bad"}">${c.ok ? "✅" : "❌"} ${esc(c.name)} <span class="muted mono">${esc(String(c.detail).slice(0, 80))}</span></li>`).join("")}</ul>
+      <p class="${all ? "ok" : "bad"}" style="margin:6px 0 0;font-weight:600">${all ? "Verified: committed on-chain before the outcome, content unchanged." : "Does not match the on-chain record."}</p>${note ? `<p class="muted" style="font-size:12px">${esc(note)}</p>` : ""}`;
+  }
+
+  async function load() {
+    try {
+      const [tr, cs] = await Promise.all([get("/track-record"), get("/commitments")]);
+      commitments = cs;
+      $("issued").textContent = tr.issued;
+      $("scored").textContent = tr.scored;
+      $("scoredLabel").textContent = `scored after ${tr.horizon_days} days`;
+      $("hit").textContent = tr.hit_rate == null ? "–" : Math.round(tr.hit_rate * 100) + "%";
+      const rows = [...cs].sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at)));
+      $("rows").innerHTML = rows.length ? rows.map((c, i) => `
+        <tr><td>${esc(c.as_of)}</td><td>${esc(c.asset)}</td><td class="mono">${esc(c.commitment.slice(0, 16))}…</td>
+        <td>${c.anchor_tx ? `<a class="mono" href="${EXPLORER}${esc(c.anchor_tx)}" target="_blank" rel="noopener">${esc(c.anchor_tx.slice(0, 10))}…</a>` : '<span class="muted">pending</span>'}</td>
+        <td>${c.anchor_tx ? `<button data-i="${i}">Verify</button>` : ""}</td></tr>
+        <tr id="out-${i}" hidden><td colspan="5"></td></tr>`).join("") : '<tr><td colspan="5" class="muted">No signals yet.</td></tr>';
+      $("rows").querySelectorAll("button[data-i]").forEach((b) => (b.onclick = () => verifyRow(rows[b.dataset.i], b.dataset.i)));
+    } catch (e) {
+      $("rows").innerHTML = `<tr><td colspan="5" class="bad">${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  async function verifyRow(c, i) {
+    const row = $("out-" + i);
+    row.hidden = false;
+    row.firstElementChild.innerHTML = '<span class="muted">Reading Concordium…</span>';
+    try {
+      const [detail, onchain] = await Promise.all([get(`/commitments/${c.commitment}`), get(`/onchain/${c.anchor_tx}`)]);
+      const note = detail.canonical ? null : "Signal content is public after the 7-day horizon; until then only the on-chain anchor is checked. Buyers can verify the content below.";
+      row.firstElementChild.innerHTML = render(await check(c.commitment, onchain, detail.canonical), note);
+    } catch (e) {
+      row.firstElementChild.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  $("verifyPasted").onclick = async () => {
+    const text = $("pasted").value.trim();
+    if (!text) return;
+    const h = await sha256(text);
+    const match = commitments.find((c) => c.commitment === h);
+    if (!match) return ($("pastedOut").innerHTML = `<p class="bad">❌ Hash <span class="mono">${h.slice(0, 16)}…</span> is not in any on-chain commitment: the content was changed, or it is not a VeriFlow signal.</p>`);
+    if (!match.anchor_tx) return ($("pastedOut").innerHTML = '<p class="muted">Commitment found but not anchored yet.</p>');
+    const onchain = await get(`/onchain/${match.anchor_tx}`);
+    $("pastedOut").innerHTML = `<p class="mono"><a href="${EXPLORER}${esc(match.anchor_tx)}" target="_blank" rel="noopener">${esc(match.anchor_tx)}</a></p>` + render(await check(h, onchain, text));
+  };
+
+  load();
+</script>
+</body>
+</html>
