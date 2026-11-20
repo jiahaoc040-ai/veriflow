@@ -1,6 +1,6 @@
 name: zap
 
-# Passive ZAP baseline scan of OUR deployed site. Results are also emitted as
+# Passive ZAP baseline scan of OUR deployed site (re-run after fixes 2026-11-20). Results are also emitted as
 # check-run annotations so they can be read without downloading artifacts.
 on:
   push:
