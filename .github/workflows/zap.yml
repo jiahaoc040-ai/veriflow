@@ -21,7 +21,7 @@ jobs:
         run: curl -fsS --retry 5 --retry-delay 15 --max-time 120 "$TARGET/health"
 
       - name: ZAP baseline (passive)
-        uses: zaproxy/action-baseline@v0.14.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: ${{ env.TARGET }}
           allow_issue_writing: false
