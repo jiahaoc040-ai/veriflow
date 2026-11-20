@@ -192,13 +192,14 @@ export function postgresPersistence(url: string): Persistence {
 /** 白名單 + 未使用的請求（白名單寫入 Persistence，重開不會掉；未完成的請求只放記憶體） */
 export class EligibilityStore {
   private challenges = new Map<string, Challenge>();
-  private eligible: Record<string, Eligible> = {};
+  // 沒有原型鏈的物件：帳號字串當 key，排除 "__proto__" 之類的原型污染
+  private eligible: Record<string, Eligible> = Object.create(null);
 
   constructor(private persistence?: Persistence, private now: () => number = Date.now) {}
 
   /** 啟動時從儲存載入白名單 */
   async init() {
-    if (this.persistence) this.eligible = await this.persistence.load();
+    if (this.persistence) this.eligible = Object.assign(Object.create(null), await this.persistence.load());
     return this;
   }
 

@@ -163,3 +163,8 @@ test("payer is read from the signed x402 Concordium transaction", () => {
   assert.equal(payerOf({ header: { sender: BUYER } }), undefined);
   assert.equal(payerOf(undefined), undefined);
 });
+
+test("prototype keys are never treated as approved accounts", () => {
+  const store = new EligibilityStore();
+  for (const k of ["__proto__", "constructor", "toString", "hasOwnProperty"]) assert.equal(store.status(k, "any"), null);
+});
