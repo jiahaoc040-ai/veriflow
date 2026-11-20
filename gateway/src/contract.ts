@@ -13,6 +13,7 @@
  *
  * 設定 REGISTRY_CONTRACT=<index> 之後，gateway 的每個付費訊號改成用合約 commit 上鏈。
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   AccountAddress,
@@ -155,17 +156,6 @@ export function createRegistryClient(keyFile: string, contract: ContractAddress.
   };
 }
 
-/** 找出摘要裡某個欄位（web-sdk 的交易摘要結構很深） */
-function find(x: any, pred: (v: any) => boolean): any {
-  if (!x || typeof x !== "object") return undefined;
-  if (pred(x)) return x;
-  for (const v of Object.values(x)) {
-    const hit = find(v, pred);
-    if (hit) return hit;
-  }
-  return undefined;
-}
-
 async function deploy(horizonDays: number) {
   const owner = loadAccount(env("REGISTRY_OWNER_KEY_FILE", env("FACILITATOR_KEY_FILE")));
   const grpc = createGrpc();
@@ -182,13 +172,18 @@ async function deploy(horizonDays: number) {
     return (await grpc.waitForTransactionFinalization(hash, 120_000)).summary as any;
   };
 
-  console.log("1/2 deploying module…");
-  // 模組是 versioned（.wasm.v1），SDK 會從前 8 bytes 讀版本
-  const dep = await submit(Transaction.deployModule({ source: new Uint8Array(source) }));
-  const refObj = find(dep, (v) => v?.tag === "ModuleDeployed" || v?.tag === "ModuleHashAlreadyExists");
-  if (!refObj) throw new Error(`deploy failed: ${json(dep).slice(0, 600)}`);
-  const moduleRef = refObj.contents as ModuleReference.Type;
-  console.log(`  module ${ModuleReference.toHexString(moduleRef)}${refObj.tag === "ModuleHashAlreadyExists" ? " (already on chain)" : ""}`);
+  // 模組編號 = 版本化模組檔（.wasm.v1）的 SHA-256；已經在鏈上就不重送
+  const moduleRef = ModuleReference.fromHexString(createHash("sha256").update(source).digest("hex"));
+  const refHex = ModuleReference.toHexString(moduleRef);
+  const onChain = await grpc.getModuleSource(moduleRef).then(() => true, () => false);
+  if (onChain) {
+    console.log(`1/2 module ${refHex} already on chain`);
+  } else {
+    console.log("1/2 deploying module…");
+    const dep = await submit(Transaction.deployModule({ source: new Uint8Array(source) }));
+    if (dep.transactionType === "failed") throw new Error(`deploy failed: ${json(dep.rejectReason ?? dep).slice(0, 600)}`);
+    console.log(`  module ${refHex}`);
+  }
 
   console.log(`2/2 creating contract (horizon ${horizonDays} days)…`);
   const init = await submit(
@@ -202,8 +197,8 @@ async function deploy(horizonDays: number) {
       Energy.create(30_000),
     ),
   );
-  const inst = find(init, (v) => v?.tag === "ContractInitialized" || v?.contractVersion !== undefined && v?.address);
-  if (!inst?.address) throw new Error(`init failed: ${json(init).slice(0, 600)}`);
+  const inst = init.contractInitialized;
+  if (!inst?.address) throw new Error(`init failed: ${json(init.rejectReason ?? init).slice(0, 600)}`);
   console.log(`\n✅ VeriFlow registry contract <${inst.address.index},${inst.address.subindex}>`);
   console.log(`add to gateway/.env:  REGISTRY_CONTRACT=${inst.address.index}`);
 }
