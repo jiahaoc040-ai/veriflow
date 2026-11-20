@@ -208,6 +208,9 @@ app.get("/eligibility/:account", (req, res) => {
   res.json({ eligible: !!rec, ...(rec ?? {}), policyId: rec?.policy, policy: eligibility.describe() });
 });
 
+// 免費主機只有 512 MB：EMBED_FACILITATOR=1 時 facilitator 跑在同一個 Node 程序裡（省約 130 MB）
+if (process.env.EMBED_FACILITATOR) await import("./facilitator.js");
+
 const PORT = Number(env("GATEWAY_PORT", "4020"));
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);

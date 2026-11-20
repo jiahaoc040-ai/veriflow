@@ -1,0 +1,23 @@
+# Render Blueprint: New → Blueprint → pick this repo. Secrets marked sync:false are asked for once.
+services:
+  - type: web
+    name: veriflow
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: FACILITATOR_KEY_JSON   # contents of the testnet sponsor/anchor .export file
+        sync: false
+      - key: SELLER_ADDRESS
+        sync: false
+      - key: GATEWAY_SECRET
+        generateValue: true
+      - key: DATABASE_URL           # Neon connection string
+        sync: false
+      - key: PUBLIC_URL             # https://<service>.onrender.com
+        sync: false
+      - key: REGISTRY_CONTRACT
+        value: "13094"

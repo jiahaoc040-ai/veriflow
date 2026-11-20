@@ -170,7 +170,7 @@ Anyone can check it without trusting us: resolve the badge with CIS-8004 `agent_
 
 The `Dockerfile` runs the Python API, the facilitator and the gateway together; the public port serves the dashboard (`/`), buyer verification (`/verify`), the paid `/signal/{asset}` and the Agent Card (`/.well-known/agent-card.json`). CI builds the image and smoke-tests it against Postgres on every change.
 
-Tested target: **Hugging Face Spaces (Docker) + Neon Postgres**, both free without a card. Render works the same way (set `PORT`).
+Target: **Render free web service + Neon Postgres**, both free without a card. `render.yaml` is a one-click Blueprint. Render's free plan has 512 MB, so the facilitator runs inside the gateway process; CI runs the container capped at 512 MB. A scheduled workflow pings the URL every 10 minutes so judges never hit a cold start. (Hugging Face Docker Spaces now need a paid plan; the wrapper in `deploy/huggingface/` still works there.)
 
 | Secret / variable | Value |
 |---|---|

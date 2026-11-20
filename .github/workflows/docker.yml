@@ -33,7 +33,7 @@ jobs:
             console.log(JSON.stringify({type:"concordium-browser-wallet-account",v:0,environment:"testnet",
               value:{accountKeys:{keys:{"0":{keys:{"0":{signKey:hex(32),verifyKey:hex(32)}},threshold:1}},threshold:1},
               credentials:{"0":"00"},address:"2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"}}))')
-          docker run -d --name vf --network host \
+          docker run -d --name vf --network host --memory=512m --memory-swap=512m \
             -e FACILITATOR_KEY_JSON="$KEY" \
             -e SELLER_ADDRESS=2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX \
             -e GATEWAY_SECRET=ci-secret \
@@ -55,6 +55,9 @@ jobs:
           code=$(curl -s -o /tmp/402.json -w '%{http_code}' http://127.0.0.1:7860/signal/BTC); test "$code" = 402
           # prices from a US runner through the Binance public-data mirror
           curl -fsS --max-time 120 http://127.0.0.1:7860/track-record | head -c 300
+          # Render free = 512 MB: the container runs capped at 512 MB; show actual use after loading prices
+          docker stats --no-stream --format "memory {{.MemUsage}}" vf
+          test "$(docker inspect -f '{{.State.OOMKilled}}' vf)" = false
 
       - name: Container logs
         if: always()

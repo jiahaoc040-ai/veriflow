@@ -75,6 +75,8 @@ app.post("/settle", async (req, res) => {
 });
 
 const PORT = Number(env("FACILITATOR_PORT", "4021"));
-app.listen(PORT, () => {
+// 部署時只給本機用（gateway 在同一台呼叫它），不對外
+const HOST = env("FACILITATOR_HOST", "0.0.0.0");
+app.listen(PORT, HOST, () => {
   console.log(`facilitator on http://localhost:${PORT}  sponsor=${sponsor.address}  network=${NETWORK}`);
 });
