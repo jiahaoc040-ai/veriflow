@@ -45,6 +45,16 @@ export function createAnchorer(keyFile: string) {
 
     /** 從鏈上讀回一筆上鏈交易（見 readAnchorTx） */
     read: (txHash: string) => readAnchorTx(grpc, txHash, registry),
+
+    /** 營運帳號（上鏈、贊助手續費）目前的餘額，單位 microCCD */
+    async balanceMicroCcd(): Promise<bigint> {
+      return (await grpc.getAccountInfo(account.accountAddress)).accountAmount.microCcdAmount;
+    },
+
+    /** 合約模式才有：查某個承諾在合約裡的紀錄、到期後公開內容（合約自己重算雜湊） */
+    contract: registryClient
+      ? { record: (commitment: string) => registryClient.commitment(commitment), reveal: (canonical: string) => registryClient.reveal(canonical) }
+      : undefined,
     async anchor(commitment: string, asset = "BTC"): Promise<string> {
       if (registryClient) {
         anchorPayload(commitment); // 格式檢查

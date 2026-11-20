@@ -175,7 +175,34 @@ app.get("/onchain/:tx", limitRead, async (req, res) => {
     res.status(502).json({ error: `Concordium node error: ${String(e)}` });
   }
 });
-app.get("/health", limitRead, (_req, res) => forward("/health", res, false));
+// 營運帳號餘額：每日上鏈、自動公開、贊助買方手續費都從這個帳號扣，用完紀錄就會中斷
+// 背景每 10 分鐘查一次（/health 只回快取，不拖慢健康檢查）；低於 MIN_OPERATOR_CCD 時 low=true
+const MIN_OPERATOR_CCD = Number(env("MIN_OPERATOR_CCD", "100"));
+const operator: { account: string; balance_ccd: number | null; checked_at: string | null; low: boolean } = {
+  account: "",
+  balance_ccd: null,
+  checked_at: null,
+  low: false,
+};
+async function refreshOperatorBalance() {
+  try {
+    const ccd = Number(await anchorer.balanceMicroCcd()) / 1e6;
+    Object.assign(operator, { balance_ccd: ccd, checked_at: new Date().toISOString(), low: ccd < MIN_OPERATOR_CCD });
+    if (operator.low) console.warn(`operator ${operator.account} balance ${ccd} CCD is below ${MIN_OPERATOR_CCD} CCD — top up from the testnet faucet`);
+  } catch (e) {
+    console.warn(`operator balance check failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+app.get("/health", limitRead, async (_req, res) => {
+  try {
+    const r = await fetch(`${API_URL}/health`);
+    const api = (await r.json()) as Record<string, unknown>;
+    res.status(r.status).json({ ...api, operator });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: `VeriFlow API unreachable: ${String(e)}`, operator });
+  }
+});
 
 // ── 買方資格驗證（Verify & Access）─────────────────────
 const verifyPage = new URL("../public/verify.html", import.meta.url);
@@ -244,8 +271,20 @@ if (DAILY) {
       log: (m) => console.log(m),
     },
     Number(env("DAILY_INTERVAL_MIN", "30")) * 60_000,
+    60_000,
+    // 到期自動公開：合約模式才有（合約自己重算雜湊）
+    anchorer.contract && {
+      apiUrl: API_URL,
+      record: anchorer.contract.record,
+      reveal: anchorer.contract.reveal,
+      log: (m) => console.log(m),
+    },
   );
 }
+
+operator.account = anchorer.address;
+setTimeout(refreshOperatorBalance, 5_000);
+setInterval(refreshOperatorBalance, 10 * 60_000);
 
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);

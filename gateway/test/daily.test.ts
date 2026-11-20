@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runDailyOnce } from "../src/daily.ts";
+import { runDailyOnce, runRevealsOnce } from "../src/daily.ts";
 
 type Call = { url: string; body?: string; secret?: string };
 
@@ -69,4 +69,76 @@ test("API errors are reported per asset without anchoring", async () => {
   assert.equal(anchored, 0);
   assert.equal(out[0].status, "error");
   assert.match(out[0].error!, /404/);
+});
+
+// ── 到期自動公開 ──
+const DAY = 86_400_000;
+const T0 = Date.parse("2026-11-20T05:00:00Z");
+
+function revealWorld(records: Record<string, { committed_at: string; reveal: unknown | null } | null | "down">) {
+  const rows = [
+    { commitment: "a".repeat(64), anchor_tx: "t1" },
+    { commitment: "b".repeat(64), anchor_tx: "t2" },
+    { commitment: "c".repeat(64), anchor_tx: null },
+    { commitment: "d".repeat(64), anchor_tx: "t4" },
+  ];
+  const f = (async (url: string) => {
+    if (url === "http://api/commitments") return new Response(JSON.stringify(rows));
+    const c = url.split("/commitments/")[1];
+    return new Response(JSON.stringify({ canonical: `{"c":"${c[0]}"}` }));
+  }) as typeof fetch;
+  const revealed: string[] = [];
+  return {
+    revealed,
+    deps: {
+      apiUrl: "http://api",
+      fetch: f,
+      record: async (c: string) => {
+        const r = records[c[0]];
+        if (r === "down") throw new Error("node unreachable");
+        return r ?? null;
+      },
+      reveal: async (canonical: string) => {
+        revealed.push(canonical);
+        return `tx-${canonical}`;
+      },
+    },
+  };
+}
+
+test("reveal: only contract commitments past the 7-day horizon and not yet revealed", async () => {
+  const w = revealWorld({
+    a: { committed_at: new Date(T0).toISOString(), reveal: null }, // 到期 → 公開
+    b: { committed_at: new Date(T0 + 3 * DAY).toISOString(), reveal: null }, // 還沒到期
+    d: { committed_at: new Date(T0).toISOString(), reveal: { signal: "RISK_ON" } }, // 已公開
+  });
+  const out = await runRevealsOnce({ ...w.deps, now: () => T0 + 7 * DAY + 2 * 60_000 });
+  assert.deepEqual(out.map((r) => r.status), ["revealed"]);
+  assert.deepEqual(w.revealed, ['{"c":"a"}']);
+});
+
+test("reveal: not before horizon + 1 minute; register-data commitments and node outages are skipped", async () => {
+  const early = revealWorld({ a: { committed_at: new Date(T0).toISOString(), reveal: null } });
+  assert.deepEqual(await runRevealsOnce({ ...early.deps, now: () => T0 + 7 * DAY + 30_000 }), []);
+  const skip = revealWorld({ a: null, b: "down", d: null });
+  assert.deepEqual(await runRevealsOnce({ ...skip.deps, now: () => T0 + 30 * DAY }), []);
+});
+
+test("reveal: a failing reveal is reported and retried next round; at most max per round", async () => {
+  const old = { committed_at: new Date(T0).toISOString(), reveal: null };
+  const w = revealWorld({ a: old, b: old, d: old });
+  const logs: string[] = [];
+  let n = 0;
+  const out = await runRevealsOnce({
+    ...w.deps,
+    now: () => T0 + 10 * DAY,
+    max: 2,
+    log: (m) => logs.push(m),
+    reveal: async (c) => {
+      if (n++ === 0) throw new Error("TooEarly");
+      return `tx-${c}`;
+    },
+  });
+  assert.deepEqual(out.map((r) => r.status), ["error", "revealed"]);
+  assert.ok(logs.some((m) => /retry next round/.test(m)));
 });

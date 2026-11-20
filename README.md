@@ -147,6 +147,10 @@ The buyer check runs in an x402 client hook (`onBeforePaymentCreation`, `gateway
 
 VeriFlow binds its x402 `payTo` to agent #1313 on-chain with `npm run registry -- set-wallet 1313`: the payout account signs the official 162-byte `setAgentWallet` authorization (the command checks every byte — token, owner, wallet, deadline, contract, chain — before signing) and the owner submits it. Done on testnet ([setAgentWallet tx](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b)): agent #1313's `agentWallet` is the x402 payout account `3WSAJwTZ…`. Any buyer agent, not just ours, can then check that paying VeriFlow pays VeriFlow.
 
+## Operations
+
+`/health` reports the API status and the operator account (`4dNM…`) that pays for daily commitments, automatic reveals and sponsored buyer fees: `{"ok":true,"operator":{"account":…,"balance_ccd":…,"low":false}}`. The balance is refreshed every 10 minutes in the background (health checks stay instant) and `low` turns true below `MIN_OPERATOR_CCD` (default 100), so an uptime monitor with a keyword check alerts before the record could stop.
+
 ## Agent guardrails
 
 The demo buyer agent only pays in testnet CCD and refuses any single payment above `MAX_PAY_MICROCCD` (default 2 CCD), using x402 client spend controls. A seller that raises its price or switches asset cannot drain the buyer. Before signing, it verifies the seller as above (`REQUIRE_SELLER_BADGE=true`).
@@ -248,14 +252,14 @@ Register-data anchors prove *when* a hash was written. The VeriFlow registry con
 | `reveal` | **anyone**, after the horizon (7 days) | the contract computes SHA-256 of the content and accepts it only if it matches a commitment; the signal value is stored with the content |
 | `commitment`, `view` | anyone | read a commitment and its reveal; totals |
 
-Because reveal is permissionless, the seller cannot "forget" a losing call: once the horizon passes, any buyer can publish the signal they received and the chain checks it.
+Because reveal is permissionless, the seller cannot "forget" a losing call: once the horizon passes, any buyer can publish the signal they received and the chain checks it. VeriFlow does not wait for buyers: the server reveals every contract commitment itself as soon as its horizon passes (`runRevealsOnce` in `gateway/src/daily.ts`, every 30 minutes, at most 5 per round), so each call's content and outcome end up on-chain automatically — winners and losers alike.
 
 ```bash
 cd contract && cargo test                 # unit tests (end-to-end tests run in CI against the compiled Wasm)
 cd gateway && npm run contract -- deploy  # deploys the CI-built module from the GitHub release, prints REGISTRY_CONTRACT
 ```
 
-With `REGISTRY_CONTRACT` set, the gateway commits every paid signal through the contract. `/onchain/<tx>` decodes the contract's `Committed` event into the same `veriflow:v1:<hash>` form, so the dashboard and MCP `verify_signal` keep working unchanged. The TypeScript client's encoding is tested byte-for-byte against fixtures generated from the Rust types.
+With `REGISTRY_CONTRACT` set, the gateway commits every paid and daily signal through the contract. `/onchain/<tx>` decodes the contract's `Committed` event into the same `veriflow:v1:<hash>` form, so the dashboard and MCP `verify_signal` keep working unchanged. The TypeScript client's encoding is tested byte-for-byte against fixtures generated from the Rust types.
 
 ## Verified by Concordium
 
