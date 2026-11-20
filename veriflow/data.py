@@ -60,11 +60,30 @@ def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
     在 512 MB 的免費主機上和其他請求同時發生時會被 OOM 砍掉。這裡只要一個端點。
     雲端主機多在美國，api.binance.com 會擋美國 IP；可用 BINANCE_PUBLIC_API 改走官方鏡像 data-api.binance.vision。
     """
-    base = os.environ.get("BINANCE_PUBLIC_API") or BINANCE_API
     symbol = SYMBOLS[asset].replace("/", "")
     start = int(pd.Timestamp(since, tz="UTC").timestamp() * 1000)
+    errors = []
+    for base in _binance_bases():
+        try:
+            return parse_klines(_fetch_klines(base, symbol, start))
+        except httpx.HTTPError as e:  # 418/451/403：該網域擋這個 IP，換下一個
+            errors.append(f"{base}: {e}")
+    raise RuntimeError("all Binance endpoints failed: " + " | ".join(errors))
+
+
+def _binance_bases() -> list[str]:
+    """先用設定的鏡像，再試官方的其他公開網域（各網域的 IP 限制不同）"""
+    bases = [os.environ.get("BINANCE_PUBLIC_API"), "https://data-api.binance.vision/api/v3", BINANCE_API,
+             "https://api-gcp.binance.com/api/v3", "https://api4.binance.com/api/v3"]
+    return list(dict.fromkeys(b for b in bases if b))
+
+
+HEADERS = {"User-Agent": "VeriFlow/1.0 (+https://github.com/jiahaoc040-ai/veriflow)", "Accept": "application/json"}
+
+
+def _fetch_klines(base: str, symbol: str, start: int) -> list[list]:
     rows: list[list] = []
-    with httpx.Client(timeout=30) as c:
+    with httpx.Client(timeout=30, headers=HEADERS) as c:
         while True:
             r = c.get(f"{base}/klines", params={"symbol": symbol, "interval": "1d", "startTime": start, "limit": 1000})
             r.raise_for_status()
@@ -73,4 +92,4 @@ def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
             if len(batch) < 1000:
                 break
             start = batch[-1][0] + 86_400_000
-    return parse_klines(rows)
+    return rows

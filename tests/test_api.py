@@ -93,3 +93,22 @@ def test_parse_klines_drops_unclosed_today():
     df = parse_klines(rows)
     assert list(df["close"]) == [102.0, 101.0]
     assert df.index[-1] == (today - pd.Timedelta(days=1)).tz_localize(None)
+
+
+def test_fetch_prices_falls_back_when_an_endpoint_blocks(monkeypatch):
+    """Binance 某個網域擋了主機 IP（418/451）時，改用下一個公開網域"""
+    import httpx
+
+    from veriflow import data
+
+    tried = []
+
+    def fake(base, symbol, start):
+        tried.append(base)
+        if len(tried) == 1:
+            raise httpx.HTTPStatusError("418", request=httpx.Request("GET", base), response=httpx.Response(418))
+        return [[1_600_000_000_000, "1", "1", "1", "42", "1"]]
+
+    monkeypatch.setattr(data, "_fetch_klines", fake)
+    df = data.fetch_prices("BTC")
+    assert len(tried) == 2 and list(df["close"]) == [42.0]
