@@ -72,6 +72,7 @@ if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PRO
 app.use(
   securityHeaders(
     inlineScriptHashes([new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname]),
+    ["/verify"],
   ),
 );
 app.use(express.json({ limit: "256kb" }));

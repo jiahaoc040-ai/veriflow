@@ -52,3 +52,15 @@ test("security headers and CSP hashes cover the pages' inline scripts", async ()
   assert.match(csp, /frame-ancestors 'self' https:\/\/huggingface.co/);
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
 });
+
+test("only the wallet page allows eval/WebAssembly (the wallet's injected SDK needs it)", async () => {
+  const app = express();
+  app.use(securityHeaders(["'sha256-x'"], ["/verify"]));
+  app.get(["/", "/verify"], (_q, r) => r.send("ok"));
+  const srv = app.listen(0);
+  const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  const [home, verify] = await Promise.all([fetch(base + "/"), fetch(base + "/verify")]);
+  srv.close();
+  assert.doesNotMatch(home.headers.get("content-security-policy")!, /unsafe-eval/);
+  assert.match(verify.headers.get("content-security-policy")!, /script-src 'self' 'sha256-x' 'unsafe-eval' 'wasm-unsafe-eval'/);
+});

@@ -70,10 +70,15 @@ export function inlineScriptHashes(htmlFiles: string[]): string[] {
   return [...out];
 }
 
-export function securityHeaders(scriptHashes: string[]) {
-  const csp = [
+/**
+ * walletPaths：需要 Concordium 錢包的頁面（/verify）。錢包用 chrome.scripting.executeScript(world: "MAIN")
+ * 把它的 API 注入到頁面裡，那段程式受頁面 CSP 管；它載入 Concordium SDK 時需要 eval 與 WebAssembly，
+ * 所以只有這些頁面加上 'unsafe-eval' 'wasm-unsafe-eval'。script 來源仍然只限本站 + 雜湊白名單。
+ */
+export function securityHeaders(scriptHashes: string[], walletPaths: string[] = []) {
+  const build = (wallet: boolean) => [
     "default-src 'self'",
-    `script-src 'self' ${scriptHashes.join(" ")}`,
+    `script-src 'self' ${scriptHashes.join(" ")}${wallet ? " 'unsafe-eval' 'wasm-unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "connect-src 'self'",
@@ -83,8 +88,10 @@ export function securityHeaders(scriptHashes: string[]) {
     // Hugging Face 的 Space 頁面用 iframe 嵌入；其他網站不准嵌入（防點擊劫持）
     "frame-ancestors 'self' https://huggingface.co",
   ].join("; ");
+  const strict = build(false);
+  const wallet = build(true);
   return (req: Request, res: Response, next: NextFunction) => {
-    res.setHeader("Content-Security-Policy", csp);
+    res.setHeader("Content-Security-Policy", walletPaths.includes(req.path) ? wallet : strict);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
