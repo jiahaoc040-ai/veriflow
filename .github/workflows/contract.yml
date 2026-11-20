@@ -1,0 +1,66 @@
+name: contract
+
+# Builds the VeriFlow registry smart contract to Wasm, runs the unit and
+# end-to-end tests against the compiled module, and publishes the module as a
+# release asset so it can be deployed with `npm run contract -- deploy`.
+on:
+  push:
+    branches: [main]
+    paths: ["contract/**", ".github/workflows/contract.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contract
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain with Wasm targets
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32-unknown-unknown wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-concordium
+            ~/.cargo/registry
+            contract/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('contract/Cargo.toml') }}
+
+      - name: Install cargo-concordium
+        run: command -v cargo-concordium || cargo install --locked cargo-concordium
+
+      - name: Build module (schema embedded)
+        run: |
+          mkdir -p concordium-out
+          cargo concordium build --schema-embed --out concordium-out/module.wasm.v1
+          cargo concordium build --schema-json-out concordium-out/
+          ls -la concordium-out
+          sha256sum concordium-out/module.wasm.v1
+
+      - name: Unit + end-to-end tests
+        run: cargo test
+
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veriflow-registry-module
+          path: contract/concordium-out/
+
+      - name: Publish module as release asset
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view registry-module >/dev/null 2>&1 || \
+            gh release create registry-module --title "VeriFlow registry contract module" \
+              --notes "Built by CI from contract/. Deploy with: cd gateway && npm run contract -- deploy"
+          gh release upload registry-module concordium-out/module.wasm.v1 --clobber
