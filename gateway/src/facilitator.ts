@@ -11,6 +11,7 @@
  *   - /settle 遇到網路錯誤 → 重建連線，但不自動重送（避免重複結算），回報錯誤讓買方重試
  */
 import express from "express";
+import { rateLimit as baselineLimit } from "express-rate-limit";
 import { x402Facilitator } from "@x402/core/facilitator";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/facilitator";
 import { toConcordiumFacilitatorSigner } from "@x402/concordium";
@@ -38,6 +39,7 @@ const transientResult = (r: { isValid?: boolean; invalidReason?: string }) => r.
 
 const app = express();
 app.use(express.json({ limit: "256kb" }));
+app.use(baselineLimit({ windowMs: 60_000, limit: Number(env("FACILITATOR_CALLS_PER_MIN", "300")), standardHeaders: "draft-8", legacyHeaders: false }));
 // 只聽 127.0.0.1（gateway 自己呼叫），仍設上限：每次 verify/settle 都會打 Concordium 節點
 const limitCalls = rateLimit([{ limiter: new RateLimiter(Number(env("FACILITATOR_CALLS_PER_MIN", "300")), 60_000), key: (req) => req.ip ?? "local", what: "per caller" }]);
 

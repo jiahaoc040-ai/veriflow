@@ -13,6 +13,7 @@
  * 執行：npm run gateway   （預設 http://localhost:4020）
  */
 import express from "express";
+import { rateLimit as baselineLimit } from "express-rate-limit";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
@@ -70,6 +71,8 @@ const app = express();
 app.disable("x-powered-by");
 // 部署在反向代理後面（Hugging Face / Render）時，用 X-Forwarded-For 取得真實 IP、X-Forwarded-Proto 判斷 HTTPS
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+// 全站基本上限（每 IP 每分鐘）；個別路由另有更嚴的限制（例如會花 CCD 的 /eligibility/challenge）
+app.use(baselineLimit({ windowMs: 60_000, limit: Number(env("REQUESTS_PER_MIN", "300")), standardHeaders: "draft-8", legacyHeaders: false }));
 // sendFile 預設會設 Cache-Control: public, max-age=0，蓋掉安全標頭的 no-store
 const NO_CACHE_FILE = { cacheControl: false, lastModified: false } as const;
 const pages = [new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname];
