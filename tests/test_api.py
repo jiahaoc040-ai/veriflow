@@ -112,3 +112,37 @@ def test_fetch_prices_falls_back_when_an_endpoint_blocks(monkeypatch):
     monkeypatch.setattr(data, "_fetch_klines", fake)
     df = data.fetch_prices("BTC")
     assert len(tried) == 2 and list(df["close"]) == [42.0]
+
+
+def test_okx_fallback_when_binance_bans_the_host(monkeypatch):
+    """Binance 所有網域都回 418（整個 IP 被封）→ 用 OKX 日 K，只留已收盤、轉成同樣格式"""
+    import httpx
+    import pandas as pd
+
+    from veriflow import data
+
+    def banned(base, symbol, start):
+        raise httpx.HTTPStatusError("418 I'm a teapot\nmore", request=httpx.Request("GET", base), response=httpx.Response(418))
+
+    day = 86_400_000
+    t0 = int(pd.Timestamp("2026-01-10", tz="UTC").timestamp() * 1000)
+    pages = [
+        [[str(t0 + 2 * day), "1", "1", "1", "103", "1", "1", "1", "0"],      # 今天：未收盤
+         [str(t0 + day), "1", "1", "1", "102", "1", "1", "1", "1"],
+         [str(t0), "1", "1", "1", "101", "1", "1", "1", "1"]],
+    ]
+
+    class FakeClient:
+        def __init__(self, **kw): self.calls = 0
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, params):
+            assert params["bar"] == "1Dutc" and params["instId"] == "BTC-USDT"
+            page = pages[self.calls] if self.calls < len(pages) else []
+            self.calls += 1
+            return httpx.Response(200, json={"code": "0", "msg": "", "data": page}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(data, "_fetch_klines", banned)
+    monkeypatch.setattr(data.httpx, "Client", FakeClient)
+    df = data.fetch_prices("BTC", since="2026-01-01")
+    assert list(df["close"]) == [101.0, 102.0]

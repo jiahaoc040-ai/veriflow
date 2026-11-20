@@ -2,7 +2,7 @@
 資料來源（全部免費、不需要 API key）
 -----------------------------------
 - 穩定幣總供給：DefiLlama Stablecoins API（所有鏈，含 Tron 上的 USDT）
-- 價格：Binance 日 K（公開 /klines 端點）
+- 價格：Binance 日 K（公開 /klines 端點）；主機 IP 被 Binance 封鎖時改用 OKX 現貨日 K
 
 為什麼不用 Dune：Dune 免費方案已改為「僅瀏覽」，不能用 API，
 而產品要能每天自動更新，所以改用免費、公開的 DefiLlama。
@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 import pandas as pd
@@ -67,8 +68,46 @@ def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
         try:
             return parse_klines(_fetch_klines(base, symbol, start))
         except httpx.HTTPError as e:  # 418/451/403：該網域擋這個 IP，換下一個
-            errors.append(f"{base}: {e}")
-    raise RuntimeError("all Binance endpoints failed: " + " | ".join(errors))
+            errors.append(f"{base}: {str(e).splitlines()[0]}")
+    # Binance 會整個封鎖某些雲端主機的 IP（所有網域都回 418）。
+    # 備援：OKX 現貨 USDT 日 K（UTC 收盤，和 Binance 同一個時間邊界，收盤價差在萬分之一等級）
+    try:
+        return parse_klines(_fetch_okx(SYMBOLS[asset].replace("/", "-"), start))
+    except (httpx.HTTPError, ValueError) as e:
+        errors.append(f"okx: {str(e).splitlines()[0]}")
+    raise RuntimeError("all price sources failed: " + " | ".join(errors))
+
+
+OKX_API = "https://www.okx.com/api/v5/market/history-candles"
+
+
+def _fetch_okx(inst: str, start: int) -> list[list]:
+    """OKX 日 K（bar=1Dutc），新到舊、每頁 100 根；轉成 Binance /klines 的欄位順序，只保留已收盤的"""
+    rows: list[list] = []
+    after = None
+    with httpx.Client(timeout=30, headers=HEADERS) as c:
+        while True:
+            params = {"instId": inst, "bar": "1Dutc", "limit": 100}
+            if after:
+                params["after"] = after
+            r = c.get(OKX_API, params=params)
+            r.raise_for_status()
+            body = r.json()
+            if body.get("code") != "0":
+                raise ValueError(f"OKX error {body.get('code')}: {body.get('msg')}")
+            page = body["data"]
+            if not page:
+                break
+            for ts, o, h, l, close, vol, *rest in page:
+                confirmed = not rest or rest[-1] == "1"
+                if int(ts) >= start and confirmed:
+                    rows.append([int(ts), o, h, l, close, vol])
+            after = page[-1][0]
+            if int(after) <= start or len(page) < 100:
+                break
+            time.sleep(0.12)  # history-candles 限速 20 次 / 2 秒
+    rows.sort(key=lambda r: r[0])
+    return rows
 
 
 def _binance_bases() -> list[str]:
