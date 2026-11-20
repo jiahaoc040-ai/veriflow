@@ -11,3 +11,15 @@ test("token id from a CIS-2 Mint event; ignores unrelated events", () => {
   assert.equal(mintedTokenId(["fe080500000000000000" + "01" + "00".repeat(33)]), "5");
   assert.equal(mintedTokenId(["fb01", "ab"]), undefined);
 });
+
+test("agent-card.json still matches the hash pinned on-chain for agent #1313", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { createHash } = await import("node:crypto");
+  const bytes = readFileSync(new URL("../../agent-card.json", import.meta.url));
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  assert.equal(
+    sha,
+    "1dbe6d737822e9ea67117bd8b87bd6cfd18a02d22027055e36292092ffbe5f21",
+    "agent-card.json changed: re-pin it with `npm run registry -- set-uri 1313`, then update this hash",
+  );
+});
