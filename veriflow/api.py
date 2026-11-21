@@ -175,7 +175,7 @@ def daily_signal(asset: str, x_veriflow_gateway: str | None = Header(default=Non
 
 @app.get("/track-record")
 def track_record():
-    return ledger.track_record({a: _prices(a) for a in SYMBOLS})
+    return ledger.track_record()  # counts only; the score is gateway/src/score.ts (docs/SCORING.md)
 
 
 @app.get("/commitments")

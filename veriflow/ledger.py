@@ -85,37 +85,31 @@ class Ledger:
         with self.engine.connect() as conn:
             return pd.read_sql(text("SELECT * FROM signals ORDER BY issued_at"), conn)
 
-    def track_record(self, prices: dict[str, pd.DataFrame]) -> dict:
-        """prices：{'BTC': DataFrame(close)}。只評分已經過了 7 天的訊號
+    def track_record(self, prices: dict[str, pd.DataFrame] | None = None, now: pd.Timestamp | None = None) -> dict:
+        """公開紀錄的計數（不計分）
 
-        - 只算有上鏈的訊號：沒上鏈的不能證明是事前發的，不能進績效
-        - 同一資產同一收盤日只算一次（取最早上鏈的那筆）：每次付費購買都會產生新的承諾（nonce 不同、
-          訊號相同），如果每筆都算，同一天的結果會被重複計分、灌水命中率
+        計分只由 docs/SCORING.md 的規則與 gateway/src/score.ts 從鏈上與 Binance 計算，
+        不用這裡的資料庫或價格；這裡也不再顯示命中率。
+        - 只列有上鏈的訊號
+        - 同一資產同一收盤日有多筆時不隱藏：duplicate_asset_days 照實回報（計分規則把它算成失敗）
+        prices 參數保留只為相容舊呼叫，不使用。
         """
         df = self.all()
         issued = int(len(df))
-        if not df.empty:
-            df = (df[df["anchor_tx"].notna()].sort_values("issued_at", kind="stable")
-                  .drop_duplicates(["asset", "as_of"], keep="first"))
-        scored = []
-        for _, r in df.iterrows():
-            p = prices.get(r["asset"])
-            if p is None:
-                continue
-            target = pd.Timestamp(r["as_of"]) + pd.Timedelta(days=HORIZON_DAYS)
-            if target not in p.index:
-                continue  # 還沒到期
-            fwd = p.loc[target, "close"] / r["close"] - 1
-            hit = fwd > 0 if r["signal"] == RISK_ON else fwd <= 0
-            scored.append({"commitment": r["commitment"], "asset": r["asset"], "as_of": r["as_of"],
-                           "signal": r["signal"], "fwd_7d": round(float(fwd), 6), "hit": bool(hit),
-                           "anchor_tx": r["anchor_tx"]})
-        n = len(scored)
+        anchored = df[df["anchor_tx"].notna()].sort_values("issued_at", kind="stable") if not df.empty else df
+        days = anchored.groupby(["asset", "as_of"]).size() if not anchored.empty else pd.Series(dtype=int)
+        now = now if now is not None else pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+        signals = [{"commitment": r["commitment"], "asset": r["asset"], "as_of": r["as_of"],
+                    "signal": r["signal"], "anchor_tx": r["anchor_tx"]}
+                   for _, r in anchored.iterrows()
+                   if pd.Timestamp(r["as_of"]) + pd.Timedelta(days=HORIZON_DAYS + 1) <= now]
         return {
             "issued": issued,
-            "signal_days": int(len(df)),
-            "scored": n,
-            "hit_rate": round(sum(s["hit"] for s in scored) / n, 4) if n else None,
+            "signal_days": int(len(days)),
+            "duplicate_asset_days": int((days > 1).sum()),
+            "matured": len(signals),
             "horizon_days": HORIZON_DAYS,
-            "signals": scored,
+            "scoring_rule": "https://github.com/jiahaoc040-ai/veriflow/blob/main/docs/SCORING.md",
+            "note": "No hit rate is published. The score is computed only from the chain and Binance by gateway/src/score.ts.",
+            "signals": signals,
         }

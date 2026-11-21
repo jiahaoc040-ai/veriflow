@@ -44,20 +44,21 @@ def test_nonce_hides_signal():
     assert a.signal == b.signal and a.commitment() != b.commitment()
 
 
-def test_track_record_scores_only_matured(tmp_path):
+def test_track_record_counts_matured_and_publishes_no_hit_rate(tmp_path):
     flows, prices = fake_data()
     f = build_factors(flows, prices)
     led = Ledger(tmp_path / "t.db")
     s = latest_signal("BTC", f.iloc[:-10])             # 10 天前的訊號 → 已到期
     led.set_anchor(led.record(s), "aa" * 32)
     led.set_anchor(led.record(latest_signal("BTC", f)), "bb" * 32)   # 今天的訊號 → 未到期
-    tr = led.track_record({"BTC": prices})
-    assert tr["issued"] == 2 and tr["scored"] == 1
-    assert tr["hit_rate"] in (0.0, 1.0)
+    tr = led.track_record({"BTC": prices}, now=prices.index[-1])
+    assert tr["issued"] == 2 and tr["matured"] == 1
+    assert "hit_rate" not in tr and "hit" not in tr["signals"][0]
+    assert tr["scoring_rule"].endswith("docs/SCORING.md")
 
 
 def test_track_record_counts_each_day_once_and_only_anchored(tmp_path):
-    """同一天賣了好幾次（nonce 不同、訊號相同）只算一次；沒上鏈的不算"""
+    """同一天有好幾筆上鏈承諾：不隱藏，照實回報為重複；沒上鏈的不列"""
     flows, prices = fake_data()
     f = build_factors(flows, prices)
     led = Ledger(tmp_path / "t.db")
@@ -68,8 +69,8 @@ def test_track_record_counts_each_day_once_and_only_anchored(tmp_path):
         led.set_anchor(led.record(latest_signal("BTC", old)), "cc" * 32)
     led.record(latest_signal("BTC", f.iloc[:-12]))      # 另一天，但從沒上鏈
     tr = led.track_record({"BTC": prices})
-    assert tr["issued"] == 5 and tr["signal_days"] == 1 and tr["scored"] == 1
-    assert tr["signals"][0]["commitment"] == first      # 取最早上鏈的那筆
+    assert tr["issued"] == 5 and tr["signal_days"] == 1 and tr["duplicate_asset_days"] == 1
+    assert tr["signals"][0]["commitment"] == first and len(tr["signals"]) == 4   # 四筆上鏈都列出
 
 
 def test_parse_llama():

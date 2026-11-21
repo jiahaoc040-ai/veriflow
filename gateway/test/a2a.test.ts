@@ -21,7 +21,7 @@ before(async () => {
       res.writeHead(code, { "Content-Type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
-    if (req.url === "/track-record") return send(200, { issued: 4, signal_days: 2, scored: 0, hit_rate: null });
+    if (req.url === "/track-record") return send(200, { issued: 4, signal_days: 2, duplicate_asset_days: 1, matured: 0, scoring_rule: "docs/SCORING.md" });
     if (req.url === "/commitments") return send(200, [{ commitment: C1, asset: "ETH", anchor_tx: null }]);
     if (req.url === `/commitments/${C1}`) return send(200, { commitment: C1, anchor_tx: null });
     if (req.url === `/eligibility/${WALLET}`) return send(200, { eligible: false });
@@ -66,7 +66,7 @@ test("message/send returns an agent message with a text summary and the full res
   assert.equal(r.result?.kind, "message");
   assert.equal(r.result?.role, "agent");
   assert.equal(r.result?.contextId, "ctx-1");
-  assert.match(r.result?.parts[0].text ?? "", /hit rate/);
+  assert.match(r.result?.parts[0].text ?? "", /No hit rate is published.*1 with more than one commit|1 with more than one commit.*No hit rate/);
   assert.equal(r.result?.parts[1].data.signal_days, 2);
 });
 

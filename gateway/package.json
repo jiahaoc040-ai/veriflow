@@ -13,7 +13,8 @@
     "mcp:config": "tsx src/mcp-config.ts",
     "registry": "tsx src/registry.ts",
     "diag": "tsx src/diag.ts",
-    "contract": "tsx src/contract.ts"
+    "contract": "tsx src/contract.ts",
+    "score": "tsx src/score.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",
