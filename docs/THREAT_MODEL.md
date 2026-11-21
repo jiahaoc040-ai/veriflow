@@ -55,6 +55,7 @@ Nothing personal is stored: VeriFlow keeps the account address, the policy finge
 | Attack | Defence |
 |---|---|
 | Key leakage | Keys live only in `gateway/keys/` (git-ignored) and in host secrets; GitHub push protection and secret scanning are on. The setAgentWallet authorization is checked byte by byte (token, owner, wallet, deadline, contract, chain) before the payout key signs it. |
+| Concurrent buyers making the operator's transactions collide (same nonce → one rejected) | Every transaction from the operator account goes through one queue: fetch nonce → sign → send, one at a time, with locally tracked nonces when the node lags; the SDK's own eligibility anchors wait until the node has caught up. Tested with 10 simultaneous purchases. (`gateway/src/txqueue.ts`) |
 | Burning the operator's CCD by spamming eligibility challenges (each anchors a transaction) | Rate limits: 5 per IP per 10 min, 3 per account per hour, 60 per hour site-wide. |
 | Web attacks on the dashboard and `/verify` | Strict CSP with hashed inline scripts and styles, CORP/COEP, no-store, HSTS, nosniff; weekly OWASP ZAP baseline scan, CodeQL, Trivy, Dependabot. |
 | Price source outage or blocking | Binance public hosts, then OKX spot daily candles (same UTC day boundary). A refresh failure reuses data only if it already contains yesterday's close; otherwise the request fails — no stale signal is issued. |

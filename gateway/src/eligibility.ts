@@ -38,6 +38,7 @@ import {
 } from "@concordium/web-sdk";
 import { createGrpc } from "./grpc.js";
 import { loadAccount } from "./config.js";
+import { serialize, waitForNode } from "./txqueue.js";
 
 export const MIN_AGE = 18;
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 分鐘內要完成證明
@@ -256,6 +257,7 @@ export function concordiumChain(anchorKeyFile: string): Chain {
   const grpc = createGrpc();
   const anchor = loadAccount(anchorKeyFile);
   const metadata = () => ({ sender: anchor.accountAddress, signer: anchor.signer });
+  const nodeNonce = async () => (await grpc.getNextAccountNonce(anchor.accountAddress)).nonce.value;
   let ips: number[] | undefined;
 
   return {
@@ -269,9 +271,14 @@ export function concordiumChain(anchorKeyFile: string): Chain {
 
     async anchorRequest(nonce, id, resource, note, claims) {
       const context = VerificationRequestV1.createSimpleContext(nonce, id, resource, note);
-      const request = await VerificationRequestV1.createAndAnchor(grpc, metadata(), context, claims, { service: "veriflow" });
-      // 錢包只接受「已最終確認」的請求，所以等它確認完才交給頁面
-      await grpc.waitForTransactionFinalization(request.transactionRef);
+      // SDK 自己取序號：整段排隊，並等到最終確認才放行，下一筆拿到的序號才不會重複（見 txqueue.ts）
+      // 錢包也只接受「已最終確認」的請求
+      const request = await serialize(anchor.address, async () => {
+        await waitForNode(anchor.address, nodeNonce);
+        const r = await VerificationRequestV1.createAndAnchor(grpc, metadata(), context, claims, { service: "veriflow" });
+        await grpc.waitForTransactionFinalization(r.transactionRef);
+        return r;
+      });
       return { request, json: request.toJSON(), txHash: TransactionHash.toHexString(request.transactionRef) };
     },
 
@@ -289,14 +296,19 @@ export function concordiumChain(anchorKeyFile: string): Chain {
     },
 
     async auditAndAnchor(id, req, parsed) {
-      const r = await VerificationAuditRecordV1.createAndAnchor(
-        id,
-        req.request as VerificationRequestV1.Type,
-        parsed.presentation as VerifiablePresentationV1.Type,
-        grpc,
-        { metadata: metadata(), info: { service: "veriflow" } },
-        { network: "Testnet" },
-      );
+      const r = await serialize(anchor.address, async () => {
+        await waitForNode(anchor.address, nodeNonce);
+        const out = await VerificationAuditRecordV1.createAndAnchor(
+          id,
+          req.request as VerificationRequestV1.Type,
+          parsed.presentation as VerifiablePresentationV1.Type,
+          grpc,
+          { metadata: metadata(), info: { service: "veriflow" } },
+          { network: "Testnet" },
+        );
+        if (out.type !== "failed") await grpc.waitForTransactionFinalization(out.result.anchorTransactionRef);
+        return out;
+      });
       if (r.type === "failed") throw new Error(`官方驗證未通過：${r.error.message}`);
       return TransactionHash.toHexString(r.result.anchorTransactionRef);
     },

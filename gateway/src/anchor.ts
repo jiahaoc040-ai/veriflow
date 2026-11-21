@@ -17,12 +17,14 @@ import {
   ConcordiumGRPCClient,
   ContractAddress,
   DataBlob,
+  SequenceNumber,
   TransactionExpiry,
   TransactionHash,
   TransactionStatusEnum,
 } from "@concordium/web-sdk";
 import { Transaction } from "@concordium/web-sdk/transactions";
 import { loadAccount } from "./config.js";
+import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 import { createRegistryClient, decodeCommittedEvent, registryAddress } from "./contract.js";
 
 import { ANCHOR_PREFIX } from "./anchor-format.js";
@@ -61,17 +63,24 @@ export function createAnchorer(keyFile: string) {
         return registryClient.commit(commitment, asset);
       }
       const data = anchorPayload(commitment);
-      const { nonce } = await grpc.getNextAccountNonce(account.accountAddress);
-      const tx = Transaction.registerData({ data: new DataBlob(data) })
-        .addMetadata({
-          sender: account.accountAddress,
-          nonce,
-          expiry: TransactionExpiry.futureMinutes(5),
-        })
-        .build();
-      const finalized = await Transaction.signAndFinalize(tx, account.signer);
-      const hash = await grpc.sendTransaction(finalized);
-      return TransactionHash.toHexString(hash);
+      // 營運帳號的交易要排隊、序號不重複（見 txqueue.ts）
+      return serialize(account.address, async () => {
+        const fromNode = (await grpc.getNextAccountNonce(account.accountAddress)).nonce.value;
+        const tx = Transaction.registerData({ data: new DataBlob(data) })
+          .addMetadata({
+            sender: account.accountAddress,
+            nonce: SequenceNumber.create(pickNonce(account.address, fromNode)),
+            expiry: TransactionExpiry.futureMinutes(5),
+          })
+          .build();
+        try {
+          const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(tx, account.signer));
+          return TransactionHash.toHexString(hash);
+        } catch (e) {
+          forgetNonce(account.address);
+          throw e;
+        }
+      });
     },
   };
 }

@@ -29,8 +29,10 @@ import {
   Transaction,
   TransactionExpiry,
   TransactionHash,
+  SequenceNumber,
 } from "@concordium/web-sdk";
 import { env, loadAccount } from "./config.js";
+import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 import { createGrpc } from "./grpc.js";
 
 export const CONTRACT_NAME = "veriflow_registry";
@@ -117,11 +119,20 @@ export function createRegistryClient(keyFile: string, contract: ContractAddress.
   const owner = loadAccount(keyFile);
   const grpc = createGrpc();
 
-  async function send(tx: ReturnType<typeof Transaction.updateContract>) {
-    const { nonce } = await grpc.getNextAccountNonce(owner.accountAddress);
-    const built = tx.addMetadata({ sender: owner.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
-    const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(built, owner.signer));
-    return TransactionHash.toHexString(hash);
+  // 營運帳號的交易要排隊、序號不重複（見 txqueue.ts）
+  function send(tx: ReturnType<typeof Transaction.updateContract>) {
+    return serialize(owner.address, async () => {
+      const fromNode = (await grpc.getNextAccountNonce(owner.accountAddress)).nonce.value;
+      const nonce = SequenceNumber.create(pickNonce(owner.address, fromNode));
+      const built = tx.addMetadata({ sender: owner.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
+      try {
+        const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(built, owner.signer));
+        return TransactionHash.toHexString(hash);
+      } catch (e) {
+        forgetNonce(owner.address);
+        throw e;
+      }
+    });
   }
 
   const update = (entry: string, param: Buffer, energy = 30_000) =>
