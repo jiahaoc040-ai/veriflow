@@ -19,7 +19,7 @@ export const RULE = {
   contract: { index: 13094n, subindex: 0n },
   assets: ["BTC", "ETH"] as const,
   integrityStart: "2026-11-20",
-  performanceStart: "2026-11-21",
+  performanceStart: "2026-11-20", // = integrityStart：11/20 已失敗，所以這個合約不發布績效數字
   horizonDays: 7,
   graceDays: 1,
   boundaryTolerance: 1e-6,
@@ -72,16 +72,17 @@ export function revealProblems(c: Commit): string[] {
 }
 
 /** 計分：純函式，同樣的輸入永遠得到同樣的報告 */
-export function score(commits: Commit[], prices: Record<string, Candle[]>, discovery: Discovery, nowMs: number) {
+/** rule 參數只給測試用；命令列一律用 RULE（沒有任何旗標） */
+export function score(commits: Commit[], prices: Record<string, Candle[]>, discovery: Discovery, nowMs: number, rule: typeof RULE = RULE) {
   const end = addDays(dayOf(nowMs), -1); // 最後一個完整的 UTC 日
-  const assets = RULE.assets as readonly string[];
+  const assets = rule.assets as readonly string[];
   const days: string[] = [];
-  for (let d = RULE.integrityStart; d <= end; d = addDays(d, 1)) days.push(d);
+  for (let d = rule.integrityStart; d <= end; d = addDays(d, 1)) days.push(d);
 
   // ── commit integrity ──
   const inWindow = commits.filter((c) => {
     const d = dayOf(Date.parse(c.committed_at));
-    return d >= RULE.integrityStart && d <= end;
+    return d >= rule.integrityStart && d <= end;
   });
   const slot = new Map<string, Commit[]>();
   const foreign: Commit[] = [];
@@ -114,7 +115,7 @@ export function score(commits: Commit[], prices: Record<string, Candle[]>, disco
   }));
 
   // ── reveal integrity ──
-  const dueMs = (c: Commit) => Date.parse(c.committed_at) + (RULE.horizonDays + RULE.graceDays) * DAY;
+  const dueMs = (c: Commit) => Date.parse(c.committed_at) + (rule.horizonDays + rule.graceDays) * DAY;
   const due = inWindow.filter((c) => nowMs > dueMs(c));
   const revealFailures: Failure[] = [];
   for (const c of due) {
@@ -123,30 +124,37 @@ export function score(commits: Commit[], prices: Record<string, Candle[]>, disco
   }
 
   // ── performance ──
-  const perfBlockers = [...slotFailures, ...foreignFailures, ...revealFailures].filter((f) => f.day >= RULE.performanceStart);
+  const perfBlockers = [...slotFailures, ...foreignFailures, ...revealFailures].filter((f) => f.day >= rule.performanceStart);
   // 進場＝承諾區塊日那根日 K（收盤時間一定晚於區塊時間）；出場＝7 根之後那根。缺一根＝缺口，不往後順延
   const at = (asset: string, openTime: number) => (prices[asset] ?? []).find((k) => k.openTime === openTime && k.closeTime < nowMs) ?? null;
   type Row = { day: string; book: number; on: number; labels: Record<string, string> };
   const rows: Row[] = [];
   const pending: string[] = [];
   const gaps: string[] = [];
-  for (const d of days.filter((x) => x >= RULE.performanceStart)) {
-    const calls = assets.map((a) => (slot.get(`${d}|${a}`) ?? [])[0]);
-    if (calls.some((c) => !c || !c.reveal)) {
-      pending.push(d);
-      continue;
-    }
-    const legs = calls.map((c) => {
-      const entryOpen = dayMs(dayOf(Date.parse(c!.committed_at)));
-      const exitOpen = entryOpen + RULE.horizonDays * DAY;
-      return { c: c!, exitClosesAt: exitOpen + DAY - 1, entry: at(c!.asset, entryOpen), exit: at(c!.asset, exitOpen) };
+  const blocked: Failure[] = [];
+  for (const d of days.filter((x) => x >= rule.performanceStart)) {
+    const calls = assets.map((a) => slot.get(`${d}|${a}`) ?? []);
+    if (calls.some((cs) => cs.length !== 1)) continue; // 已經是 slot failure，會擋住發布
+    const legs = calls.map(([c]) => {
+      const entryOpen = dayMs(dayOf(Date.parse(c.committed_at)));
+      const exitOpen = entryOpen + rule.horizonDays * DAY;
+      return { c, exitClosesAt: exitOpen + DAY - 1, entry: at(c.asset, entryOpen), exit: at(c.asset, exitOpen) };
     });
+    // 只有出場 K 線還沒收盤才算 pending；收盤之後不是計入就是擋住，不能被略過
     if (legs.some((l) => nowMs <= l.exitClosesAt)) {
       pending.push(d);
       continue;
     }
-    if (legs.some((l) => !l.entry || !l.exit)) {
+    const unrevealed = legs.filter((l) => !l.c.reveal);
+    if (unrevealed.length) {
+      for (const l of unrevealed)
+        blocked.push({ day: d, asset: l.c.asset, reason: "exit candle closed but the call is not revealed", commitments: [l.c.commitment] });
+      continue;
+    }
+    const missing = legs.filter((l) => !l.entry || !l.exit);
+    if (missing.length) {
       gaps.push(d);
+      for (const l of missing) blocked.push({ day: d, asset: l.c.asset, reason: "Binance candle missing (gap)", commitments: [l.c.commitment] });
       continue;
     }
     const r = legs.map((l) => l.exit!.close / l.entry!.close - 1);
@@ -162,17 +170,18 @@ export function score(commits: Commit[], prices: Record<string, Candle[]>, disco
   const switches = Object.fromEntries(
     assets.map((a) => [a, rows.slice(1).filter((row, i) => row.labels[a] !== rows[i].labels[a]).length]),
   );
-  const published = discovery.complete && perfBlockers.length === 0 && rows.length > 0;
+  const allBlockers = [...perfBlockers, ...blocked];
+  const published = discovery.complete && allBlockers.length === 0 && rows.length > 0;
   const mSignal = mean(rows.map((x) => x.book));
   const mOn = mean(rows.map((x) => x.on));
 
   return {
-    rule: RULE.version,
-    contract: `<${RULE.contract.index},${RULE.contract.subindex}>`,
+    rule: rule.version,
+    contract: `<${rule.contract.index},${rule.contract.subindex}>`,
     run_at: new Date(nowMs).toISOString(),
     discovery,
     integrity: {
-      window: [RULE.integrityStart, end],
+      window: [rule.integrityStart, end],
       commit: { numerator: goodSlots, denominator: days.length * assets.length + foreign.length },
       reveal: { numerator: due.length - revealFailures.length, denominator: due.length, pending: inWindow.length - due.length },
       failures: [...slotFailures, ...foreignFailures, ...revealFailures].sort((a, b) => a.day.localeCompare(b.day)),
@@ -180,13 +189,14 @@ export function score(commits: Commit[], prices: Record<string, Candle[]>, disco
     performance: published
       ? {
           published: true,
-          window_start: RULE.performanceStart,
+          window_start: rule.performanceStart,
           scored_days: rows.length,
           risk_off_calls: rows.reduce((s, x) => s + Object.values(x.labels).filter((l) => l === "RISK_OFF").length, 0),
           label_switches: switches,
-          mean_signal: r6(mSignal),
-          mean_always_on: r6(mOn),
-          mean_always_off: 0,
+          unit: "mean of overlapping 7-day returns (exit close / entry close − 1), not a daily return",
+          mean_7d_return_signal: r6(mSignal),
+          mean_7d_return_always_on: r6(mOn),
+          mean_7d_return_always_off: 0,
           x_vs_always_on: r6(mSignal - mOn),
           x_vs_always_off: r6(mSignal),
           pending_days: pending,
@@ -196,11 +206,11 @@ export function score(commits: Commit[], prices: Record<string, Candle[]>, disco
         }
       : {
           published: false,
-          window_start: RULE.performanceStart,
+          window_start: rule.performanceStart,
           reason: !discovery.complete
             ? "discovery INCOMPLETE"
-            : perfBlockers.length
-              ? `integrity failures inside the performance window: ${perfBlockers.map((f) => `${f.day} ${f.asset} (${f.reason})`).join(", ")}`
+            : allBlockers.length
+              ? `blocked inside the performance window: ${allBlockers.map((f) => `${f.day} ${f.asset} (${f.reason})`).join(", ")}`
               : "no scored day yet",
           pending_days: pending,
           gap_days: gaps,
@@ -316,7 +326,7 @@ function print(rep: ReturnType<typeof score>) {
   else
     console.log(
       `performance from ${p.window_start}: ${p.scored_days} scored days, ${p.risk_off_calls} RISK_OFF calls, switches ${JSON.stringify(p.label_switches)}\n` +
-        `  mean_signal ${p.mean_signal}  always_on ${p.mean_always_on}  always_off 0\n` +
+        `  mean 7-day return: signal ${p.mean_7d_return_signal}  always_on ${p.mean_7d_return_always_on}  always_off 0\n` +
         `  x_vs_always_on ${p.x_vs_always_on}  x_vs_always_off ${p.x_vs_always_off}\n  ${p.caveat}`,
     );
 }

@@ -1,9 +1,10 @@
 # VeriFlow scoring rule v1
 
-This rule was fixed on **2026-11-21**. No outcome existed yet: the earliest call (data close 2026-11-19) resolves at 2026-11-27 00:00 UTC. The SHA-256 of this file and of the script that implements it, `gateway/src/score.ts`, are anchored on Concordium before that time (see [Anchor](#anchor)).
+This rule was written on **2026-11-21**. At that point no price outcome existed: the earliest call (data close 2026-11-19) resolves at 2026-11-27 00:00 UTC. One integrity outcome was already known: block day 2026-11-20 has three BTC commits and two ETH commits. The rule therefore does not start any window after that day.
 
-The script has no flags. Its only runtime choices are which Concordium node to ask and where to write the report. Neither can change the result. If this file and the script disagree, the script is the rule, and the disagreement is a bug to report.
+The SHA-256 of this file and of `gateway/src/score.ts`, the script that implements it, are anchored on Concordium before 2026-11-27 00:00 UTC (see [Anchor](#anchor)).
 
+**For contract `<13094,0>` this rule publishes integrity counts and no performance number.** Its first day failed, and the performance window starts on that same day. A performance number can only come from a new contract whose rule is anchored before its first commit and whose window starts on its first day.
 ## Scope
 
 - Contract `<13094,0>` (`veriflow_registry`) on Concordium testnet (genesis `4221332d…f796`). Its owner `4dNMXmNK…` is the only account that can `commit`.
@@ -53,45 +54,49 @@ Commits that are not yet due are reported as pending. They are neither passes no
 
 ## Performance
 
-The performance window was fixed before any outcome existed. It starts on block day **2026-11-21**. Block day 2026-11-20 holds two commits for BTC and two for ETH. It stays a failure in integrity and is outside the performance window.
+The performance window starts on the same day as the integrity window, **2026-11-20**. It runs to the end of the integrity window.
 
-**When nothing is published.** No performance number is published if any of the following holds anywhere from 2026-11-21 to the end of the integrity window:
-
+**When nothing is published.** No performance number is published if anything in the window blocks it. That covers:
 - a slot failure;
 - a foreign-asset commit;
 - a reveal-integrity failure;
+- a day whose exit candle has closed while either of its calls is still unrevealed;
+- a missing Binance candle;
 - `INCOMPLETE` discovery.
 
-The report then says why.
+The report lists every blocker. A day is **pending** only while an exit candle is still open. Once both exit candles have closed, the day is either in the mean or blocks it. It is never left out silently. For `<13094,0>`, block day 2026-11-20 blocks the window permanently.
 
 **Each call.**
 
-- **Entry**: the close of the first Binance `1d` candle whose close time is strictly after the commit's block time. That is the candle dated the commit's block day. If that candle is missing, the day is a gap. The rule never shifts to a later candle.
+- **Entry**: the close of the first Binance `1d` candle whose close time is strictly after the commit's block time. That is the candle dated the commit's block day. If that candle is missing, the day blocks publication. The rule never shifts to a later candle.
 - **Exit**: the close of the candle 7 days after the entry candle.
-- **Return**: `r = exit / entry − 1`.
+- **7-day return**: `r = exit / entry − 1`.
 - **Position**: `RISK_ON` holds the asset and earns `r`. `RISK_OFF` holds cash and earns `0`.
 
-**Each day.** The book is weight ½ BTC and ½ ETH. The day's return is the average of the two positions.
+**Each day.** The book is weight ½ BTC and ½ ETH. The day's value is the average of the two positions' **7-day** returns. Consecutive days overlap by six of their seven days.
 
-**Which days count.** A day is scored when both of its calls are revealed and all four candles (entry and exit for each asset) exist.
-
-- Days still waiting for a reveal or an exit candle are pending.
-- A day with a missing candle is reported as a gap and not scored.
-
-**Printed every time, over the same scored days:**
+**Printed every time, over the same scored days.** All values are means of overlapping 7-day returns, never daily returns.
 
 | Name | Definition |
 |---|---|
-| `mean_signal` | mean daily return of the signal book |
-| `mean_always_on` | mean daily return of holding both assets every day (always `RISK_ON`) |
-| `mean_always_off` | mean daily return of cash every day (always `RISK_OFF`), which is `0` |
-| `x_vs_always_on` | `mean_signal − mean_always_on` |
-| `x_vs_always_off` | `mean_signal − mean_always_off` |
+| `mean_7d_return_signal` | mean 7-day return of the signal book |
+| `mean_7d_return_always_on` | the same for holding both assets every day (always `RISK_ON`) |
+| `mean_7d_return_always_off` | the same for cash every day (always `RISK_OFF`), which is `0` |
+| `x_vs_always_on` | `mean_7d_return_signal − mean_7d_return_always_on` |
+| `x_vs_always_off` | `mean_7d_return_signal − mean_7d_return_always_off` |
 | counts | scored days, `RISK_OFF` calls, label switches per asset |
 
-The 7-day returns overlap, so consecutive days share most of their window. BTC and ETH also move together. The number of independent observations is far smaller than the number of days, and the report says so in plain words.
+The returns overlap and BTC and ETH move together, so the number of independent observations is far smaller than the number of days. The report says so in plain words.
 
-**Not computed.** No hit rate, Sharpe ratio, drawdown, annualised return or p-value is computed or published. VeriFlow's `/track-record` endpoint and dashboard stop showing a hit rate. They report counts and link to this rule.
+**Not computed.** No hit rate, Sharpe ratio, drawdown, annualised return or p-value is computed or published. VeriFlow's `/track-record` endpoint and dashboard show counts, including duplicates, and link to this rule.
+
+**Required before any contract publishes a performance number.** This rule checks the revealed `signal` against the revealed `momentum` and `liquidity_z`. It does not recompute those inputs. Until it does, the label is frozen at commit time but is not proven to be the published rule.
+
+The rule for the next contract must recompute both inputs from pinned sources and require each to match the revealed field within `1e-6`, or record a reveal failure:
+- `momentum`: the 30-day change in close, from the same Binance candles;
+- `liquidity_z`: from one named stablecoin-supply source.
+
+That signal must also be produced from those same sources. A later revision of a source can turn a day into a failure and unpublish the number. It cannot flip a label.
 
 ## Running it
 
