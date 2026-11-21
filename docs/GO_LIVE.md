@@ -11,7 +11,7 @@ Every piece runs for real on Concordium testnet at <https://veriflow-yrhp.onrend
 - **An MCP server**, already used by Claude Desktop to verify the seller, pay, and verify the signal on-chain.
 - **Daily signals**: one per asset per daily close, committed on-chain automatically.
 
-So "going live" is a configuration and operations change, not a rewrite.
+Most of going live is configuration and operations, but not all of it. The network is still hardcoded in a few places (the eligibility DID network and audit call, the x402 CAIP-2 network, the registry network and genesis used by `set-wallet`); those become one network setting, with a test, before mainnet. The contract also needs a v2 (one commit per asset and day, a separate hot committer under a cold owner) and a review. There is no public Concordium facilitator yet, so VeriFlow keeps sponsoring buyer fees itself.
 
 ## Who the users are
 
@@ -22,7 +22,7 @@ So "going live" is a configuration and operations change, not a rewrite.
 ## Why someone pays
 
 - A buyer can check the full live record before paying (`get_track_record`, `list_commitments`), for free.
-- One call costs about one coffee-sip: about 1 CCD today, a stable price after the move to stablecoins (see M2).
+- One call costs 1 CCD on testnet. Mainnet pricing moves to a stablecoin (see M2); no fiat price is claimed before that.
 - Compliance is built in. The seller never learns who the buyer is, only that they are 18 or older and not in a restricted country. This is what lets a regulated-style product sell to anonymous agents at all.
 
 ## Milestones

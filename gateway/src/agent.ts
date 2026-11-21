@@ -11,12 +11,13 @@ import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { getExplorerTxUrl } from "@x402/concordium";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { NETWORK, env, loadAccount } from "./config.js";
+import { PUBLIC_GATEWAY } from "./mcp-launch.js";
 import { summarize, verifySeller, type SellerVerdict } from "./counterparty.js";
 import { REGISTRY_NETWORK, registryTool } from "./registry.js";
 
 export function createBuyerAgent() {
   const buyer = loadAccount(env("BUYER_KEY_FILE"));
-  const gateway = env("GATEWAY_URL", "http://localhost:4020");
+  const gateway = env("GATEWAY_URL", PUBLIC_GATEWAY);
   const maxPay = env("MAX_PAY_MICROCCD", "2000000");
   const client = x402Client.fromConfig({
     schemes: [

@@ -1,6 +1,6 @@
 # VeriFlow
 
-**Crypto risk-regime signals for AI agents — sold over x402 only to verified, eligible buyers, by a verified seller, with a track record no one can fake.**
+**Crypto risk-regime signals for AI agents — sold over x402 only to verified, eligible buyers, by a verified seller, with every daily call hash-committed on Concordium before its outcome.**
 
 [![test](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml)
 [![docker](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml)
@@ -209,7 +209,7 @@ cd gateway && npm test      # 48 tests: eligibility rules (replay, wrong account
 
 The server also sends MCP `instructions` (check eligibility → judge the track record → verify the seller → buy → verify the signal) and tool annotations (`get_signal` is the only non-read-only tool), so a client knows which call spends money.
 
-**Hosted, nothing to install:** `https://veriflow-yrhp.onrender.com/mcp` (MCP Streamable HTTP, stateless). Add it to any MCP client that supports remote servers — for example as a custom connector in Claude — to get the read-only tools (`get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility`) plus `how_to_buy`, which returns the live x402 terms (network, amount, `payTo`, required buyer proof) without paying. Paying needs the buyer's own wallet, so it happens in the buyer's agent (the local server below, or any x402 client); the hosted server holds nobody's keys. For a check that does not rely on VeriFlow at all, verify in your own agent or the dashboard.
+**Hosted, nothing to install:** `https://veriflow-yrhp.onrender.com/mcp` (MCP Streamable HTTP, stateless). Add it to any MCP client that supports remote servers — for example as a custom connector in Claude — to get the read-only tools (`get_track_record`, `list_commitments`, `verify_signal`, `check_eligibility`) plus `how_to_buy`, which returns the live x402 terms (network, amount, `payTo`, required buyer proof) without paying. Paying needs the buyer's own wallet, so it happens in the buyer's agent (the local server below, or any x402 client); the hosted server holds nobody's keys. For a check that does not rely on VeriFlow's server: hash the canonical signal you bought (`sha256sum`) and compare it with the `commit` transaction on [CCDExplorer](https://ccdexplorer.io/testnet). The dashboard is a convenience: it recomputes hashes in your browser but reads the chain through VeriFlow's `/onchain` endpoint.
 
 **Claude Desktop, one command** (fills in absolute paths, keeps your other MCP servers, backs up the old config):
 
