@@ -17,6 +17,7 @@ API 只接受帶正確密鑰的請求，所以沒付款的人無法繞過關卡�
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -134,6 +135,16 @@ def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)
     if GATEWAY_SECRET and x_veriflow_gateway != GATEWAY_SECRET:
         raise HTTPException(402, "Payment required：請透過 x402 付款關卡取得訊號")
     s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
+    # 每個資產每個收盤日只有一筆官方訊號：當天已經發過（每日排程或先前的買家），就賣同一筆，不產生新的承諾。
+    # 否則每次購買都會多一個雜湊，紀錄上同一天會有好幾筆，也無法證明賣方沒有兩邊都押。
+    rows = ledger.for_day(asset, s.as_of)
+    anchored = [r for r in rows if r["anchor_tx"]]
+    if anchored or rows:
+        r = (anchored or rows)[0]
+        out = {"signal": json.loads(r["canonical"]), "canonical": r["canonical"], "commitment": r["commitment"]}
+        if r["anchor_tx"]:
+            out["anchor_tx"] = r["anchor_tx"]  # 已上鏈：付款關卡不再重複上鏈
+        return out
     commitment = ledger.record(s)
     return {"signal": s.__dict__, "canonical": s.canonical(), "commitment": commitment}
 

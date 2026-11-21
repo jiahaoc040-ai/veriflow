@@ -172,3 +172,17 @@ def test_price_refresh_failure_reuses_data_that_is_still_current(monkeypatch):
     api_mod._last_good["BTC"] = current.iloc[:1]              # 只到前天：已過時
     with pytest.raises(RuntimeError):
         api_mod._prices_at("BTC", 3)
+
+
+def test_paid_signal_is_the_one_official_signal_of_the_day(tmp_path, monkeypatch):
+    """同一資產同一收盤日：每日排程發的、先前買家買的、現在買的，都是同一筆承諾"""
+    api, c = make_client(tmp_path, monkeypatch)
+    gw = {"X-VeriFlow-Gateway": "s"}
+    daily = c.post("/daily/BTC", headers=gw).json()
+    first = c.get("/signal/BTC", headers=gw).json()
+    assert first["commitment"] == daily["commitment"] and "anchor_tx" not in first   # 還沒上鏈：交給付款關卡上鏈
+    c.post(f"/commitments/{daily['commitment']}/anchor", json={"anchor_tx": "ef" * 32}, headers=gw)
+    again = c.get("/signal/BTC", headers=gw).json()
+    assert again["commitment"] == daily["commitment"] and again["anchor_tx"] == "ef" * 32
+    assert again["canonical"] == first["canonical"]
+    assert len(api.ledger.for_day("BTC", again["signal"]["as_of"])) == 1

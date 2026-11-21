@@ -143,19 +143,22 @@ app.get("/signal/:asset", async (req, res) => {
     const body = await r.json();
     if (!r.ok) return res.status(r.status).json(body);
 
-    try {
-      const tx = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
-      await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
-        method: "POST",
-        headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
-        body: JSON.stringify({ anchor_tx: tx }),
-      });
-      body.anchor_tx = tx;
-      console.log(`anchored ${body.commitment.slice(0, 12)}… → ${tx}`);
-    } catch (e) {
-      // 上鏈失敗不擋買方拿訊號，但要標示出來
-      body.anchor_error = String(e);
-      console.error("anchor failed:", e);
+    // 當天的官方訊號已經上鏈（每日排程或先前的買家）：直接賣同一筆，不重複上鏈
+    if (!body.anchor_tx) {
+      try {
+        const tx = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
+        await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
+          method: "POST",
+          headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
+          body: JSON.stringify({ anchor_tx: tx }),
+        });
+        body.anchor_tx = tx;
+        console.log(`anchored ${body.commitment.slice(0, 12)}… → ${tx}`);
+      } catch (e) {
+        // 沒上鏈的訊號不能證明是事前發的：回錯誤，x402 只在成功回應時結算，所以買方不會被扣款
+        console.error("anchor failed:", e);
+        return res.status(503).json({ error: "anchor_failed", detail: "The signal could not be committed on-chain, so it was not sold and you were not charged. Try again shortly." });
+      }
     }
     res.json(body);
   } catch (e) {
