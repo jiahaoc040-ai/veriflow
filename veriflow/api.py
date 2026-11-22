@@ -17,6 +17,7 @@ API 只接受帶正確密鑰的請求，所以沒付款的人無法繞過關卡�
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import threading
@@ -52,7 +53,15 @@ def _warm_caches():
     threading.Thread(target=warm, daemon=True).start()
 # 部署時設 DATABASE_URL（Postgres），本機預設 SQLite 檔案
 ledger = Ledger(os.environ.get("DATABASE_URL") or os.environ.get("VERIFLOW_DB", "veriflow.db"))
-GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")  # 空字串 = 開發模式，不檢查
+GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")
+# 沒設 GATEWAY_SECRET 時預設「關閉」：訊號與寫入端點一律拒絕。只有明確設 VERIFLOW_INSECURE_DEV=1 才不檢查（本機開發用）
+INSECURE_DEV = os.environ.get("VERIFLOW_INSECURE_DEV") == "1"
+
+
+def _from_gateway(secret: str | None) -> bool:
+    if not GATEWAY_SECRET:
+        return INSECURE_DEV
+    return secret is not None and hmac.compare_digest(secret.encode(), GATEWAY_SECRET.encode())
 
 
 CACHE_SECONDS = int(os.environ.get("DATA_CACHE_SECONDS", "3600"))
@@ -132,7 +141,7 @@ def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)
     asset = asset.upper()
     if asset not in SYMBOLS:
         raise HTTPException(404, f"不支援的資產：{asset}，可用：{list(SYMBOLS)}")
-    if GATEWAY_SECRET and x_veriflow_gateway != GATEWAY_SECRET:
+    if not _from_gateway(x_veriflow_gateway):
         raise HTTPException(402, "Payment required：請透過 x402 付款關卡取得訊號")
     s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
     # 每個資產每個收盤日只有一筆官方訊號：當天已經發過（每日排程或先前的買家），就賣同一筆，不產生新的承諾。
@@ -190,7 +199,7 @@ class Anchor(BaseModel):
 
 
 def _require_gateway(secret: str | None):
-    if GATEWAY_SECRET and secret != GATEWAY_SECRET:
+    if not _from_gateway(secret):
         raise HTTPException(403, "只接受付款關卡的請求")
 
 

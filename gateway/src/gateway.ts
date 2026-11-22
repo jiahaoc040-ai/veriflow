@@ -243,8 +243,10 @@ app.post("/eligibility/verify", limitVerify, async (req, res) => {
 
 app.get("/eligibility/:account", (req, res) => {
   const rec = eligibility.status(req.params.account);
+  // 公開端點不回傳 credential id（雖然它本來就在鏈上，但不需要讓人把帳號和身分憑證對起來）
+  const { credId: _omit, ...pub } = rec ?? ({} as Record<string, unknown>);
   // policy 放最後：rec 裡也有 policy（指紋字串），不能讓它蓋掉完整的政策說明
-  res.json({ eligible: !!rec, ...(rec ?? {}), policyId: rec?.policy, policy: eligibility.describe() });
+  res.json({ eligible: !!rec, ...pub, policyId: rec?.policy, policy: eligibility.describe() });
 });
 
 // 公開版 MCP（Streamable HTTP）：免費工具 + 購買說明，不碰任何人的金鑰

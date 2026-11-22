@@ -1,6 +1,6 @@
 # VeriFlow
 
-**Crypto risk-regime signals for AI agents — sold over x402 only to verified, eligible buyers, by a verified seller, with every daily call hash-committed on Concordium before its outcome.**
+VeriFlow sells a BTC or ETH `RISK_ON` / `RISK_OFF` call over x402 on Concordium testnet. The seller is agent **#1313** in the Concordium Agent Registry. A buyer who holds the canonical string can SHA-256 it and compare the digest with an owner commit on contract **`<13094,0>`**.
 
 [![test](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml)
 [![docker](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml)
@@ -14,24 +14,16 @@
 
 **Docs:** [Scoring rule](docs/SCORING.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
 
-**Scoring rule v1 is pinned on-chain.** `sha256(docs/SCORING.md)` and `sha256(gateway/src/score.ts)` at commit `94c7603` were registered by the owner account `4dNM…` on 2026-11-21 14:57 UTC, before any price outcome existed ([tx `39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95)). The rule reads only the chain and Binance and runs on GitHub daily (`score` workflow). For contract `<13094,0>` it reports integrity only. Block day 2026-11-20 failed: BTC has 3 commits and ETH has 2. That day stays a failure, and no performance number is published for this contract.
+`sha256(docs/SCORING.md)` and `sha256(gateway/src/score.ts)` at `94c7603` are the register-data of [tx `39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95), sent by `4dNM…` at 2026-11-21 14:57:24 UTC, before any price outcome existed. For `<13094,0>` the published result is integrity only. Block day 2026-11-20 failed, with 3 BTC commits and 2 ETH commits. The `score` workflow reruns the rule daily on GitHub's machines from the chain and Binance, and it publishes no performance number for this contract.
 
-Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026). **Nothing is mocked:** every payment, proof, commitment and registry entry below is a real Concordium testnet transaction you can open on CCDExplorer.
+| Check | What the code and chain do |
+|---|---|
+| Who is paid | The local buyer checks the badge, the card hash, and that `payTo` equals the on-chain `agentWallet`, before it signs (`gateway/src/counterparty.ts`). [`setAgentWallet`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) on `<12802,0>` names `3WSAJwTZ…`. A stock x402 client pays `payTo` without asking. |
+| Who may buy | Settlement requires a stored eligibility row. The row is written only after the Verify & Access V1 request and audit record are anchored on-chain. The proof is not re-checked at payment. `GET /eligibility/:account` returns whether the account is eligible, the policy fingerprint and the two anchor transactions. It does not return the credential id. The proof hides the date of birth and the country. |
+| The hash you hold | Only the owner can `commit`. A repeated hash is rejected. The block time is stored. After the 7-day horizon, `reveal` hashes the text and accepts it only on a match. The deployed contract has no notion of a day: a different hash is simply a second commit, which is why 2026-11-20 failed. Reveal needs the canonical, which includes a random nonce. |
+| How an agent calls it | Hosted `POST /mcp` and `POST /a2a` are read-only. Paying (`get_signal`) runs in the local stdio MCP server, with the buyer's own key. |
 
-## The problem
-
-1. **Sellers can't comply.** Trading signals are regulated investment information in many jurisdictions. When an agent sells to another agent, the seller has no idea who the buyer is or where they are.
-2. **Buyers can't trust.** Signal providers can edit or cherry-pick their history after the fact. A buying agent has no way to check whether a provider's past calls were real.
-
-## How VeriFlow solves it
-
-| Problem | Concordium piece | What it does |
-|---|---|---|
-| Who is the buyer? | Verify & Access (ZK proofs) | Buyer proves *age ≥ 18* and *country not restricted* — nothing else is revealed |
-| Is the seller accountable — and really the one being paid? | Verified by Concordium badge + Agent Registry (ERC-8004 Agent Card, on-chain `agentWallet`) | VeriFlow is agent #1313, linked to a verified human; the buyer agent checks the badge, the card hash and that `payTo` is the agent's on-chain wallet **before signing** |
-| How does an agent pay? | x402 on Concordium | Pay per signal, fees sponsored |
-| How do agents find and call it? | MCP server | Any MCP agent (e.g. Claude) can call `get_signal` |
-| Is the track record real? | Commit–reveal contract on Concordium | Each signal's hash is anchored on-chain **before** the outcome (block time checked), one per asset every daily close whether or not anyone buys; anyone can recompute it later |
+Transactions linked in this README are Concordium testnet transactions you can open on CCDExplorer. Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026).
 
 ## Architecture
 
@@ -51,15 +43,14 @@ flowchart LR
     C["Commit–reveal contract<br/>&lt;13094,0&gt;"]
     V["Verify & Access V1<br/>request + audit anchors"]
   end
-  H -- "ZK proof once: 18+, not restricted" --> V
+  H -- "ZK proof once: 18+, not restricted (VeriFlow then stores a row)" --> V
   A -- "1. check seller (badge, card hash, payTo = agentWallet)" --> R
   A -- "2. pay over x402" --> G
-  G -- "eligible payer?" --> V
   G --> P
   P -- "commitment" --> G
   G -- "commit hash before outcome" --> C
   D -- "every daily close" --> G
-  A -- "3. read anchor directly, recheck hash + time" --> C
+  A -- "3. local buyer reads the anchor from a node, rechecks hash + time" --> C
 ```
 
 ```mermaid
@@ -77,11 +68,11 @@ sequenceDiagram
     B-->>B: abort before signing (wallet never asked)
   else verified
     B->>G: PAYMENT-SIGNATURE (sponsored transfer)
-    G->>F: verify: payer passed ZK eligibility?
+    G->>F: verify: payer has a stored eligibility row?
     F->>C: settle (fee sponsored)
     G->>C: commit sha256(signal) to contract
     G-->>B: signal + canonical JSON + anchor tx
-    B->>C: read anchor tx directly (not via VeriFlow)
+    B->>C: local buyer reads the anchor tx from a node (or a block explorer)
     B->>B: hash matches, anchored within a day of the close
   end
 ```
@@ -93,7 +84,7 @@ End-to-end on the public deployment (2026-11-20): buyer proved eligibility with 
 | Component | State |
 |---|---|
 | Signal engine (`veriflow/signal.py`) | ✅ works, tested |
-| Signal API (`veriflow/api.py`) | ✅ works, tested; returns 402 without gateway |
+| Signal API (`veriflow/api.py`) | ✅ works, tested; returns 402 without the gateway secret, and fails closed when no secret is configured |
 | Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
 | On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
@@ -129,7 +120,7 @@ Each signal is serialized to canonical JSON (sorted keys) including a random `no
 pip install -r requirements.txt
 python -m pytest -q          # offline tests
 python scripts/run_signal.py BTC
-uvicorn veriflow.api:app --reload    # http://127.0.0.1:8000/docs
+VERIFLOW_INSECURE_DEV=1 uvicorn veriflow.api:app --reload    # local only: without GATEWAY_SECRET the API refuses /signal unless this flag is set
 ```
 
 No API keys are needed for the signal: prices come from Binance and stablecoin supply from DefiLlama.
@@ -195,7 +186,7 @@ page ──POST /eligibility/verify──▶ gateway
 At payment time an x402 `onBeforeVerify` hook reads the payer from the signed transaction (`signedTransaction.header.sender`). An unverified account gets `buyer_proof_required` and a link to `/verify`; its transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
 
 ```bash
-cd gateway && npm test      # 48 tests: eligibility rules (replay, wrong account, weaker statement, …), seller check, MCP over stdio, contract encoding, verifiers
+cd gateway && npm test      # tests: eligibility rules (replay, wrong account, weaker statement, …), seller check, MCP over stdio, contract encoding, verifiers
 ```
 
 ## MCP server — let any agent buy and verify

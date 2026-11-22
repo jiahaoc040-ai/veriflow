@@ -25,6 +25,17 @@ def test_signal_requires_gateway(tmp_path, monkeypatch):
     assert c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"}).status_code == 200
 
 
+def test_no_secret_fails_closed_unless_dev_flag(tmp_path, monkeypatch):
+    """沒設 GATEWAY_SECRET 不再等於全開：預設拒絕，只有 VERIFLOW_INSECURE_DEV=1 才放行"""
+    monkeypatch.delenv("VERIFLOW_INSECURE_DEV", raising=False)
+    _, c = make_client(tmp_path, monkeypatch, secret="")
+    assert c.get("/signal/BTC").status_code == 402
+    assert c.post("/daily/BTC").status_code == 403
+    monkeypatch.setenv("VERIFLOW_INSECURE_DEV", "1")
+    _, c = make_client(tmp_path, monkeypatch, secret="")
+    assert c.get("/signal/BTC").status_code == 200
+
+
 def test_anchor_and_reveal(tmp_path, monkeypatch):
     api, c = make_client(tmp_path, monkeypatch)
     body = c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"}).json()
