@@ -361,9 +361,17 @@ export function concordiumChain(anchorKeyFile: string): Chain {
       if (r.type === "failed") throw new Error(`proof no longer passes the official check: ${r.error.message}`);
       // SDK 的 verifyAnchor 算雜湊時不帶 info；我們上鏈時帶了 { service: "veriflow" }，所以自己比對整個 anchor
       const expected = Buffer.from(VerificationAuditRecordV1.createAnchor(r.result, { service: "veriflow" })).toString("hex");
-      const st = await grpc.getBlockItemStatus(TransactionHash.fromHexString(auditAnchorTx));
-      if (st.status !== "finalized") throw new Error("audit record transaction is not finalized");
-      const data = (st.outcome.summary as { dataRegistered?: { data?: string } }).dataRegistered?.data;
+      // 請求（VRA）與稽核紀錄（VAA）都必須是「我們的上鏈帳號」送的：別人自己上鏈的請求與紀錄不算
+      const sentByUs = async (tx: string, what: string) => {
+        const st = await grpc.getBlockItemStatus(TransactionHash.fromHexString(tx));
+        if (st.status !== "finalized") throw new Error(`${what} transaction is not finalized`);
+        const s = st.outcome.summary as { sender?: AccountAddress.Type; dataRegistered?: { data?: string } };
+        if (!s.sender || AccountAddress.toBase58(s.sender) !== anchor.address) throw new Error(`${what} was not anchored by VeriFlow's account`);
+        return s;
+      };
+      const vra = (request as unknown as { transactionRef: TransactionHash.Type }).transactionRef;
+      await sentByUs(TransactionHash.toHexString(vra), "verification request");
+      const data = (await sentByUs(auditAnchorTx, "audit record")).dataRegistered?.data;
       if (!data || data.toLowerCase() !== expected) throw new Error("the audit record on-chain is not this proof's record");
     },
 
@@ -456,6 +464,11 @@ export class EligibilityService {
     const parsed = this.chain.parsePresentation(rec.presentationJson!);
     const vc = parsed.credentials[0];
     if (parsed.credentials.length !== 1 || vc.kind !== "account") throw new Error("stored proof is not one account credential");
+    // 存下的證明必須滿足「現在的」政策與身分提供者名單（不只看存下的政策字串）
+    const ips = await this.chain.identityProviders();
+    const gap = statementGap(buildClaims(this.policy, ips)[0].statements as Atomic[], vc.statement);
+    if (gap) throw new Error(`stored proof does not meet the current policy: ${gap}`);
+    if (!ips.includes(idpFromDid(vc.issuer))) throw new Error("stored proof's identity provider is not on the chain's list");
     await withTimeout(this.chain.recheckAudit(rec.challengeId!, rec.requestJson, rec.presentationJson!, rec.auditAnchorTx), "付款時重新檢查");
     const owner = await withTimeout(this.chain.accountOfCredential(credIdFromDid(vc.id)), "查詢 credential 所屬帳號");
     if (owner !== sender) throw new Error(`the proof's credential belongs to ${owner}, not the paying account`);

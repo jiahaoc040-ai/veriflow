@@ -81,7 +81,9 @@ app.post("/settle", limitCalls, async (req, res) => {
 
 const PORT = Number(env("FACILITATOR_PORT", "4021"));
 // 部署時只給本機用（gateway 在同一台呼叫它），不對外
-const HOST = env("FACILITATOR_HOST", "0.0.0.0");
+// 只給本機的 gateway 用：預設只聽 127.0.0.1（/settle 不做資格檢查，資格檢查在 gateway 的 onBeforeVerify）
+const HOST = env("FACILITATOR_HOST", "127.0.0.1");
+process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 /** gateway 內嵌時要等這個：x402 中介層啟動時就會問 facilitator 支援哪些付款方式 */
 export const listening = new Promise<void>((resolve) => app.listen(PORT, HOST, () => {
   resolve();

@@ -246,7 +246,7 @@ app.post("/eligibility/verify", limitVerify, async (req, res) => {
     const json = typeof presentation === "string" ? presentation : JSON.stringify(presentation);
     const rec = await eligibility.verify(String(id), json);
     console.log(`eligible: ${rec.account} (idp ${rec.issuer})  VRA ${rec.requestAnchorTx}  VAA ${rec.auditAnchorTx}`);
-    const { presentationJson: _p, requestJson: _r, ...out } = rec;
+    const { presentationJson: _p, requestJson: _r, credId: _c, challengeId: _i, ...out } = rec;
     res.json({ eligible: true, ...out });
   } catch (e) {
     console.log("eligibility refused:", e instanceof Error ? e.message : e);
@@ -305,6 +305,9 @@ if (DAILY) {
 operator.account = anchorer.address;
 setTimeout(refreshOperatorBalance, 5_000);
 setInterval(refreshOperatorBalance, 10 * 60_000);
+
+// SDK 有些檢查內部沒有 await（例如 createChecked 的 context 檢查）：一個壞的證明不能讓整個伺服器結束
+process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);

@@ -231,3 +231,15 @@ test("rows written before proofs were stored are not eligible: the buyer must ve
   assert.equal(svc.status(BUYER), null);
   await assert.rejects(svc.recheck(BUYER), /no stored/);
 });
+
+test("settlement checks the stored proof against the current policy, not the stored policy string", async () => {
+  const { svc, chain, id } = await run();
+  await svc.verify(id, "{}");
+  const weaker = WANT.slice(0, 1); // e.g. only the age statement, no residence statement
+  const parse = chain.parsePresentation.bind(chain);
+  (chain as any).parsePresentation = (j: string) => {
+    const p = parse(j);
+    return { ...p, credentials: p.credentials.map((c) => ({ ...c, statement: weaker })) };
+  };
+  await assert.rejects(svc.recheck(BUYER), /current policy/);
+});
