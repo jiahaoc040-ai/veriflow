@@ -26,10 +26,10 @@ Change one character and the hash changes.
 <https://ccdexplorer.io/testnet/transaction/fe340eeaa2623405880a57208c88004fb4f12b7b56479876e8be6f24a4ada718>
 
 Check four things:
-- It is a `commit` to contract `<13115,0>` (`veriflow_registry_v2`).
-- Its event carries asset `BTC`, `as_of` `2026-11-21` and the commitment `10cb3dc2…8eda`.
-- Its block time is 2026-11-22 08:03 UTC. That is within a day of the 2026-11-21 close, and seven days before the call's outcome.
-- The sender is `4HgaCRwX…`, the committer that the contract owner appointed.
+- It is the function `commit` on contract `<13115,0>` (`veriflow_registry_v2`), of type "contract updated".
+- Under **Parameter** it shows asset `BTC`, `as_of` `2026-11-21` and the commitment `10cb3dc2…8eda`. The Event line below shows the same data as hex.
+- Its timestamp is `2026-11-22 08:03:30`. The explorer shows times in UTC without saying so. That is within a day of the 2026-11-21 close. The call's outcome is known only when its exit candle closes, on 2026-11-30 00:00 UTC, about eight days later.
+- The sender is shown as account index `19719`. Click it to see the address `4HgaCRwX…VwT3nmCj`. That is the committer the contract owner appointed, which you can confirm on the owner's [`set_committer` transaction `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) (sender `4dNMXmNK…`, parameter `4HgaCRwX…`).
 
 The contract accepts one commit per asset and day, and only in the day after that close. A second hash for BTC on 2026-11-21 would have been rejected by the chain.
 
@@ -61,7 +61,14 @@ git show 8d07d44:docs/SCORING-v2.md | shasum -a 256         # 6c862bfe…
 git show 8d07d44:gateway/src/score-v2.ts | shasum -a 256    # babc11e5…
 ```
 
-Both hashes appear in that transaction's data text. Each run of the `score-v2` GitHub workflow repeats this check and fails if the files differ.
+On the explorer the "Data Registered" event shows the data as hex. Copy the hex and decode it:
+
+```bash
+python3 -c "print(bytes.fromhex(input('hex: ')).decode())"
+# veriflow:scoring:v2:13115:08e3b49e…:6c862bfe…:babc11e5…
+```
+
+Both full hashes are in that text. Each run of the `score-v2` GitHub workflow repeats this check and fails if the files differ.
 
 **What Path A proves.** The call was committed before its outcome, under its own asset and day. It was not changed afterwards, and it follows the published rule. It does not prove that the call is right. Nothing is scored until the exit candle closes on 2026-11-30, and the rule never prints a hit rate.
 
