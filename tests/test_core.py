@@ -54,7 +54,7 @@ def test_track_record_counts_matured_and_publishes_no_hit_rate(tmp_path):
     tr = led.track_record({"BTC": prices}, now=prices.index[-1])
     assert tr["issued"] == 2 and tr["matured"] == 1
     assert "hit_rate" not in tr and "hit" not in tr["signals"][0]
-    assert tr["scoring_rule"].endswith("docs/SCORING.md")
+    assert tr["scoring_rule"].endswith("docs/SCORING-v2.md") and tr["scoring_rule_v1"].endswith("docs/SCORING.md")
 
 
 def test_track_record_counts_each_day_once_and_only_anchored(tmp_path):
