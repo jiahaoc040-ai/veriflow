@@ -26,6 +26,7 @@ import { Transaction } from "@concordium/web-sdk/transactions";
 import { loadAccount } from "./config.js";
 import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 import { createRegistryClient, decodeCommittedEvent, registryAddress } from "./contract.js";
+import { decodeCommittedEventV2, TESTNET_REGISTRY_V2_INDEX, v2Address } from "./contract-v2.js";
 
 import { ANCHOR_PREFIX } from "./anchor-format.js";
 export { ANCHOR_PREFIX };
@@ -95,6 +96,10 @@ export type OnChainAnchor = {
   transaction_type?: string | null;
   data_hex?: string | null;
   data_text?: string | null;
+  /** 合約 v2 的承諾：哪個合約、哪個 (asset, as_of) */
+  contract?: string;
+  asset?: string;
+  as_of?: string;
 };
 
 /**
@@ -106,16 +111,29 @@ export async function readAnchorTx(
   grpc: ConcordiumGRPCClient,
   txHash: string,
   registry?: ContractAddress.Type,
+  registryV2?: ContractAddress.Type,
 ): Promise<OnChainAnchor> {
   const status = await grpc.getBlockItemStatus(TransactionHash.fromHexString(txHash));
   if (status.status === TransactionStatusEnum.Received) return { tx: txHash, status: "pending" };
   const outcome = status.status === TransactionStatusEnum.Finalized ? status.outcome : status.outcomes[0];
   const s = outcome?.summary as any;
   let dataHex: string | undefined = s?.dataRegistered?.data;
+  let key: { contract: string; asset: string; as_of: string } | undefined;
   if (!dataHex && registry && s?.transactionType === "update") {
     for (const e of contractEventsOf(s, registry.index)) {
       const ev = decodeCommittedEvent(e);
       if (ev) dataHex = Buffer.from(ANCHOR_PREFIX + ev.commitment, "utf8").toString("hex");
+    }
+  }
+  // 合約 v2：Committed 事件帶 (asset, as_of)，合約已保證每個鍵只有一筆、而且在收盤後一天內上鏈
+  const v2 = registryV2 ?? v2Address() ?? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n);
+  if (!dataHex && s?.transactionType === "update") {
+    for (const e of contractEventsOf(s, v2.index)) {
+      const ev = decodeCommittedEventV2(e);
+      if (ev) {
+        dataHex = Buffer.from(ANCHOR_PREFIX + ev.commitment, "utf8").toString("hex");
+        key = { contract: `<${v2.index},${v2.subindex}>`, asset: ev.asset, as_of: ev.as_of };
+      }
     }
   }
   const blockTime = outcome ? (await grpc.getBlockInfo(outcome.blockHash)).blockSlotTime.toISOString() : null;
@@ -128,6 +146,7 @@ export async function readAnchorTx(
     transaction_type: s?.transactionType ?? null,
     data_hex: dataHex ?? null,
     data_text: dataHex ? Buffer.from(dataHex, "hex").toString("utf8") : null,
+    ...(key ?? {}),
   };
 }
 

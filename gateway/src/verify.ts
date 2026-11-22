@@ -10,7 +10,10 @@ import { createHash } from "node:crypto";
 import { ANCHOR_PREFIX } from "./anchor-format.js";
 
 export type Check = { name: string; ok: boolean; detail: string };
-type OnChain = { status?: string; sender?: string | null; data_text?: string | null; block_time?: string | null } | null | undefined;
+type OnChain =
+  | { status?: string; sender?: string | null; data_text?: string | null; block_time?: string | null; contract?: string; asset?: string; as_of?: string }
+  | null
+  | undefined;
 
 const DAY_MS = 86_400_000;
 
@@ -59,6 +62,18 @@ export function verifyCommitment(commitment: string, onchain: OnChain, canonical
     checks.push({ name: "signal content hashes to commitment", ok: h === commitment, detail: `sha256: ${h}` });
     const asOf = asOfOf(canonical);
     if (asOf && onchain?.block_time) checks.push(anchoredInTime(asOf, onchain.block_time));
+    // 合約 v2：鏈上的鍵 (asset, as_of) 必須就是這個訊號的；同一天只能有這一筆，合約已經保證
+    if (onchain?.contract) {
+      let s: { asset?: unknown; as_of?: unknown } = {};
+      try {
+        s = JSON.parse(canonical);
+      } catch {}
+      checks.push({
+        name: `committed under this signal's own day on contract ${onchain.contract} (one call per asset and day)`,
+        ok: s.asset === onchain.asset && s.as_of === onchain.as_of,
+        detail: `on-chain key ${onchain.asset} ${onchain.as_of}; signal ${String(s.asset)} ${String(s.as_of)}`,
+      });
+    }
   }
   return checks;
 }

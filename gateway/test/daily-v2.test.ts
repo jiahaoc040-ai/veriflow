@@ -240,3 +240,19 @@ test("daily v2: an on-chain commitment missing from the database is reported", a
   const out = await runDailyV2(w.deps);
   assert.ok(out.errors.some((e) => /not in the database/.test(e)));
 });
+
+test("buyer verification reads a v2 commit: event key must equal the signal's asset and as_of", async () => {
+  const { decodeCommittedEventV2 } = await import("../src/contract-v2.ts");
+  const { verifyCommitment, allOk } = await import("../src/verify.ts");
+  const str = (s: string) => Buffer.concat([Buffer.from([s.length, 0, 0, 0]), Buffer.from(s)]);
+  const canon = canonicalV2("BTC", "2026-11-21", 1234, NONCE);
+  const c = sha(canon);
+  const ev = Buffer.concat([Buffer.from([0]), str("BTC"), str("2026-11-21"), Buffer.from(c, "hex"), u64(Date.parse("2026-11-22T08:03:30Z"))]).toString("hex");
+  const d = decodeCommittedEventV2(ev)!;
+  assert.deepEqual([d.asset, d.as_of, d.commitment], ["BTC", "2026-11-21", c]);
+  assert.equal(decodeCommittedEventV2("01" + ev.slice(2)), null); // not a Committed event
+  const onchain = { status: "finalized", data_text: "veriflow:v1:" + c, block_time: "2026-11-22T08:03:30Z", contract: "<13115,0>", asset: "BTC", as_of: "2026-11-21" };
+  assert.ok(allOk(verifyCommitment(c, onchain, canon)));
+  const wrongDay = verifyCommitment(c, { ...onchain, as_of: "2026-11-20" }, canon);
+  assert.equal(allOk(wrongDay), false);
+});

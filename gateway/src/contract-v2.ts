@@ -94,9 +94,28 @@ export function decodeSummaryV2(buf: Buffer): SummaryV2 {
   return out;
 }
 
+/** 測試網上部署的 v2 合約（init dba400c2…，模組 08e3b49e…） */
+export const TESTNET_REGISTRY_V2_INDEX = 13115n;
+
 export function v2Address(): ContractAddress.Type | undefined {
   const idx = process.env.REGISTRY_V2_CONTRACT;
   return idx ? ContractAddress.create(BigInt(idx), 0n) : undefined;
+}
+
+/** v2 的 Committed 事件（tag 0）：asset、as_of、commitment、committed_at；其他事件回傳 null */
+export function decodeCommittedEventV2(hex: string): { asset: string; as_of: string; commitment: string; committed_at: string } | null {
+  try {
+    const r = new Reader(Buffer.from(hex, "hex"));
+    if (r.u8() !== 0) return null;
+    const asset = r.str();
+    const as_of = r.str();
+    const commitment = r.bytes(32).toString("hex");
+    const committed_at = iso(r.u64());
+    r.done();
+    return { asset, as_of, commitment, committed_at };
+  } catch {
+    return null;
+  }
 }
 
 const ab = (b: Buffer) => new Uint8Array(b).buffer as ArrayBuffer;
