@@ -12,7 +12,7 @@
  */
 import { createHash } from "node:crypto";
 import { env } from "./config.js";
-import { createV2Writer, v2Address, HORIZON_MS, type SlotV2 } from "./contract-v2.js";
+import { createV2Writer, RejectedError, v2Address, HORIZON_MS, type SlotV2 } from "./contract-v2.js";
 import { binanceDaily, canonicalV2, dayMs, dayOf, momentumE6, newNonce, ruleV2, SYMBOLS, type Candle } from "./signal-v2.js";
 
 const DAY = 86_400_000;
@@ -23,14 +23,14 @@ export type DailyV2Deps = {
   now: number;
   assets: string[];
   slot: (asset: string, asOf: string) => Promise<SlotV2 | null>;
-  commit: (asset: string, asOf: string, commitment: string) => Promise<string>;
+  commit: (asset: string, asOf: string, commitment: string, onSent?: (tx: string) => Promise<void>) => Promise<string>;
   reveal: (canonical: string) => Promise<string>;
   candles: (asset: string, sinceDay: string) => Promise<Candle[]>;
   db: {
     v2Rows: () => Promise<Row[]>;
     forDay: (asset: string, asOf: string) => Promise<Row[]>;
     insert: (r: { commitment: string; asset: string; as_of: string; signal: string; close: number; canonical: string; issued_at: string }) => Promise<void>;
-    setAnchor: (commitment: string, tx: string) => Promise<void>;
+    setAnchor: (commitment: string, tx: string | null) => Promise<void>;
   };
   nonce?: () => string;
   log?: (m: string) => void;
@@ -66,6 +66,7 @@ export async function runDailyV2(d: DailyV2Deps) {
         out.skipped.push(`${asset} ${asOf} already committed`);
         const mine = (await d.db.forDay(asset, asOf)).find((r) => r.commitment === onChain.commitment);
         if (!mine) out.errors.push(`${asset} ${asOf}: on-chain commitment ${onChain.commitment.slice(0, 12)}… is not in the database`);
+        else if (!mine.anchor_tx) out.errors.push(`${asset} ${asOf}: committed on-chain but the transaction hash was not recorded`);
         continue;
       }
       let row = (await d.db.forDay(asset, asOf)).find((r) => isV2(r.canonical));
@@ -75,11 +76,20 @@ export async function runDailyV2(d: DailyV2Deps) {
         if (m === null) throw new Error(`Binance candles for ${asOf} or 30 days earlier are missing`);
         const canonical = canonicalV2(asset, asOf, m, (d.nonce ?? newNonce)());
         const close = candles.find((k) => k.openTime === dayMs(asOf))!.close;
-        row = { commitment: sha(canonical), asset, as_of: asOf, canonical, anchor_tx: null };
-        await d.db.insert({ commitment: row.commitment, asset, as_of: asOf, signal: ruleV2(m), close, canonical, issued_at: new Date(d.now).toISOString() });
+        await d.db.insert({ commitment: sha(canonical), asset, as_of: asOf, signal: ruleV2(m), close, canonical, issued_at: new Date(d.now).toISOString() });
+        // 資料庫對 (asset, as_of) 的 v2 訊號有唯一索引：同時跑兩個排程時只有一筆寫得進去，用寫進去的那筆
+        row = (await d.db.forDay(asset, asOf)).find((r) => isV2(r.canonical));
+        if (!row) throw new Error("row was not stored");
       }
-      const tx = await d.commit(asset, asOf, row.commitment);
-      await d.db.setAnchor(row.commitment, tx);
+      const c = row.commitment;
+      let tx: string;
+      try {
+        tx = await d.commit(asset, asOf, c, (sent) => d.db.setAnchor(c, sent));
+      } catch (e) {
+        if (e instanceof RejectedError) await d.db.setAnchor(c, null); // 鏈上拒絕：不是這筆的交易
+        throw e;
+      }
+      await d.db.setAnchor(c, tx);
       out.commits.push(`${asset} ${asOf} ${tx}`);
       log(`committed ${asset} ${asOf} → ${tx}`);
     } catch (e) {
@@ -93,9 +103,18 @@ async function main() {
   const address = v2Address();
   if (!address) throw new Error("REGISTRY_V2_CONTRACT is not set");
   const url = env("DATABASE_URL");
+  const keyFile = env("COMMITTER_KEY_FILE");
+  // 只接受檔案路徑：如果有人把金鑰 JSON 直接放進這個變數，讀檔錯誤訊息會把它印進 log
+  if (keyFile.trim().startsWith("{") || keyFile.length > 512) throw new Error("COMMITTER_KEY_FILE must be a path to the key file, not its contents");
   const { default: pg } = await import("pg");
   const pool = new pg.Pool({ connectionString: url, max: 2, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
-  const w = createV2Writer(env("COMMITTER_KEY_FILE"), address);
+  let w: ReturnType<typeof createV2Writer>;
+  try {
+    w = createV2Writer(keyFile, address);
+  } catch {
+    throw new Error("could not load the committer key file");
+  }
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS signals_v2_one_per_day ON signals (asset, as_of) WHERE canonical LIKE '%"momentum_e6":%'`);
   const cols = "commitment, asset, as_of, canonical, anchor_tx";
   const out = await runDailyV2({
     now: Date.now(),
@@ -109,7 +128,7 @@ async function main() {
       forDay: async (asset, asOf) => (await pool.query(`SELECT ${cols} FROM signals WHERE asset=$1 AND as_of=$2 ORDER BY issued_at`, [asset, asOf])).rows,
       insert: async (r) => {
         await pool.query(
-          "INSERT INTO signals (commitment, asset, as_of, signal, close, canonical, issued_at, anchor_tx) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL) ON CONFLICT (commitment) DO NOTHING",
+          "INSERT INTO signals (commitment, asset, as_of, signal, close, canonical, issued_at, anchor_tx) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL) ON CONFLICT DO NOTHING",
           [r.commitment, r.asset, r.as_of, r.signal, r.close, r.canonical, r.issued_at],
         );
       },

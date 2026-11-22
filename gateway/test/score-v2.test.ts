@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { requiredDays, RULE_V2, scoreV2, type Slots } from "../src/score-v2.ts";
-import { canonicalV2, roundHalfAway, type Candle } from "../src/signal-v2.ts";
+import { canonicalV2, momentumE6, toUnits, type Candle } from "../src/signal-v2.ts";
 import type { SummaryV2 } from "../src/contract-v2.ts";
 
 const DAY = 86_400_000;
@@ -15,11 +15,11 @@ const R = { ...RULE_V2, contractIndex: 1n };
 const INIT = "2026-11-23T03:00:00.000Z"; // as_of 2026-11-22's window [11-23, 11-24) closes after init → required
 
 function series(from: string, n: number, f: (i: number) => number): Candle[] {
-  return Array.from({ length: n }, (_, i) => ({ openTime: ms(from) + i * DAY, closeTime: ms(from) + (i + 1) * DAY - 1, close: f(i) }));
+  return Array.from({ length: n }, (_, i) => ({ openTime: ms(from) + i * DAY, closeTime: ms(from) + (i + 1) * DAY - 1, close: f(i), closeUnits: toUnits(f(i).toFixed(8)) }));
 }
 const prices = { BTC: series("2026-10-01", 80, (i) => 100 * 1.01 ** i), ETH: series("2026-10-01", 80, (i) => 100 * 0.99 ** i) };
 const close = (a: "BTC" | "ETH", d: string) => prices[a].find((k) => k.openTime === ms(d))!.close;
-const mom = (a: "BTC" | "ETH", d: string) => roundHalfAway((close(a, d) / close(a, add(d, -30)) - 1) * 1e6);
+const mom = (a: "BTC" | "ETH", d: string) => momentumE6(prices[a], d)!;
 
 function slotsFor(days: string[], revealUntil = "9999-12-31", override: (a: string, d: string, c: string) => string = (_a, _d, c) => c): Slots {
   const s: Slots = new Map();

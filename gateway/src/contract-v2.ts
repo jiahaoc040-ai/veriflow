@@ -114,12 +114,25 @@ export function createV2Reader(contract: ContractAddress.Type, grpc = createGrpc
   };
 }
 
+/** 鏈上明確拒絕（不是網路或等待逾時） */
+export class RejectedError extends Error {}
+
+/** 同一個帳號：Concordium 的別名帳號前 29 個位元組相同 */
+export const sameAccount = (a: string, b: string) =>
+  Buffer.from(AccountAddress.fromBase58(a).decodedAddress).subarray(0, 29).equals(Buffer.from(AccountAddress.fromBase58(b).decodedAddress).subarray(0, 29));
+
 /** 寫入（上鏈帳號 commit／任何人 reveal／擁有者設定）：同帳號排隊、等最終確認，失敗就丟錯 */
 export function createV2Writer(keyFile: string, contract: ContractAddress.Type) {
   const acct = loadAccount(keyFile);
   const reader = createV2Reader(contract);
   const grpc = reader.grpc;
-  const update = (entry: string, param: Buffer, energy = 30_000) =>
+  /** 只留拒絕原因的種類與錯誤碼：參數（例如還沒公開的 canonical）不能進 log */
+  const reason = (s: any) => {
+    const r = s?.rejectReason ?? {};
+    const code = r.rejectReason !== undefined ? ` code ${String(r.rejectReason)}` : "";
+    return `${String(r.tag ?? s?.transactionType ?? "unknown")}${code}`;
+  };
+  const update = (entry: string, param: Buffer, energy = 30_000, onSent?: (tx: string) => Promise<void>) =>
     serialize(acct.address, async () => {
       const fromNode = (await grpc.getNextAccountNonce(acct.accountAddress)).nonce.value;
       const nonce = SequenceNumber.create(pickNonce(acct.address, fromNode));
@@ -136,16 +149,18 @@ export function createV2Writer(keyFile: string, contract: ContractAddress.Type) 
         forgetNonce(acct.address);
         throw e;
       }
+      const txHex = TransactionHash.toHexString(hash);
+      if (onSent) await onSent(txHex); // 先記下交易，再等確認：等待失敗時下一輪仍知道這筆交易
       const out = await grpc.waitForTransactionFinalization(hash, 180_000);
       const s = out.summary as any;
-      const txHex = TransactionHash.toHexString(hash);
-      if (s.transactionType === "failed" || s.rejectReason) throw new Error(`${entry} rejected (${txHex}): ${JSON.stringify(s.rejectReason ?? s).slice(0, 300)}`);
+      if (s.transactionType === "failed" || s.rejectReason) throw new RejectedError(`${entry} rejected (${txHex}): ${reason(s)}`);
       return txHex;
     });
   return {
     address: acct.address,
     ...reader,
-    commit: (asset: string, asOf: string, commitment: string) => update("commit", encodeCommitV2(asset, asOf, commitment)),
+    commit: (asset: string, asOf: string, commitment: string, onSent?: (tx: string) => Promise<void>) =>
+      update("commit", encodeCommitV2(asset, asOf, commitment), 30_000, onSent),
     reveal: (canonical: string) => update("reveal", encodeRevealV2(canonical), 60_000),
     setCommitter: (addr: string) => update("set_committer", encodeAccount(addr)),
     revokeCommitter: () => update("revoke_committer", Buffer.alloc(0)),
@@ -195,7 +210,7 @@ async function main() {
   if (cmd === "set-committer") {
     if (!a) throw new Error("usage: set-committer <account address>");
     const w = owner();
-    if (a === w.address) throw new Error("the committer cannot be the owner");
+    if (sameAccount(a, w.address)) throw new Error("the committer cannot be the owner or an alias of it");
     return console.log(`set_committer ${a}: https://ccdexplorer.io/testnet/transaction/${await w.setCommitter(a)}`);
   }
   if (cmd === "revoke-committer") return console.log(`revoked: https://ccdexplorer.io/testnet/transaction/${await owner().revokeCommitter()}`);

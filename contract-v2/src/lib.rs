@@ -9,7 +9,7 @@
 //! * **Fixed assets and horizon.** `BTC` and `ETH` only, 7-day horizon. Both are constants, not init
 //!   parameters. There is no upgrade, delete or replace entrypoint.
 //! * **Roles.** The owner (the account that initialised the contract, kept cold) appoints one
-//!   committer. The committer is replaced, never appended, and it can never be the owner. Only the
+//!   committer. The committer is replaced, never appended, and it can never be the owner or one of its aliases. Only the
 //!   committer can commit; the owner cannot. The check is on the invoking account, and the call must
 //!   come from that account directly.
 //! * **Reveal.** After the horizon anyone may reveal. The contract hashes the text, finds the slot by
@@ -287,9 +287,10 @@ fn init(ctx: &InitContext, state_builder: &mut StateBuilder) -> InitResult<State
 #[receive(contract = "veriflow_registry_v2", name = "set_committer", parameter = "AccountAddress", error = "Error", mutable, enable_logger)]
 fn set_committer(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> Result<(), Error> {
     let who = direct_account(ctx)?;
-    ensure!(who == host.state().owner, Error::NotOwner);
+    ensure!(who.is_alias(&host.state().owner), Error::NotOwner);
     let committer: AccountAddress = ctx.parameter_cursor().get()?;
-    ensure!(committer != host.state().owner, Error::OwnerCannotCommit);
+    // aliases share the first 29 bytes and are the same account: compare with is_alias, not ==
+    ensure!(!committer.is_alias(&host.state().owner), Error::OwnerCannotCommit);
     host.state_mut().committer = Some(committer);
     logger.log(&Event::CommitterSet { committer: Some(committer) })?;
     Ok(())
@@ -299,7 +300,7 @@ fn set_committer(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logg
 #[receive(contract = "veriflow_registry_v2", name = "revoke_committer", error = "Error", mutable, enable_logger)]
 fn revoke_committer(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> Result<(), Error> {
     let who = direct_account(ctx)?;
-    ensure!(who == host.state().owner, Error::NotOwner);
+    ensure!(who.is_alias(&host.state().owner), Error::NotOwner);
     host.state_mut().committer = None;
     logger.log(&Event::CommitterSet { committer: None })?;
     Ok(())
@@ -310,8 +311,8 @@ fn revoke_committer(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut L
 fn commit(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> Result<(), Error> {
     let who = direct_account(ctx)?;
     let committer = host.state().committer.ok_or(Error::NoCommitter)?;
-    ensure!(who != host.state().owner, Error::OwnerCannotCommit);
-    ensure!(who == committer, Error::NotCommitter);
+    ensure!(!who.is_alias(&host.state().owner), Error::OwnerCannotCommit);
+    ensure!(who.is_alias(&committer), Error::NotCommitter);
     let p: CommitParams = ctx.parameter_cursor().get()?;
     let key = key_of(&p.asset, &p.as_of)?;
     let now = ctx.metadata().slot_time();

@@ -5,6 +5,13 @@ This rule scores contract v2 (`contract-v2/`, `veriflow_registry_v2`). Its execu
 - **The rule is anchored before the first commit.** The owner account `4dNMXmNK…` registers `veriflow:scoring:v2:<contract index>:<module reference>:<sha256 of this file>:<sha256 of score-v2.ts>` as transaction data, before the contract's first commit.
 - **The constants name one deployment.** `contractIndex`, `moduleRef` and `initTx` in the script name exactly one deployment. A different instance or module is a different rule, and this one does not score it.
 - **The script has no flags.** The authoritative report is the latest scheduled run of the `score-v2` workflow.
+- **Each run checks the anchor.** The run reads the registration transaction (repository variable `SCORING_V2_ANCHOR_TX`) from the chain. It requires all of the following, and otherwise reports `INCOMPLETE`, publishes nothing and fails:
+  - the transaction is finalized;
+  - it was sent by the contract owner or an alias of it;
+  - its text equals the hashes of the files being run;
+  - its block time is earlier than the first commit.
+  A changed file cannot publish a number.
+- **A published number expires.** It is valid until `valid_until`, 26 hours after the run. A later run replaces it. If no later run happens, the number is void; stopping the job cannot leave an old number standing.
 
 ## What the contract already enforces
 
@@ -13,7 +20,7 @@ These are enforced by the chain and not re-checked here:
 - one commit per `(asset, as_of)`;
 - assets `BTC` and `ETH`;
 - a commit only while block time is in `[as_of + 1 day, as_of + 2 days)` UTC;
-- one committer, never the owner;
+- one committer, never the owner or an alias of the owner (aliases share the first 29 bytes and are compared as one account);
 - reveal only after 7 days;
 - reveal only of text that hashes to the slot, has the fixed schema and the same `asset` and `as_of`, and whose `signal` is `RISK_ON` exactly when `momentum_e6 > 0`.
 
@@ -53,10 +60,10 @@ For each required slot, these are failures:
 - a revealed `momentum_e6` that differs from the value recomputed from Binance;
 - a Binance candle missing for momentum, entry or exit.
 
-**The recomputation.** It is done in integers, with no tolerance band:
+**The recomputation.** It is done in integers, with no tolerance band and no floating point:
 
-- `momentum = close(as_of) / close(as_of − 30 calendar days) − 1`;
-- `momentum_e6 = round-half-away-from-zero(momentum × 1,000,000)`;
+- each close is Binance's decimal string, converted exactly to units of `1e-8`;
+- `momentum_e6 = round-half-away-from-zero((close(as_of) − close(as_of − 30 calendar days)) × 1,000,000 / close(as_of − 30 calendar days))`;
 - `signal = RISK_ON` exactly when `momentum_e6 > 0`.
 
 The contract checks `signal` against the revealed `momentum_e6` at reveal. This rule checks `momentum_e6` against Binance, so a label cannot disagree with the published rule and still count.

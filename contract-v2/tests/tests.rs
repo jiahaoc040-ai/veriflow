@@ -115,6 +115,33 @@ fn roles_owner_cannot_commit_or_be_committer() {
     assert_eq!(summary(&chain, c).committer, Some(STRANGER));
 }
 
+/// Same account as OWNER: Concordium aliases share the first 29 bytes.
+fn owner_alias(n: u8) -> AccountAddress {
+    let mut b = OWNER.0;
+    b[31] = n;
+    AccountAddress(b)
+}
+
+#[test]
+fn owner_aliases_are_the_owner() {
+    let (mut chain, c) = setup();
+    let alias = owner_alias(7);
+    assert_ne!(alias, OWNER);
+    chain.create_account(Account::new(alias, Amount::from_ccd(10)));
+    // the owner cannot appoint one of its own aliases as committer
+    assert_eq!(err(update(&mut chain, c, OWNER, "set_committer", &alias)), Error::OwnerCannotCommit);
+    // an alias can act as owner, and still cannot commit
+    update(&mut chain, c, alias, "set_committer", &COMMITTER).unwrap();
+    let h = sha256(&canon("2026-11-23", "BTC", 5, "RISK_ON"));
+    assert_eq!(err(commit(&mut chain, c, alias, "BTC", "2026-11-23", h)), Error::OwnerCannotCommit);
+    // an alias of the committer is the committer
+    let mut cb = COMMITTER.0;
+    cb[31] = 9;
+    let committer_alias = AccountAddress(cb);
+    chain.create_account(Account::new(committer_alias, Amount::from_ccd(10)));
+    commit(&mut chain, c, committer_alias, "BTC", "2026-11-23", h).unwrap();
+}
+
 #[test]
 fn one_call_per_asset_and_day() {
     let (mut chain, c) = setup();

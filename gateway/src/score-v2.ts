@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { SlotV2, SummaryV2 } from "./contract-v2.js";
-import { roundHalfAway, type Candle } from "./signal-v2.js";
+import { momentumE6, type Candle } from "./signal-v2.js";
 
 export const RULE_V2 = {
   version: "v2",
@@ -92,14 +92,13 @@ export function scoreV2(summary: SummaryV2, slots: Slots, prices: Record<string,
       }
       // recompute momentum_e6 from Binance; the contract already enforced signal == (momentum_e6 > 0)
       const revealed = JSON.parse(s.reveal.canonical) as { momentum_e6: number };
-      const now = close(a, d);
-      const then = close(a, addDays(d, -rule.lookbackDays));
-      if (now === undefined || then === undefined) {
+      // integers only: Binance's decimal strings → 1e-8 units, half-away-from-zero division (signal-v2.ts)
+      const m = momentumE6((prices[a] ?? []).filter((k) => k.closeTime < nowMs), d);
+      if (m === null) {
         failures.push({ as_of: d, asset: a, reason: "Binance candle missing for momentum" });
         blocked = true;
         continue;
       }
-      const m = roundHalfAway((now / then - 1) * 1e6);
       if (m !== revealed.momentum_e6) {
         failures.push({ as_of: d, asset: a, reason: `momentum_e6 ${revealed.momentum_e6} ≠ ${m} recomputed from Binance` });
         blocked = true;
@@ -181,8 +180,9 @@ async function collect(nowMs: number) {
   // identity: this instance was created by the named init tx, from the named module
   const identity: string[] = [];
   const info = (await reader.grpc.getInstanceInfo(address)) as any;
-  const mod = String(info?.sourceModule?.moduleRef ?? info?.sourceModule ?? "");
-  if (!mod.includes(RULE_V2.moduleRef)) identity.push(`instance module ${mod} ≠ ${RULE_V2.moduleRef}`);
+  const { ModuleReference } = await import("@concordium/web-sdk");
+  const mod = info?.sourceModule ? ModuleReference.toHexString(info.sourceModule) : "";
+  if (!/^[0-9a-f]{64}$/.test(RULE_V2.moduleRef) || mod !== RULE_V2.moduleRef) identity.push(`instance module ${mod} ≠ ${RULE_V2.moduleRef}`);
   const st = (await reader.grpc.getBlockItemStatus(TransactionHash.fromHexString(RULE_V2.initTx))) as any;
   const init = st?.outcome?.summary?.contractInitialized ?? st?.outcomes?.[0]?.summary?.contractInitialized;
   if (st?.status !== "finalized" || BigInt(init?.address?.index ?? -1) !== RULE_V2.contractIndex) identity.push(`init tx ${RULE_V2.initTx.slice(0, 12)}… did not create <${RULE_V2.contractIndex},0>`);
@@ -195,6 +195,19 @@ async function collect(nowMs: number) {
     }
   const since = addDays(dayOf(Date.parse(summary.init_time)), -(RULE_V2.lookbackDays + 5));
   const prices = Object.fromEntries(await Promise.all(RULE_V2.assets.map(async (a) => [a, await binanceDaily(a, since, nowMs)])));
+  // the rule itself: this file and SCORING-v2.md must be the pair the owner registered before the first commit
+  const anchorTx = process.env.SCORING_V2_ANCHOR_TX ?? "";
+  if (!/^[0-9a-f]{64}$/.test(anchorTx)) identity.push("SCORING_V2_ANCHOR_TX is not set: the rule anchor cannot be checked");
+  else {
+    const { readAnchorTx } = await import("./anchor.js");
+    const { sameAccount } = await import("./contract-v2.js");
+    const a = await readAnchorTx(reader.grpc, anchorTx);
+    const firstCommit = Math.min(...[...slots.values()].map((s) => Date.parse(s.committed_at)), Infinity);
+    if (a.status !== "finalized") identity.push(`rule anchor ${anchorTx.slice(0, 12)}… is not finalized`);
+    else if (a.data_text !== specHashesV2().data) identity.push("this script and SCORING-v2.md are not the registered rule");
+    else if (!a.sender || !sameAccount(a.sender, summary.owner)) identity.push("the rule anchor was not sent by the contract owner");
+    else if (!a.block_time || Date.parse(a.block_time) >= firstCommit) identity.push("the rule was registered after the first commit");
+  }
   return { summary, slots, prices, identity };
 }
 
@@ -207,7 +220,8 @@ export function specHashesV2() {
 }
 
 async function anchorSpec() {
-  if (!RULE_V2.contractIndex || !RULE_V2.moduleRef || !RULE_V2.initTx) throw new Error("rule constants are not filled in");
+  if (!RULE_V2.contractIndex || !/^[0-9a-f]{64}$/.test(RULE_V2.moduleRef) || !/^[0-9a-f]{64}$/.test(RULE_V2.initTx))
+    throw new Error("rule constants are not filled in");
   const { DataBlob, SequenceNumber, TransactionExpiry, TransactionHash } = await import("@concordium/web-sdk");
   const { Transaction } = await import("@concordium/web-sdk/transactions");
   const { env, loadAccount } = await import("./config.js");
@@ -228,13 +242,16 @@ async function main() {
   if (arg === "--spec-hash") return console.log(JSON.stringify(specHashesV2(), null, 2));
   if (arg === "--anchor-spec") return anchorSpec();
   if (arg) throw new Error(`unknown argument ${arg} (the rule has no flags)`);
-  if (!RULE_V2.contractIndex) throw new Error("rule constants are not filled in yet");
+  if (!RULE_V2.contractIndex || !/^[0-9a-f]{64}$/.test(RULE_V2.moduleRef) || !/^[0-9a-f]{64}$/.test(RULE_V2.initTx))
+    throw new Error("rule constants are not filled in yet");
   const now = Date.now();
   const { summary, slots, prices, identity } = await collect(now);
   const rep = scoreV2(summary, slots, prices, now, RULE_V2, identity);
-  writeFileSync("score-v2-report.json", JSON.stringify({ ...rep, hashes: specHashesV2() }, null, 2));
+  // a published number is only valid until the next scheduled run is due (daily, plus a 2-hour grace)
+  const valid_until = new Date(now + 26 * 3_600_000).toISOString();
+  writeFileSync("score-v2-report.json", JSON.stringify({ ...rep, valid_until, hashes: specHashesV2() }, null, 2));
   const i = rep.integrity;
-  console.log(`VeriFlow scoring rule v2 — contract ${rep.contract} — run ${rep.run_at}`);
+  console.log(`VeriFlow scoring rule v2 — contract ${rep.contract} — run ${rep.run_at} — valid until ${valid_until}`);
   console.log(`completeness: ${rep.complete ? "complete" : `INCOMPLETE (${rep.problems.join("; ")})`}`);
   console.log(`commit integrity ${i.window.join("..")}: ${i.commit.numerator}/${i.commit.denominator}`);
   console.log(`reveal integrity: ${i.reveal.numerator}/${i.reveal.denominator}`);
@@ -247,6 +264,7 @@ async function main() {
         `  mean 7-day return: signal ${p.mean_7d_return_signal}  always_on ${p.mean_7d_return_always_on}  always_off 0\n` +
         `  x_vs_always_on ${p.x_vs_always_on}  x_vs_always_off ${p.x_vs_always_off}\n  ${p.caveat}`,
     );
+  if (!rep.complete) process.exit(1); // the workflow fails when the rule, instance or counter cannot be verified
 }
 
 if (process.argv[1] && fileURLToPath(`file://${process.argv[1]}`) === here) {
