@@ -12,7 +12,9 @@ VeriFlow sells a BTC or ETH `RISK_ON` / `RISK_OFF` call over x402 on Concordium 
 
 **Live demo: https://veriflow-yrhp.onrender.com** (testnet) — dashboard with in-browser verification · [`/verify`](https://veriflow-yrhp.onrender.com/verify) buyer eligibility · [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json)
 
-**Docs:** [Scoring rule](docs/SCORING.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
+**Try it:** [TRY_IT.md](TRY_IT.md). Check a bought call in 2 minutes with no wallet, or buy one yourself.
+
+**Docs:** [Scoring rule v2](docs/SCORING-v2.md) · [Scoring rule v1](docs/SCORING.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
 
 `sha256(docs/SCORING.md)` and `sha256(gateway/src/score.ts)` at `94c7603` are the register-data of [tx `39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95), sent by `4dNM…` at 2026-11-21 14:57:24 UTC, before any price outcome existed. For `<13094,0>` the published result is integrity only. Block day 2026-11-20 failed, with 3 BTC commits and 2 ETH commits. The `score` workflow reruns the rule daily on GitHub's machines from the chain and Binance, and it publishes no performance number for this contract.
 
