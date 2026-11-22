@@ -6,10 +6,10 @@ name: contract
 on:
   push:
     branches: [main]
-    paths: ["contract/**", ".github/workflows/contract.yml"]
+    paths: ["contract/**", "contract-v2/**", ".github/workflows/contract.yml"]
   pull_request:
     branches: [main]
-    paths: ["contract/**", ".github/workflows/contract.yml"]
+    paths: ["contract/**", "contract-v2/**", ".github/workflows/contract.yml"]
   workflow_dispatch:
 
 permissions:
@@ -18,9 +18,17 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: contract
+            release: registry-module
+          - dir: contract-v2
+            release: registry-module-v2
     defaults:
       run:
-        working-directory: contract
+        working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@v7
 
@@ -35,8 +43,8 @@ jobs:
           path: |
             ~/.cargo/bin/cargo-concordium
             ~/.cargo/registry
-            contract/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('contract/Cargo.toml') }}
+            ${{ matrix.dir }}/target
+          key: cargo-${{ runner.os }}-${{ matrix.dir }}-${{ hashFiles(format('{0}/Cargo.toml', matrix.dir)) }}
 
       - name: Install cargo-concordium
         run: command -v cargo-concordium || cargo install --locked cargo-concordium
@@ -55,15 +63,15 @@ jobs:
       - name: Upload module artifact
         uses: actions/upload-artifact@v7
         with:
-          name: veriflow-registry-module
-          path: contract/concordium-out/
+          name: ${{ matrix.release }}
+          path: ${{ matrix.dir }}/concordium-out/
 
       - name: Publish module as release asset
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view registry-module >/dev/null 2>&1 || \
-            gh release create registry-module --title "VeriFlow registry contract module" \
-              --notes "Built by CI from contract/. Deploy with: cd gateway && npm run contract -- deploy"
-          gh release upload registry-module concordium-out/module.wasm.v1 --clobber
+          gh release view ${{ matrix.release }} >/dev/null 2>&1 || \
+            gh release create ${{ matrix.release }} --title "VeriFlow ${{ matrix.dir }} module" \
+              --notes "Built by CI from ${{ matrix.dir }}/."
+          gh release upload ${{ matrix.release }} concordium-out/module.wasm.v1 --clobber
