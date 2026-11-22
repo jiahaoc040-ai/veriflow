@@ -1,0 +1,32 @@
+name: score-v2
+
+# Runs the published scoring rule (docs/SCORING-v2.md, gateway/src/score-v2.ts) on GitHub's machines,
+# reading only contract v2 state from a Concordium node and Binance daily candles.
+on:
+  schedule:
+    - cron: "47 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  score:
+    if: ${{ vars.REGISTRY_V2_CONTRACT != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: npm ci
+      - run: npm run score2 -- --spec-hash
+      - run: npm run score2
+      - run: cat score-v2-report.json >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: score-v2-report
+          path: gateway/score-v2-report.json
