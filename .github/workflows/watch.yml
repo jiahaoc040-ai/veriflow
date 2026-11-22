@@ -1,0 +1,26 @@
+name: watch
+
+# Daily on-chain watch: agent #1313 in the CIS-8004 registry (read straight from a node: Active,
+# payout wallet, Agent Card location and hash, owner) and contract v2 (owner, committer).
+# Red means one of them changed. Only the cold owner key can change them.
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: npm ci
+      - run: npm run watch

@@ -13,11 +13,14 @@
  *
  * 任何一項不過就不付款（fail closed）。Registry 連不到也一樣不付。
  */
+import type { AgentOnChain } from "./registry-node.js";
 import { NET } from "./network.js";
 import { createHash } from "node:crypto";
 import type { Check } from "./verify.js";
 
 export const BADGE_EXTENSION = "https://docs.concordium.com/a2a-extensions/concordium-badge/v1";
+/** x402 PaymentRequired 的頂層擴充欄位：指名收款的 agent（只是指標，錢包從鏈上讀） */
+export const AGENT_EXTENSION = "concordium-agent";
 
 export type RegistryCall = (name: string, args: Record<string, unknown>) => Promise<any>;
 
@@ -71,6 +74,10 @@ export async function verifySeller(opts: {
   registry: RegistryCall;
   network?: string;
   fetch?: typeof fetch;
+  /** 直接向節點讀 CIS-8004 的 agent 紀錄；有的話，狀態、card 位置與雜湊、收款錢包都以節點讀到的為準 */
+  readAgent?: (tokenId: string) => Promise<AgentOnChain | null>;
+  /** 402 回應的 concordium-agent 擴充欄位指名的 agent（有的話必須一致） */
+  expectTokenId?: string;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
   const network = opts.network ?? NET.name;
@@ -103,13 +110,33 @@ export async function verifySeller(opts: {
     checks.push({ name: "registered and Active in the CIS-8004 Agent Registry", ok: false, detail: `registry unreachable: ${err(e)}` });
     return done();
   }
+  // 託管服務只用來從 badge 找到 token id；紀錄本身直接向節點讀，兩者不一致就不付
+  const problems: string[] = [];
+  if (opts.expectTokenId && rec.token_id !== opts.expectTokenId)
+    problems.push(`the 402 names agent #${opts.expectTokenId}, the badge resolves to #${rec.token_id ?? "?"}`);
+  let source = "hosted registry service";
+  if (opts.readAgent && rec.token_id) {
+    try {
+      const node = await opts.readAgent(rec.token_id);
+      if (!node) problems.push(`agent #${rec.token_id} not found on-chain`);
+      else {
+        source = "read from a Concordium node";
+        if ((rec.agent_wallet ?? null) !== node.wallet) problems.push("hosted service and node disagree on agentWallet");
+        if ((rec.metadata_hash_hex?.toLowerCase() ?? null) !== node.metadataHash) problems.push("hosted service and node disagree on the card hash");
+        if ((rec.agent_uri ?? null) !== node.agentUri) problems.push("hosted service and node disagree on agent_uri");
+        rec = { token_id: node.tokenId, owner_account: node.owner, agent_uri: node.agentUri ?? undefined, metadata_hash_hex: node.metadataHash ?? undefined, agent_wallet: node.wallet ?? undefined, status: node.status };
+      }
+    } catch (e) {
+      problems.push(`node unreachable: ${err(e)}`);
+    }
+  }
   out.tokenId = rec.token_id;
   out.owner = rec.owner_account;
   out.agentWallet = rec.agent_wallet;
   checks.push({
     name: "registered and Active in the CIS-8004 Agent Registry",
-    ok: rec.status === "Active",
-    detail: `agent #${rec.token_id ?? "?"}, status ${rec.status ?? "not found"}, owner ${rec.owner_account ?? "?"}`,
+    ok: rec.status === "Active" && problems.length === 0,
+    detail: `agent #${rec.token_id ?? "?"}, status ${rec.status ?? "not found"}, owner ${rec.owner_account ?? "?"} (${source})${problems.length ? `; ${problems.join("; ")}` : ""}`,
   });
 
   // 3. 官方 badge 檢查

@@ -12,6 +12,8 @@
  *
  * 執行：npm run gateway   （預設 http://localhost:4020）
  */
+import { AGENT_REGISTRY } from "./registry-node.js";
+import { AGENT_EXTENSION } from "./counterparty.js";
 import { NET, checkGenesis } from "./network.js";
 import { createGrpc } from "./grpc.js";
 import { BlockHash } from "@concordium/web-sdk";
@@ -31,6 +33,8 @@ import { EligibilityService, EligibilityStore, filePersistence, postgresPersiste
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
 const GATEWAY_SECRET = env("GATEWAY_SECRET");
+const AGENT_BADGE = env("AGENT_BADGE", "JyP9UWYKh54TD2MUJDfqC");
+const AGENT_TOKEN_ID = env("AGENT_TOKEN_ID", "1313");
 const PAY_TO = env("SELLER_ADDRESS");
 const PRICE_MICROCCD = env("PRICE_MICROCCD", "1000000"); // 1 CCD
 
@@ -127,6 +131,24 @@ app.use(
         ],
         description: "VeriFlow risk-regime signal (RISK_ON / RISK_OFF), committed on-chain",
         mimeType: "application/json",
+        // 指名收款的 agent（CIS-8004 的 registry 與 token id）。不放錢包：買方從鏈上讀 agentWallet 再比對 payTo
+        extensions: {
+          [AGENT_EXTENSION]: {
+            info: { network: NETWORK, registry: `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}`, badge: AGENT_BADGE, tokenId: AGENT_TOKEN_ID },
+            schema: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              additionalProperties: false,
+              required: ["network", "registry", "badge", "tokenId"],
+              properties: {
+                network: { type: "string", pattern: "^ccd:[0-9a-f]{32}$" },
+                registry: { type: "string", pattern: "^[0-9]+\\.[0-9]+$" },
+                badge: { type: "string", pattern: "^[1-9A-HJ-NP-Za-km-z]{10,40}$" },
+                tokenId: { type: "string", pattern: "^[0-9]+$" },
+              },
+            },
+          },
+        },
       },
     },
     resourceServer,

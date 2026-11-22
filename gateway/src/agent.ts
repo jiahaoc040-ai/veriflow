@@ -6,6 +6,8 @@
  * 付款前驗證賣方（counterparty.ts）：badge、Registry 狀態、Agent Card 雜湊、payTo＝鏈上 agentWallet，
  * 任一項不過就不簽名（REQUIRE_SELLER_BADGE=false 可在本機開發時關閉）。
  */
+import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
+import { AGENT_EXTENSION } from "./counterparty.js";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { getExplorerTxUrl } from "@x402/concordium";
@@ -27,12 +29,23 @@ export function createBuyerAgent() {
   });
   const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
   let lastSellerCheck: SellerVerdict | undefined;
-  const checkSeller = (payTo: string) => verifySeller({ gateway, payTo, registry: registryTool, network: REGISTRY_NETWORK });
+  /** 402 的 concordium-agent 擴充欄位：只是指名（registry、token id），錢包一律從鏈上讀；網路或 registry 不對就當作沒指名 */
+  const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, network: string) => {
+    const info = (pr?.extensions?.[AGENT_EXTENSION] as { info?: { network?: string; registry?: string; tokenId?: string } } | undefined)?.info;
+    if (!info) return undefined;
+    if (info.network !== network || info.registry !== `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}` || !/^\d+$/.test(info.tokenId ?? ""))
+      return "mismatch";
+    return info.tokenId;
+  };
+  const checkSeller = async (payTo: string, named?: string) =>
+    named === "mismatch"
+      ? { ok: false, checks: [{ name: "402 names an agent on this network's registry", ok: false, detail: "concordium-agent extension names another network or registry" }], payTo }
+      : verifySeller({ gateway, payTo, registry: registryTool, network: REGISTRY_NETWORK, readAgent: (id) => readAgent(id), expectTokenId: named });
 
   // 簽名之前的最後一道關卡：賣方驗證不過就中止，錢包根本不會被叫到
-  client.onBeforePaymentCreation(async ({ selectedRequirements }) => {
+  client.onBeforePaymentCreation(async ({ selectedRequirements, paymentRequired }) => {
     if (!requireSeller) return;
-    lastSellerCheck = await checkSeller(selectedRequirements.payTo);
+    lastSellerCheck = await checkSeller(selectedRequirements.payTo, namedAgent(paymentRequired, selectedRequirements.network));
     if (!lastSellerCheck.ok) return { abort: true as const, reason: summarize(lastSellerCheck) };
   });
   const fetchWithPay = wrapFetchWithPayment(fetch, client);
@@ -47,9 +60,10 @@ export function createBuyerAgent() {
       const res = await fetch(`${gateway}/signal/${encodeURIComponent(asset.toUpperCase())}`);
       const header = res.headers.get("PAYMENT-REQUIRED");
       if (res.status !== 402 || !header) throw new Error(`expected an x402 402 response from ${gateway}, got HTTP ${res.status}`);
-      const payTo = decodePaymentRequiredHeader(header).accepts?.[0]?.payTo;
+      const pr = decodePaymentRequiredHeader(header);
+      const payTo = pr.accepts?.[0]?.payTo;
       if (!payTo) throw new Error("402 response has no payTo");
-      return checkSeller(payTo);
+      return checkSeller(payTo, namedAgent(pr, pr.accepts[0].network));
     },
 
     /** 付款買一個訊號。回傳 HTTP 狀態、內容、付款交易（如果有付），以及付款前的賣方驗證 */

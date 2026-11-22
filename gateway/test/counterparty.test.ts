@@ -101,3 +101,42 @@ test("the card fetch is https only, capped in size, and does not follow redirect
   await assert.rejects(readCapped(new Response("x".repeat(MAX_CARD_BYTES + 1)), MAX_CARD_BYTES), /larger than/);
   assert.equal((await readCapped(new Response("ok"), MAX_CARD_BYTES)).toString(), "ok");
 });
+
+// ── 直接向節點讀 Agent Registry ──
+test("agentOf decoder reads #1313's record from the CIS-8004 layout", async () => {
+  const { decodeAgentOf, encodeAgentTokenId } = await import("../src/registry-node.ts");
+  const { AccountAddress } = await import("@concordium/web-sdk");
+  const acct = (a: string) => Buffer.from(AccountAddress.fromBase58(a).decodedAddress);
+  const uri = Buffer.from("https://cards.test/agent-card.json");
+  const u32 = Buffer.alloc(4);
+  u32.writeUInt32LE(uri.length);
+  const rec = Buffer.concat([
+    Buffer.from([1]), encodeAgentTokenId(1313n), acct(OWNER),
+    Buffer.from([1]), u32, uri,
+    Buffer.from([1]), Buffer.from(sha(CARD), "hex"),
+    Buffer.from([0]), // external_reference: none
+    Buffer.from([1]), acct(WALLET),
+    Buffer.from([0]), // Active
+    Buffer.alloc(8), Buffer.from([0, 0]), Buffer.alloc(4), // registered_at, revoked_at, reason, metadata (ignored)
+  ]);
+  assert.equal(encodeAgentTokenId(1313n).toString("hex"), "082105000000000000");
+  assert.deepEqual(decodeAgentOf(rec), { tokenId: "1313", owner: OWNER, agentUri: "https://cards.test/agent-card.json", metadataHash: sha(CARD), wallet: WALLET, status: "Active" });
+  assert.equal(decodeAgentOf(Buffer.from([0])), null);
+});
+
+test("the node record is authoritative: a hosted answer that disagrees refuses payment", async () => {
+  const node = { tokenId: "1313", owner: OWNER, agentUri: "https://cards.test/agent-card.json", metadataHash: sha(CARD), wallet: WALLET, status: "Active" as const };
+  const ok = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => node, expectTokenId: "1313" });
+  assert.equal(ok.ok, true, summarize(ok));
+  assert.match(ok.checks[1].detail, /read from a Concordium node/);
+  // hosted service says 3WSA, the node says the wallet moved: refuse
+  const moved = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => ({ ...node, wallet: SCAMMER }) });
+  assert.equal(moved.ok, false);
+  assert.match(summarize(moved), /disagree on agentWallet/);
+  // the 402 names another agent
+  const other = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => node, expectTokenId: "42" });
+  assert.equal(other.ok, false);
+  // node unreachable: fail closed
+  const down = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => { throw new Error("UNAVAILABLE"); } });
+  assert.equal(down.ok, false);
+});
