@@ -4,16 +4,13 @@
  * 金鑰檔 = Concordium Browser Wallet 匯出的私鑰檔（JSON）。
  * 放在 gateway/keys/ 底下，這個資料夾已經被 .gitignore 排除，絕對不要 commit。
  */
-import { config } from "dotenv";
+import { GATEWAY_DIR } from "./env-file.js"; // 必須最先：讀 .env（network.ts 載入時就要用到 CONCORDIUM_NETWORK）
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { AccountAddress, buildAccountSigner, parseWallet } from "@concordium/web-sdk";
 import { NET } from "./network.js";
 
-/** gateway/ 資料夾；.env 與金鑰檔的相對路徑都以這裡為準（MCP 客戶端可能從別的資料夾啟動我們） */
-export const GATEWAY_DIR = resolve(fileURLToPath(new URL("..", import.meta.url)));
-config({ path: resolve(GATEWAY_DIR, ".env"), quiet: true });
+export { GATEWAY_DIR };
 
 export const NETWORK = NET.caip2;
 

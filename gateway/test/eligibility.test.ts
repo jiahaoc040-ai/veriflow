@@ -31,10 +31,11 @@ type Opts = {
   issuer?: number;
   count?: number;
   auditFails?: string;
+  recheckFails?: string;
 };
 
 /** 假鏈：記錄有沒有把稽核寫上鏈 */
-function fakeChain(o: Opts = {}): Chain & { audits: number; requests: number } {
+function fakeChain(o: Opts = {}): Chain & { audits: number; requests: number; rechecks: number } {
   const chain = {
     audits: 0,
     requests: 0,
@@ -53,6 +54,12 @@ function fakeChain(o: Opts = {}): Chain & { audits: number; requests: number } {
       return "bb".repeat(32);
     },
     async accountOfCredential() { return o.owner ?? BUYER; },
+    rechecks: 0,
+    async recheckAudit(id: string, _req: unknown, pres: string, vaa: string) {
+      chain.rechecks++;
+      if (o.recheckFails) throw new Error(o.recheckFails);
+      if (!id || !pres || vaa !== "bb".repeat(32)) throw new Error("bad stored proof");
+    },
   };
   return chain;
 }
@@ -190,4 +197,37 @@ test("payer is read from the signed x402 Concordium transaction", () => {
 test("prototype keys are never treated as approved accounts", () => {
   const store = new EligibilityStore();
   for (const k of ["__proto__", "constructor", "toString", "hasOwnProperty"]) assert.equal(store.status(k, "any"), null);
+});
+
+
+// ── 付款時重新檢查 ──
+test("settlement re-checks the stored proof on every payment, and never caches a pass", async () => {
+  const { svc, chain, id } = await run();
+  await svc.verify(id, '{"proof":1}');
+  await svc.recheck(BUYER);
+  await svc.recheck(BUYER);
+  assert.equal(chain.rechecks, 2);
+});
+
+test("settlement refuses: no proof, a failing re-check, or a credential now owned by another account", async () => {
+  const { svc: none } = await run();
+  await assert.rejects(none.recheck(BUYER), /no stored/);
+
+  const failing = await run({ recheckFails: "credential revoked" });
+  await failing.svc.verify(failing.id, "{}");
+  await assert.rejects(failing.svc.recheck(BUYER), /revoked/);
+
+  const moved = await run();
+  await moved.svc.verify(moved.id, "{}");
+  (moved.chain as any).accountOfCredential = async () => OTHER; // the credential now resolves to a different account
+  await assert.rejects(moved.svc.recheck(BUYER), /belongs to/);
+});
+
+test("rows written before proofs were stored are not eligible: the buyer must verify again", async () => {
+  const store = new EligibilityStore();
+  const chain = fakeChain();
+  const svc = new EligibilityService(POLICY, store, chain);
+  await store.grant({ account: BUYER, credId: "ab12", issuer: 0, policy: svc.policyId, requestAnchorTx: "aa".repeat(32), auditAnchorTx: "bb".repeat(32) });
+  assert.equal(svc.status(BUYER), null);
+  await assert.rejects(svc.recheck(BUYER), /no stored/);
 });

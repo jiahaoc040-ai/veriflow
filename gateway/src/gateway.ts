@@ -62,12 +62,16 @@ const resourceServer = new x402ResourceServer(
   .onBeforeVerify(async ({ paymentPayload }) => {
     if (!REQUIRE_ELIGIBILITY) return;
     const sender = payerOf(paymentPayload.payload);
-    if (!sender || !eligibility.status(sender)) {
-      console.log(`refused unverified buyer ${sender}`);
+    // 每一筆付款都重新檢查證明（不只看資料庫有沒有紀錄）；節點連不上也拒絕，不退回只看資料庫
+    try {
+      if (!sender) throw new Error("no payer");
+      await eligibility.recheck(sender);
+    } catch (e) {
+      console.log(`refused buyer ${sender}: ${e instanceof Error ? e.message : e}`);
       return {
         abort: true,
         reason: "buyer_proof_required",
-        message: `Account ${sender} has not proven eligibility. Verify once at ${PUBLIC_URL}/verify?account=${sender}`,
+        message: `Account ${sender} has no current eligibility proof that passes the check at payment time. Verify at ${PUBLIC_URL}/verify?account=${sender}`,
       };
     }
   });
@@ -242,7 +246,8 @@ app.post("/eligibility/verify", limitVerify, async (req, res) => {
     const json = typeof presentation === "string" ? presentation : JSON.stringify(presentation);
     const rec = await eligibility.verify(String(id), json);
     console.log(`eligible: ${rec.account} (idp ${rec.issuer})  VRA ${rec.requestAnchorTx}  VAA ${rec.auditAnchorTx}`);
-    res.json({ eligible: true, ...rec });
+    const { presentationJson: _p, requestJson: _r, ...out } = rec;
+    res.json({ eligible: true, ...out });
   } catch (e) {
     console.log("eligibility refused:", e instanceof Error ? e.message : e);
     res.status(403).json({ eligible: false, error: String(e instanceof Error ? e.message : e) });
@@ -252,7 +257,7 @@ app.post("/eligibility/verify", limitVerify, async (req, res) => {
 app.get("/eligibility/:account", (req, res) => {
   const rec = eligibility.status(req.params.account);
   // 公開端點不回傳 credential id（雖然它本來就在鏈上，但不需要讓人把帳號和身分憑證對起來）
-  const { credId: _omit, ...pub } = rec ?? ({} as Record<string, unknown>);
+  const { credId: _c, presentationJson: _p, requestJson: _r, challengeId: _i, ...pub } = rec ?? ({} as Record<string, unknown>);
   // policy 放最後：rec 裡也有 policy（指紋字串），不能讓它蓋掉完整的政策說明
   res.json({ eligible: !!rec, ...pub, policyId: rec?.policy, policy: eligibility.describe() });
 });
@@ -303,18 +308,22 @@ setInterval(refreshOperatorBalance, 10 * 60_000);
 
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
-  // 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈；連不上就只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停
-  createGrpc()
-    .getConsensusStatus()
-    .then((c) => checkGenesis(BlockHash.toHexString(c.genesisBlock)))
-    .then(() => console.log(`network: ${NET.name} (${NET.caip2})`))
-    .catch((e) => {
-      if (/is not (testnet|mainnet)/.test(String(e))) {
-        console.error(`❌ ${e instanceof Error ? e.message : e}`);
-        process.exit(1);
-      }
-      console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
-    });
+  // 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：啟動時查，之後每 10 分鐘再查一次。
+  // 連不上只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停。
+  const checkNetwork = () =>
+    createGrpc()
+      .getConsensusStatus()
+      .then((c) => checkGenesis(BlockHash.toHexString(c.genesisBlock)))
+      .then(() => console.log(`network: ${NET.name} (${NET.caip2})`))
+      .catch((e) => {
+        if (/is not (testnet|mainnet)/.test(String(e))) {
+          console.error(`❌ ${e instanceof Error ? e.message : e}`);
+          process.exit(1);
+        }
+        console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
+      });
+  void checkNetwork();
+  setInterval(checkNetwork, 10 * 60_000).unref();
   console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });

@@ -6,6 +6,7 @@
  * 從節點讀，並要求它的前 32 個字元等於 CAIP-2（避免用錯節點或簽到別條鏈）。
  * 測試會確認其他檔案裡沒有寫死 "Testnet"、"ccdexplorer.io/testnet" 或 CAIP-2。
  */
+import "./env-file.js"; // .env 先讀，CONCORDIUM_NETWORK 寫在 .env 裡也有效
 import { CONCORDIUM_MAINNET_CAIP2, CONCORDIUM_TESTNET_CAIP2 } from "@x402/concordium";
 
 export type NetworkName = "testnet" | "mainnet";

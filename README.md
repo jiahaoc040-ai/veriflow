@@ -1,6 +1,6 @@
 # VeriFlow
 
-VeriFlow sells a BTC or ETH `RISK_ON` / `RISK_OFF` call over x402 on Concordium testnet. The seller is agent **#1313** in the Concordium Agent Registry. A buyer who holds the canonical string can SHA-256 it and compare the digest with an owner commit on contract **`<13094,0>`**.
+VeriFlow sells a BTC or ETH `RISK_ON` / `RISK_OFF` call over x402 on Concordium testnet. The seller is agent **#1313** in the Concordium Agent Registry. Every call is committed on contract **`<13115,0>`**, one per asset and day, by a committer (`4Hga…`) that the owner appointed and can revoke; the owner itself cannot commit. A buyer who holds the canonical string can SHA-256 it and find that digest under its own asset and day. `<13094,0>` is the retired v1 log.
 
 [![test](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml)
 [![docker](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml)
@@ -21,8 +21,8 @@ VeriFlow sells a BTC or ETH `RISK_ON` / `RISK_OFF` call over x402 on Concordium 
 | Check | What the code and chain do |
 |---|---|
 | Who is paid | The local buyer checks the badge, the card hash, and that `payTo` equals the on-chain `agentWallet`, before it signs (`gateway/src/counterparty.ts`). [`setAgentWallet`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) on `<12802,0>` names `3WSAJwTZ…`. A stock x402 client pays `payTo` without asking. |
-| Who may buy | Settlement requires a stored eligibility row. The row is written only after the Verify & Access V1 request and audit record are anchored on-chain. The proof is not re-checked at payment. `GET /eligibility/:account` returns whether the account is eligible, the policy fingerprint and the two anchor transactions. It does not return the credential id. The proof hides the date of birth and the country. |
-| The hash you hold | Only the owner can `commit`. A repeated hash is rejected. The block time is stored. After the 7-day horizon, `reveal` hashes the text and accepts it only on a match. The deployed contract has no notion of a day: a different hash is simply a second commit, which is why 2026-11-20 failed. Reveal needs the canonical, which includes a random nonce. |
+| Who may buy | Before every payment settles, the gateway re-runs the official Verify & Access check on the buyer's stored proof: the zero-knowledge proof, the statements, the credential still active and the request still on-chain. It also checks that the audit record anchored on-chain is that proof's record, and that the credential still belongs to the paying account. Any failure, including a node error, refuses the payment. `GET /eligibility/:account` returns neither the proof nor the credential id. |
+| The hash you hold | On `<13115,0>` a commit is keyed by `(asset, as_of)`. A second call for the same day is rejected, and so is a commit outside the day after that close. Only the appointed committer can commit, never the owner. After 7 days anyone can `reveal`. The contract hashes the text, requires its asset and day to equal the key, and requires `RISK_ON` exactly when `momentum_e6 > 0`. On the retired `<13094,0>` a different hash was simply a second commit, which is why its 2026-11-20 failed (3 BTC, 2 ETH). |
 | How an agent calls it | Hosted `POST /mcp` and `POST /a2a` are read-only. Paying (`get_signal`) runs in the local stdio MCP server, with the buyer's own key. |
 
 Transactions linked in this README are Concordium testnet transactions you can open on CCDExplorer. Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026).
@@ -45,7 +45,7 @@ flowchart LR
     C["Commit–reveal contract<br/>&lt;13094,0&gt;"]
     V["Verify & Access V1<br/>request + audit anchors"]
   end
-  H -- "ZK proof once: 18+, not restricted (VeriFlow then stores a row)" --> V
+  H -- "ZK proof: 18+, not restricted (stored, re-checked at every payment)" --> V
   A -- "1. check seller (badge, card hash, payTo = agentWallet)" --> R
   A -- "2. pay over x402" --> G
   G --> P
@@ -70,7 +70,7 @@ sequenceDiagram
     B-->>B: abort before signing (wallet never asked)
   else verified
     B->>G: PAYMENT-SIGNATURE (sponsored transfer)
-    G->>F: verify: payer has a stored eligibility row?
+    G->>F: verify: re-check the payer's stored proof (official check + VAA + credential owner)
     F->>C: settle (fee sponsored)
     G->>C: commit sha256(signal) to contract
     G-->>B: signal + canonical JSON + anchor tx

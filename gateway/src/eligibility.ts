@@ -142,6 +142,10 @@ export type Eligible = {
   policy: string;
   requestAnchorTx: string; // VRA
   auditAnchorTx: string; // VAA
+  /** 付款時重新檢查用：請求 id、請求本身、買方的證明（證明不含出生日期與國家） */
+  challengeId?: string;
+  requestJson?: unknown;
+  presentationJson?: string;
   verifiedAt: string;
   expiresAt: string;
 };
@@ -262,6 +266,8 @@ export class EligibilityStore {
   status(account: string, policy: string): Eligible | null {
     const e = this.eligible[account];
     if (!e || e.policy !== policy || Date.parse(e.expiresAt) < this.now()) return null;
+    // 舊紀錄沒有存證明，付款時無法重新檢查：當作沒驗證過，請買方再驗一次
+    if (!e.presentationJson || !e.requestJson || !e.challengeId) return null;
     return e;
   }
 }
@@ -275,6 +281,11 @@ export type Chain = {
   /** 官方完整檢查，通過才把稽核紀錄寫上鏈（VAA）；不通過丟錯 */
   auditAndAnchor(id: string, request: AnchoredRequest, presentation: ParsedPresentation): Promise<string>;
   accountOfCredential(credId: string): Promise<string>;
+  /**
+   * 付款時重新檢查（每一筆付款都做，不快取）：用存下的請求與證明重跑官方檢查（零知識證明、條件、
+   * credential 仍有效、請求仍在鏈上），確認稽核紀錄（VAA）上鏈的就是這份紀錄。不通過就丟錯。
+   */
+  recheckAudit(challengeId: string, requestJson: unknown, presentationJson: string, auditAnchorTx: string): Promise<void>;
 };
 
 export function concordiumChain(anchorKeyFile: string): Chain {
@@ -341,6 +352,19 @@ export function concordiumChain(anchorKeyFile: string): Chain {
       });
       if (r.type === "failed") throw new Error(`官方驗證未通過：${r.error.message}`);
       return TransactionHash.toHexString(r.result.anchorTransactionRef);
+    },
+
+    async recheckAudit(challengeId, requestJson, presentationJson, auditAnchorTx) {
+      const request = VerificationRequestV1.fromJSON(requestJson as VerificationRequestV1.JSON);
+      const presentation = VerifiablePresentationV1.fromJSON(JSON.parse(presentationJson));
+      const r = await VerificationAuditRecordV1.createChecked(challengeId, request, presentation, grpc, NET.did);
+      if (r.type === "failed") throw new Error(`proof no longer passes the official check: ${r.error.message}`);
+      // SDK 的 verifyAnchor 算雜湊時不帶 info；我們上鏈時帶了 { service: "veriflow" }，所以自己比對整個 anchor
+      const expected = Buffer.from(VerificationAuditRecordV1.createAnchor(r.result, { service: "veriflow" })).toString("hex");
+      const st = await grpc.getBlockItemStatus(TransactionHash.fromHexString(auditAnchorTx));
+      if (st.status !== "finalized") throw new Error("audit record transaction is not finalized");
+      const data = (st.outcome.summary as { dataRegistered?: { data?: string } }).dataRegistered?.data;
+      if (!data || data.toLowerCase() !== expected) throw new Error("the audit record on-chain is not this proof's record");
     },
 
     async accountOfCredential(credId) {
@@ -414,7 +438,28 @@ export class EligibilityService {
       policy: this.policyId,
       requestAnchorTx: c.request.txHash,
       auditAnchorTx,
+      challengeId: id,
+      requestJson: c.request.json,
+      presentationJson,
     });
+  }
+
+  /**
+   * 付款時的資格檢查（每一筆都做，不快取，任何錯誤都拒絕）：
+   * 1. 有存下證明的有效紀錄（舊紀錄沒有證明 → 要求重新驗證）
+   * 2. 官方檢查重跑一次：證明仍成立、credential 仍有效、請求仍在鏈上，而且 VAA 上鏈的就是這份紀錄
+   * 3. 證明裡的帳號 credential 現在仍屬於這筆付款的發送帳號
+   */
+  async recheck(sender: string): Promise<Eligible> {
+    const rec = this.status(sender);
+    if (!rec) throw new Error("no stored, current proof for this account");
+    const parsed = this.chain.parsePresentation(rec.presentationJson!);
+    const vc = parsed.credentials[0];
+    if (parsed.credentials.length !== 1 || vc.kind !== "account") throw new Error("stored proof is not one account credential");
+    await withTimeout(this.chain.recheckAudit(rec.challengeId!, rec.requestJson, rec.presentationJson!, rec.auditAnchorTx), "付款時重新檢查");
+    const owner = await withTimeout(this.chain.accountOfCredential(credIdFromDid(vc.id)), "查詢 credential 所屬帳號");
+    if (owner !== sender) throw new Error(`the proof's credential belongs to ${owner}, not the paying account`);
+    return rec;
   }
 
   status(account: string) {

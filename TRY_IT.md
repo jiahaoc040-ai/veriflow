@@ -27,9 +27,9 @@ Change one character and the hash changes.
 
 Check four things:
 - It is the function `commit` on contract `<13115,0>` (`veriflow_registry_v2`), of type "contract updated".
-- Under **Parameter** it shows asset `BTC`, `as_of` `2026-11-21` and the commitment `10cb3dc2…8eda`. The Event line below shows the same data as hex.
+- Under **Parameter** it shows `as_of` `2026-11-21`, asset `BTC` and the commitment `10cb3dc2…8eda`. The Event line below is hex. Decoded, it is a tag (`00`), the asset, the `as_of`, the commitment and the commit time.
 - Its timestamp is `2026-11-22 08:03:30`. The explorer shows times in UTC without saying so. That is within a day of the 2026-11-21 close. The call's outcome is known only when its exit candle closes, on 2026-11-30 00:00 UTC, about eight days later.
-- The sender is shown as account index `19719`. Click it to see the address `4HgaCRwX…VwT3nmCj`. That is the committer the contract owner appointed, which you can confirm on the owner's [`set_committer` transaction `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) (sender `4dNMXmNK…`, parameter `4HgaCRwX…`).
+- The sender is shown as account index `19719`. Click it to see the address `4HgaCRwX…VwT3nmCj`. That is the committer the contract owner appointed, which you can confirm on the owner's [`set_committer` transaction `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) (sender shown as index `19527`, which opens as `4dNMXmNK…`; parameter `4HgaCRwX…`).
 
 The contract accepts one commit per asset and day, and only in the day after that close. A second hash for BTC on 2026-11-21 would have been rejected by the chain.
 

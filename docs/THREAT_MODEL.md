@@ -38,7 +38,7 @@ Status: everything below runs on Concordium **testnet** today, on the public dep
 | Weaker statement (e.g. age ≥ 16) | The presented statements are compared to the policy exactly; anything weaker is refused. Changing the policy invalidates earlier verifications (policy fingerprint). | `statementGap`, `policyId` |
 | Unknown identity provider | Issuer must be one of the identity providers registered on-chain. | `identityProviders()` |
 
-Nothing personal is stored: VeriFlow keeps the account address, the policy fingerprint and the two transaction hashes.
+What is stored: the account address, the policy fingerprint, the two transaction hashes, the credential id and the buyer's zero-knowledge proof. The proof is kept so that every payment can be re-checked, and it reveals neither the date of birth nor the country. Neither the proof nor the credential id is returned by any public endpoint. Settlement re-runs the official check on that proof each time and refuses on any error, so a row inserted into the database without a valid proof cannot buy.
 
 ## Attacks on the buyer (impersonation, overcharging)
 
