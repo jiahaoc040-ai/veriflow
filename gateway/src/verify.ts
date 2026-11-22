@@ -68,9 +68,10 @@ export function verifyCommitment(commitment: string, onchain: OnChain, canonical
       try {
         s = JSON.parse(canonical);
       } catch {}
+      const expected = `<${process.env.REGISTRY_V2_CONTRACT ?? "13115"},0>`;
       checks.push({
         name: `committed under this signal's own day on contract ${onchain.contract} (one call per asset and day)`,
-        ok: s.asset === onchain.asset && s.as_of === onchain.as_of,
+        ok: onchain.contract === expected && s.asset === onchain.asset && s.as_of === onchain.as_of,
         detail: `on-chain key ${onchain.asset} ${onchain.as_of}; signal ${String(s.asset)} ${String(s.as_of)}`,
       });
     }

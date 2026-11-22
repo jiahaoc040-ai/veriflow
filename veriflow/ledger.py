@@ -97,9 +97,14 @@ class Ledger:
         df = self.all()
         issued = int(len(df))
         anchored = df[df["anchor_tx"].notna()].sort_values("issued_at", kind="stable") if not df.empty else df
-        days = anchored.groupby(["asset", "as_of"]).size() if not anchored.empty else pd.Series(dtype=int)
+        if not anchored.empty:
+            # v1 與 v2 是不同合約：同一天各一筆不算重複，只在同一個合約裡重複才算
+            anchored = anchored.assign(contract=anchored["canonical"].str.contains('"momentum_e6":', regex=False).map({True: "v2", False: "v1"}))
+            days = anchored.groupby(["contract", "asset", "as_of"]).size()
+        else:
+            days = pd.Series(dtype=int)
         now = now if now is not None else pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
-        signals = [{"commitment": r["commitment"], "asset": r["asset"], "as_of": r["as_of"],
+        signals = [{"commitment": r["commitment"], "asset": r["asset"], "as_of": r["as_of"], "contract": r.get("contract", "v1"),
                     "signal": r["signal"], "anchor_tx": r["anchor_tx"]}
                    for _, r in anchored.iterrows()
                    if pd.Timestamp(r["as_of"]) + pd.Timedelta(days=HORIZON_DAYS + 1) <= now]
@@ -109,7 +114,9 @@ class Ledger:
             "duplicate_asset_days": int((days > 1).sum()),
             "matured": len(signals),
             "horizon_days": HORIZON_DAYS,
-            "scoring_rule": "https://github.com/jiahaoc040-ai/veriflow/blob/main/docs/SCORING.md",
-            "note": "No hit rate is published. The score is computed only from the chain and Binance by gateway/src/score.ts.",
+            "duplicate_asset_days_by_contract": {c: int((days[days.index.get_level_values(0) == c] > 1).sum()) for c in ("v1", "v2")} if len(days) else {"v1": 0, "v2": 0},
+            "scoring_rule": "https://github.com/jiahaoc040-ai/veriflow/blob/main/docs/SCORING-v2.md",
+            "scoring_rule_v1": "https://github.com/jiahaoc040-ai/veriflow/blob/main/docs/SCORING.md",
+            "note": "No hit rate is published. Contract v2 <13115,0> (live since 2026-11-22) is scored by gateway/src/score-v2.ts; the retired v1 <13094,0> by gateway/src/score.ts. Both read only the chain and Binance.",
             "signals": signals,
         }

@@ -92,21 +92,34 @@ End-to-end on the public deployment (2026-11-20): buyer proved eligibility with 
 | Rust smart contract (`contract/`) | ✅ on-chain commit–reveal registry deployed on testnet at `<13094,0>` ([init tx](https://ccdexplorer.io/testnet/transaction/590bb53e65c96599613b547370be32ecad8fef7aaf6dac405021eb35c6e01b88), module `7685e945…`); the gateway commits paid signals through it ([commit tx](https://ccdexplorer.io/testnet/transaction/d538e13d0624acbedc1f7b97a77da43cc82ded28522febcdab2b8f522741e0ab)); CI builds the Wasm and runs 8 end-to-end tests |
 | A2A endpoint (`gateway/src/a2a.ts`) | ✅ `POST /a2a` JSON-RPC `message/send`, read-only skills (track record, commitments, verify, eligibility, how to buy); the Agent Card `url` points here |
 | Agent Registry + Verified by Concordium badge (`gateway/src/registry.ts`, [`agent-card.json`](agent-card.json)) | ✅ registered as CIS-8004 agent #1313 on testnet `<12802,0>` ([tx](https://ccdexplorer.io/testnet/transaction/fe34bd0b8299a07855dd664648c78caf08fcb33433f92a635d9b1bde189462eb)), badge `JyP9UWYKh54TD2MUJDfqC`, card hash pinned ([tx](https://ccdexplorer.io/testnet/transaction/e33d24fbf3869ca57453c43cb5b94e05da4172579e47004c95585a99c53342b3)); official `check_badge`: all 15 checks pass |
-| Daily public signals (`gateway/src/daily.ts`, `POST /daily/{asset}`) | ✅ the deployed server commits one BTC and one ETH signal per daily close through the contract, whether or not anyone buys — so the live track record grows every day and cannot be cherry-picked; a failed anchor is retried next round, never duplicated |
+| Daily public signals (`gateway/src/daily-v2.ts`, `daily-v2` workflow) | ✅ since 2026-11-22 a GitHub Actions job commits one BTC and one ETH call per daily close to contract v2 [`<13115,0>`](https://ccdexplorer.io/testnet/contract/13115/0) from the low-balance committer `4Hga…`. The contract rejects a second call for the same asset and day and any commit outside the day after the close. v1 (`<13094,0>`, committed by the server) retired on 2026-11-22. |
 | MCP server (`gateway/src/mcp.ts`, hosted: `/mcp`) | ✅ hosted read-only endpoint at [`/mcp`](https://veriflow-yrhp.onrender.com/mcp) (Streamable HTTP) + 6 tools over stdio: `get_signal` (pays via x402), `get_track_record`, `list_commitments`, `verify_signal` (reads Concordium directly), `check_eligibility`; one-command Claude Desktop install (`npm run mcp:config -- --install`); `check_seller` verifies the seller before paying |
 | Dashboard + one-click on-chain verification (`dashboard.py`) | ✅ |
 
 **Claude Desktop as the buyer agent (2026-11-20):** over the VeriFlow MCP server, Claude verified the seller in the Agent Registry (5/5: badge, Active, own card hash, `payTo` = on-chain `agentWallet`), paid 1 testnet CCD ([payment](https://ccdexplorer.io/testnet/transaction/d15729125ad24beb7767a3378fc4b6e1f830608098c8978eb1c0a9a537b8e792)), and verified the ETH signal straight from a Concordium node (4/4, including "anchored within a day of the data close"; [anchor](https://ccdexplorer.io/testnet/transaction/c2def7e65cb5346b2a66f8f469e15ac1bb9c32685471fa085bc2c381b1334083)). No human step besides approving the tool calls.
 
-## The signal — and why we publish its track record
+## Contract v2 (live since 2026-11-22)
 
-The signal is a **risk regime** (`RISK_ON` / `RISK_OFF`) for BTC and ETH, built only from free, public data:
+| What | Transaction |
+|---|---|
+| Contract `<13115,0>` created by the cold owner `4dNM…` from the reviewed module `08e3b49e…` | [`dba400c2…`](https://ccdexplorer.io/testnet/transaction/dba400c20a96eaa1609e5e1f954ac5887aa473785ad5676b3dad99364263a946) (06:29 UTC) |
+| Scoring rule v2 registered (hashes of `docs/SCORING-v2.md` and `gateway/src/score-v2.ts`) | [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) (07:06 UTC) |
+| Committer `4Hga…` appointed, after the rule | [`6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) (07:33 UTC) |
+| First calls, `as_of` 2026-11-21: BTC, ETH | [`fe340eea…`](https://ccdexplorer.io/testnet/transaction/fe340eeaa2623405880a57208c88004fb4f12b7b56479876e8be6f24a4ada718), [`4f2a0474…`](https://ccdexplorer.io/testnet/transaction/4f2a04747f40df0dbd1f480498c46f5426685cfacf1a7dd6400ed92fe1677114) (08:03 UTC) |
+| A buyer agent paid 1 CCD for the BTC call and verified it 5/5 from a node (confirmed, commitment, content hash, anchored within a day, committed under its own asset and day) | [payment `935bc182…`](https://ccdexplorer.io/testnet/transaction/935bc182245754dfef95661c7006beed4fd8635e8c40605c96a2ad571f7c1879) |
 
-- **Momentum:** trailing 30-day return > 0 (Binance daily closes; OKX spot daily closes as a fallback when a cloud host's IP is blocked by Binance — same UTC day boundary)
-- **Stablecoin liquidity:** 7-day change in total stablecoin supply across all chains, as a 90-day z-score ([DefiLlama](https://defillama.com/stablecoins))
-- `RISK_ON` when momentum is positive and liquidity is not clearly contracting (`liquidity_z > -1`)
+The purchased call was `{"as_of":"2026-11-21","asset":"BTC","momentum_e6":-260395,…,"signal":"RISK_OFF"}`. Binance closes give 60215.77 / 81416.09 − 1 = −0.2603947…, which is `momentum_e6` −260395. The first v2 call resolves when its exit candle closes on 2026-11-30 00:00 UTC. Until then the rule publishes no performance number.
 
-The design comes from earlier research ([crypto-onchain-factors](https://github.com/jiahaoc040-ai/crypto-onchain-factors)), tested with a train/test split. Momentum's robust out-of-sample effect was **lower drawdown**. An exchange-flow stablecoin factor **broke in early 2023**, possibly because the EVM-only exchange data could not see USDT on Tron; total supply covers every chain. That history is exactly why VeriFlow anchors every signal on-chain: buyers should judge a signal by its verifiable live record, not by a backtest. Paid signals alone would let the publisher stay quiet on bad days, so the server also commits **every** daily close for BTC and ETH on its own schedule; the record has no gaps to hide in.
+## The signal
+
+The signal is a **risk regime** (`RISK_ON` / `RISK_OFF`) for BTC and ETH. In v2 it is one public rule that anyone can recompute:
+
+- `momentum_e6` is the 30-day change in the Binance spot daily close, in millionths. It is computed in exact integers from Binance's decimal strings and rounded half away from zero.
+- `RISK_ON` exactly when `momentum_e6 > 0`. The contract itself rejects a reveal whose label contradicts its `momentum_e6`.
+
+v1 also used a stablecoin-supply z-score from DefiLlama, with OKX as a price fallback. v2 drops both. DefiLlama rebuilds its history in place, so nobody could recompute that input later. A fallback chosen after the fact could move the result.
+
+**What the record proves.** Each call was committed before its outcome, under its own asset and day, and was not edited afterwards. It does not prove that the calls are right. The rule is public and carries no edge. The scoring rule publishes performance only against both constants (always on, always off), only once days mature, and never as a hit rate.
 
 *Not investment advice.*
 
@@ -194,7 +207,7 @@ cd gateway && npm test      # tests: eligibility rules (replay, wrong account, w
 | Tool | What it does |
 |---|---|
 | `get_signal` | Pays ~1 CCD over x402 from `BUYER_KEY_FILE` (refuses more than `MAX_PAY_MICROCCD`) and returns the signal, its commitment and the anchor transaction |
-| `get_track_record` | Hit rate of matured signals (free) |
+| `get_track_record` | Counts of committed and matured calls, and duplicate asset-days (free). No hit rate. |
 | `list_commitments` | Every commitment with its Concordium transaction (free) |
 | `verify_signal` | Reads the anchor **straight from a Concordium node** — the buyer's agent does not have to trust VeriFlow's server — and checks: confirmed, carries this commitment, and (with the `canonical` string) the content hashes to it and was anchored within a day of its data close, long before the 7-day outcome |
 | `check_eligibility` | Has this account passed the ZK eligibility check? Returns the `/verify` link if not |

@@ -16,12 +16,12 @@ Most of going live is configuration and operations, but not all of it. The netwo
 ## Who the users are
 
 1. **Autonomous trading and treasury agents.** Today they consume signals from Telegram channels and dashboards with unverifiable histories. VeriFlow gives them a regime signal they can check on-chain before paying, per call, with no account or subscription.
-2. **Agent platforms with verified humans behind agents**, such as AITECH's Agent Forge and XDC AI, which already use Concordium identity. A VeriFlow MCP or A2A tool is a drop-in "market regime" capability for their agents.
-3. **Other signal sellers.** VeriFlow is also a pattern: commit-before-outcome, daily public commitments, and scoring per asset-day. Any data seller who wants an unfakeable track record can reuse it (MIT licensed).
+2. **Agent platforms with verified humans behind agents**, that already use Concordium identity. A VeriFlow MCP or A2A tool is a drop-in "market regime" capability for their agents.
+3. **Other signal sellers.** VeriFlow is also a pattern: commit-before-outcome, daily public commitments, and one call per asset and day enforced by the contract. A data seller with a private model can reuse it to give buyers a record of calls that cannot be edited or backdated (MIT licensed).
 
 ## Why someone pays
 
-- A buyer can check the full live record before paying (`get_track_record`, `list_commitments`), for free.
+- A buyer can check every committed call and its on-chain receipt before paying (`get_track_record`, `list_commitments`), for free. This shows that the record is complete and unedited. It does not show that the calls are right.
 - One call costs 1 CCD on testnet. Mainnet pricing moves to a stablecoin (see M2); no fiat price is claimed before that.
 - Compliance is built in. The seller never learns who the buyer is, only that they are 18 or older and not in a restricted country. This is what lets a regulated-style product sell to anonymous agents at all.
 
@@ -29,11 +29,11 @@ Most of going live is configuration and operations, but not all of it. The netwo
 
 | # | When | What | Done when |
 |---|---|---|---|
-| M0 | Dec 2026 (hackathon) | Testnet product above, daily track record accumulating, first 7-day scores (from Nov 27) | Public dashboard shows scored signals; all links on CCDExplorer |
+| M0 | Dec 2026 (hackathon) | Testnet product above. Contract v2 live since 2026-11-22: one call per asset and day enforced on-chain, cold owner, low-balance committer, scoring rule anchored before the first commit. The first v2 exits close on 2026-11-30. | The `score-v2` workflow verifies the anchored rule and runs daily; all links on CCDExplorer |
 | M1 | Jan 2027 | **Mainnet deployment.** Deploy the registry contract to mainnet. Register the agent in the mainnet Agent Registry (CIS-8004 `<10082,0>`) with the badge and an on-chain `agentWallet`. Point the facilitator and Verify & Access at mainnet identity providers. | First mainnet sale verified end to end by a third-party agent |
 | M2 | Q1 2027 | **Stable pricing.** Price in a Concordium PLT stablecoin (e.g. EURQ) instead of CCD. `@x402/concordium` already supports PLT transfers, so this is a change to the gateway's price configuration, not to the payment code. | Buyers pay a fixed euro price |
 | M3 | Q1 2027 | **Distribution.** List in the MCP Registry, publish a hosted remote MCP endpoint, and add A2A skills. Integrate with one agent platform that already uses Concordium identity. | 10 distinct paying buyer accounts |
-| M4 | Q2 2027 | **Track record at scale.** Add more assets (SOL, majors), and run 90 days of daily, uninterrupted commitments. Publish the hit rate with confidence intervals. | 90-day public record |
+| M4 | Q2 2027 | **Track record at scale.** Add more assets (SOL, majors), and run 90 days of daily, uninterrupted commitments. Publish only what the anchored rule prints: the result against both constant books, with counts. No hit rate. | 90-day public record |
 | M5 | Q2 2027 | **Hardening.** Hardware-backed signing for the anchor/sponsor key, monitored facilitator balance, and paid hosting with an SLA. Get an external review of the contract. | Audit report published |
 
 ## What it costs to run

@@ -59,6 +59,16 @@ export function createChainReader(api: PublicApi, whoReads: string) {
   };
 }
 
+/** v2 合約的擁有者（冷帳號 4dNM，也是 Agent #1313 徽章擁有者）；讀不到就回 undefined */
+async function v2Owner(): Promise<string | undefined> {
+  try {
+    const { createV2Reader, v2Address, TESTNET_REGISTRY_V2_INDEX } = await import("./contract-v2.js");
+    return (await createV2Reader(v2Address() ?? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n)).summary()).owner;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 免費操作本身（MCP 工具與 A2A 技能共用；回傳純資料，錯誤丟例外） */
 export function publicOps(api: PublicApi, readSettled: ReturnType<typeof createChainReader>) {
   return {
@@ -82,7 +92,8 @@ export function publicOps(api: PublicApi, readSettled: ReturnType<typeof createC
         anchor_explorer: EXPLORER + c.anchor_tx,
         anchored_at: onchain.block_time ?? undefined,
         read_from: source,
-        registry_contract: `<${REGISTRY.index},${REGISTRY.subindex}>`,
+        anchor_contract: onchain.contract ?? `<${REGISTRY.index},${REGISTRY.subindex}> (v1)`,
+        ...(onchain.contract ? { contract_owner: await v2Owner(), contract_rule: "one call per asset and day; only the owner's appointed committer can commit" } : {}),
         content_checked: content !== undefined,
         note:
           onchain.status === "pending"
