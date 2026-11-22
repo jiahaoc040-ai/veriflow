@@ -22,6 +22,8 @@ import json
 import os
 import threading
 import time
+
+import pandas as pd
 from functools import lru_cache
 
 from datetime import datetime, timedelta, timezone
@@ -56,6 +58,8 @@ ledger = Ledger(os.environ.get("DATABASE_URL") or os.environ.get("VERIFLOW_DB", 
 GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")
 # 沒設 GATEWAY_SECRET 時預設「關閉」：訊號與寫入端點一律拒絕。只有明確設 VERIFLOW_INSECURE_DEV=1 才不檢查（本機開發用）
 INSECURE_DEV = os.environ.get("VERIFLOW_INSECURE_DEV") == "1"
+# v2：訊號由 daily-v2 產生並上鏈到合約 v2；API 只賣已上鏈的那一筆
+SIGNAL_VERSION = os.environ.get("SIGNAL_VERSION", "v1")
 
 
 def _from_gateway(secret: str | None) -> bool:
@@ -143,6 +147,8 @@ def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)
         raise HTTPException(404, f"不支援的資產：{asset}，可用：{list(SYMBOLS)}")
     if not _from_gateway(x_veriflow_gateway):
         raise HTTPException(402, "Payment required：請透過 x402 付款關卡取得訊號")
+    if SIGNAL_VERSION == "v2":
+        return _v2_signal(asset)
     s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
     # 每個資產每個收盤日只有一筆官方訊號：當天已經發過（每日排程或先前的買家），就賣同一筆，不產生新的承諾。
     # 否則每次購買都會多一個雜湊，紀錄上同一天會有好幾筆，也無法證明賣方沒有兩邊都押。
@@ -158,6 +164,17 @@ def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)
     return {"signal": s.__dict__, "canonical": s.canonical(), "commitment": commitment}
 
 
+def _v2_signal(asset: str) -> dict:
+    """v2：只賣 daily-v2（GitHub Actions）產生、已經在合約 v2 上鏈的昨日收盤訊號；這裡不產生新訊號"""
+    as_of = (pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    rows = [r for r in ledger.for_day(asset, as_of) if '"momentum_e6":' in r["canonical"] and r["anchor_tx"]]
+    if not rows:
+        raise HTTPException(503, f"The {asset} call for the {as_of} close is not committed on-chain yet. Nothing was charged; try again later.")
+    r = rows[0]
+    return {"signal": json.loads(r["canonical"]), "canonical": r["canonical"], "commitment": r["commitment"],
+            "anchor_tx": r["anchor_tx"], "contract": "v2"}
+
+
 @app.post("/daily/{asset}")
 def daily_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)):
     """
@@ -168,6 +185,8 @@ def daily_signal(asset: str, x_veriflow_gateway: str | None = Header(default=Non
       - 都沒有 → 發一筆新的
     """
     _require_gateway(x_veriflow_gateway)
+    if SIGNAL_VERSION == "v2":
+        raise HTTPException(410, "v1 daily signals are retired; v2 signals come from the daily-v2 workflow")
     asset = asset.upper()
     if asset not in SYMBOLS:
         raise HTTPException(404, f"不支援的資產：{asset}")

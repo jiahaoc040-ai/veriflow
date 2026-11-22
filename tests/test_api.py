@@ -197,3 +197,24 @@ def test_paid_signal_is_the_one_official_signal_of_the_day(tmp_path, monkeypatch
     assert again["commitment"] == daily["commitment"] and again["anchor_tx"] == "ef" * 32
     assert again["canonical"] == first["canonical"]
     assert len(api.ledger.for_day("BTC", again["signal"]["as_of"])) == 1
+
+
+def test_v2_mode_sells_only_the_committed_v2_row(tmp_path, monkeypatch):
+    """v2：只賣已上鏈的 v2 訊號（昨日收盤）；沒有就 503、不收費；v1 的每日發訊號關閉"""
+    import pandas as pd
+    monkeypatch.setenv("SIGNAL_VERSION", "v2")
+    api, c = make_client(tmp_path, monkeypatch)
+    h = {"X-VeriFlow-Gateway": "s"}
+    assert c.get("/signal/BTC", headers=h).status_code == 503
+    assert c.post("/daily/BTC", headers=h).status_code == 410
+    as_of = (pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    canon = '{"as_of":"%s","asset":"BTC","momentum_e6":5,"nonce":"%s","signal":"RISK_ON"}' % (as_of, "0" * 32)
+    import hashlib
+    from sqlalchemy import text
+    commit = hashlib.sha256(canon.encode()).hexdigest()
+    with api.ledger.engine.begin() as conn:
+        conn.execute(text("INSERT INTO signals VALUES (:c,'BTC',:d,'RISK_ON',1.0,:k,'x',NULL)"), {"c": commit, "d": as_of, "k": canon})
+    assert c.get("/signal/BTC", headers=h).status_code == 503  # 還沒上鏈：不賣
+    api.ledger.set_anchor(commit, "tx1")
+    body = c.get("/signal/BTC", headers=h).json()
+    assert body["commitment"] == commit and body["anchor_tx"] == "tx1" and body["contract"] == "v2"

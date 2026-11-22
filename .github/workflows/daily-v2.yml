@@ -1,0 +1,43 @@
+name: daily-v2
+
+# Produces and commits the v2 daily calls on GitHub's machines (Render's IPs cannot reach Binance):
+# reveals v2 calls past their 7-day horizon, then commits yesterday's close for BTC and ETH to
+# contract v2 with the low-balance committer account. Idempotent: the contract accepts one call per
+# asset and day, so repeated runs only retry what is missing.
+on:
+  schedule:
+    - cron: "7 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-v2
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    if: ${{ vars.REGISTRY_V2_CONTRACT != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    env:
+      REGISTRY_V2_CONTRACT: ${{ vars.REGISTRY_V2_CONTRACT }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: npm ci
+      - name: Committer key from secret
+        env:
+          KEY: ${{ secrets.COMMITTER_KEY_JSON }}
+        run: |
+          umask 077
+          printf '%s' "$KEY" > "$RUNNER_TEMP/committer.export"
+      - run: COMMITTER_KEY_FILE="$RUNNER_TEMP/committer.export" npm run daily2
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/committer.export"

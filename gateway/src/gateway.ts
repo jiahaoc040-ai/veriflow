@@ -265,13 +265,15 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
 // 每日公開訊號：績效紀錄每天累積（DAILY_SIGNALS=off 可關閉；本機開發預設關閉）
-const DAILY = env("DAILY_SIGNALS", "off") !== "off";
+// DAILY_SIGNALS=reveal：v2 上線後，v1 不再發新訊號（v2 由 GitHub Actions 的 daily-v2 產生），只繼續公開 v1 到期的承諾
+const DAILY_MODE = env("DAILY_SIGNALS", "off");
+const DAILY = DAILY_MODE !== "off";
 if (DAILY) {
   startDailySignals(
     {
       apiUrl: API_URL,
       secret: GATEWAY_SECRET,
-      assets: env("DAILY_ASSETS", "BTC,ETH").split(",").map((a) => a.trim().toUpperCase()).filter(Boolean),
+      assets: DAILY_MODE === "reveal" ? [] : env("DAILY_ASSETS", "BTC,ETH").split(",").map((a) => a.trim().toUpperCase()).filter(Boolean),
       anchor: (c, asset) => anchorer.anchor(c, asset),
       log: (m) => console.log(m),
     },
@@ -293,6 +295,6 @@ setInterval(refreshOperatorBalance, 10 * 60_000);
 
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
-  console.log(`daily public signals: ${DAILY ? "on" : "off"}`);
+  console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });
