@@ -12,7 +12,9 @@
 
 **Live demo: https://veriflow-yrhp.onrender.com** (testnet) — dashboard with in-browser verification · [`/verify`](https://veriflow-yrhp.onrender.com/verify) buyer eligibility · [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json)
 
-**Docs:** [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
+**Docs:** [Scoring rule](docs/SCORING.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
+
+**Scoring rule v1 is pinned on-chain.** `sha256(docs/SCORING.md)` and `sha256(gateway/src/score.ts)` at commit `94c7603` were registered by the owner account `4dNM…` on 2026-11-21 14:57 UTC, before any price outcome existed ([tx `39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95)). The rule reads only the chain and Binance and runs on GitHub daily (`score` workflow). For contract `<13094,0>` it reports integrity only. Block day 2026-11-20 failed: BTC has 3 commits and ETH has 2. That day stays a failure, and no performance number is published for this contract.
 
 Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026). **Nothing is mocked:** every payment, proof, commitment and registry entry below is a real Concordium testnet transaction you can open on CCDExplorer.
 
