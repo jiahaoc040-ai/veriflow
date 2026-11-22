@@ -35,6 +35,8 @@ import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 
 export const CONTRACT_V2_NAME = "veriflow_registry_v2";
 export const MODULE_V2_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/registry-module-v2/module.wasm.v1";
+/** 審查通過的 v2 模組（CI 從 commit 5e699ad 編出，38,414 bytes） */
+export const EXPECTED_MODULE_V2 = "08e3b49e4e6d0a11f1d2af4c6754537d695cfe19945b9b6d7fb5b8722f4df6cc";
 export const DAY_MS = 86_400_000;
 export const HORIZON_MS = 7 * DAY_MS;
 
@@ -173,6 +175,8 @@ async function deploy() {
   const source = process.env.CONTRACT_MODULE ? readFileSync(process.env.CONTRACT_MODULE) : Buffer.from(await (await fetch(MODULE_V2_URL)).arrayBuffer());
   const refHex = createHash("sha256").update(source).digest("hex");
   console.log(`owner  ${owner.address}\nmodule ${refHex} (${source.length} bytes)`);
+  // 只部署審查過的那個模組（CI 從 5e699ad 編出）；不一樣就停下，什麼都不送
+  if (refHex !== EXPECTED_MODULE_V2) throw new Error(`module ${refHex} is not the reviewed module ${EXPECTED_MODULE_V2}; nothing was sent`);
   const submit = async (tx: any) => {
     const { nonce } = await grpc.getNextAccountNonce(owner.accountAddress);
     const built = tx.addMetadata({ sender: owner.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();

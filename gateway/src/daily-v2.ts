@@ -30,7 +30,12 @@ export type DailyV2Deps = {
     v2Rows: () => Promise<Row[]>;
     forDay: (asset: string, asOf: string) => Promise<Row[]>;
     insert: (r: { commitment: string; asset: string; as_of: string; signal: string; close: number; canonical: string; issued_at: string }) => Promise<void>;
-    setAnchor: (commitment: string, tx: string | null) => Promise<void>;
+    /** 成功確認後寫入（覆蓋） */
+    setAnchor: (commitment: string, tx: string) => Promise<void>;
+    /** 送出當下：只有還沒記錄任何交易時才寫（另一個同時跑的排程先送出的那筆優先） */
+    setAnchorIfNull: (commitment: string, tx: string) => Promise<void>;
+    /** 鏈上拒絕：只有記錄的正好是這筆被拒絕的交易時才清掉 */
+    clearAnchorIf: (commitment: string, tx: string) => Promise<void>;
   };
   nonce?: () => string;
   log?: (m: string) => void;
@@ -83,11 +88,18 @@ export async function runDailyV2(d: DailyV2Deps) {
       }
       const c = row.commitment;
       let tx: string;
-      try {
-        tx = await d.commit(asset, asOf, c, (sent) => d.db.setAnchor(c, sent));
-      } catch (e) {
-        if (e instanceof RejectedError) await d.db.setAnchor(c, null); // 鏈上拒絕：不是這筆的交易
-        throw e;
+      {
+        let sentTx: string | null = null;
+        try {
+          tx = await d.commit(asset, asOf, c, async (sent) => {
+            sentTx = sent;
+            await d.db.setAnchorIfNull(c, sent);
+          });
+        } catch (e) {
+          // 被拒絕的是這一次送出的交易；如果記錄的是別次（例如前一輪還在等確認、後來成功的那筆），不動它
+          if (e instanceof RejectedError && sentTx) await d.db.clearAnchorIf(c, sentTx);
+          throw e;
+        }
       }
       await d.db.setAnchor(c, tx);
       out.commits.push(`${asset} ${asOf} ${tx}`);
@@ -133,6 +145,8 @@ async function main() {
         );
       },
       setAnchor: async (c, tx) => void (await pool.query("UPDATE signals SET anchor_tx=$1 WHERE commitment=$2", [tx, c])),
+      setAnchorIfNull: async (c, tx) => void (await pool.query("UPDATE signals SET anchor_tx=$1 WHERE commitment=$2 AND anchor_tx IS NULL", [tx, c])),
+      clearAnchorIf: async (c, tx) => void (await pool.query("UPDATE signals SET anchor_tx=NULL WHERE commitment=$1 AND anchor_tx=$2", [c, tx])),
     },
     log: (m) => console.log(m),
   });

@@ -112,7 +112,15 @@ function world(now: number) {
         forDay: async (a: string, d: string) => rows.filter((r) => r.asset === a && r.as_of === d),
         // 模擬資料庫的唯一索引：同一資產同一天只能有一筆 v2 訊號
         insert: async (r: any) => void (rows.some((x) => x.asset === r.asset && x.as_of === r.as_of) || rows.push({ ...r, anchor_tx: null })),
-        setAnchor: async (c: string, tx: string | null) => void (rows.find((r) => r.commitment === c)!.anchor_tx = tx),
+        setAnchor: async (c: string, tx: string) => void (rows.find((r) => r.commitment === c)!.anchor_tx = tx),
+        setAnchorIfNull: async (c: string, tx: string) => {
+          const r = rows.find((x) => x.commitment === c)!;
+          if (r.anchor_tx === null) r.anchor_tx = tx;
+        },
+        clearAnchorIf: async (c: string, tx: string) => {
+          const r = rows.find((x) => x.commitment === c)!;
+          if (r.anchor_tx === tx) r.anchor_tx = null;
+        },
       },
     },
   };
@@ -200,6 +208,29 @@ test("daily v2: two overlapping runs keep one canonical per day", async () => {
   await Promise.all([runDailyV2({ ...w.deps, nonce: nonces }), runDailyV2({ ...w.deps, nonce: nonces })]);
   assert.equal(w.rows.filter((r) => r.asset === "BTC").length, 1);
   assert.equal(w.slots.get("BTC|2026-11-23")!.commitment, w.rows.find((r) => r.asset === "BTC")!.commitment);
+});
+
+test("daily v2: a second send rejected with SlotTaken keeps the first send's recorded tx", async () => {
+  const { RejectedError } = await import("../src/contract-v2.ts");
+  const now = ms("2026-11-24") + 20 * 60_000;
+  const w = world(now);
+  const commit = w.deps.commit;
+  // run 1: the node accepts tx-1, the wait times out (tx-1 is still valid and lands later)
+  w.deps.commit = async (a, d, c, onSent) => {
+    await onSent?.(`tx-1-${a}`);
+    throw new Error("waitForTransactionFinalization timed out");
+  };
+  await runDailyV2(w.deps);
+  // tx-1 lands now; run 2 had already looked at an empty slot and sends tx-2, which the chain rejects
+  for (const r of w.rows) w.slots.set(`${r.asset}|${r.as_of}`, { commitment: r.commitment, committed_at: new Date(now).toISOString(), reveal: null });
+  w.deps.slot = async () => null; // run 2 saw the slot before tx-1 landed
+  w.deps.commit = async (a, _d, _c, onSent) => {
+    await onSent?.(`tx-2-${a}`);
+    throw new RejectedError("commit rejected (tx-2): RejectedReceive code SlotTaken");
+  };
+  await runDailyV2(w.deps);
+  assert.deepEqual(w.rows.map((r) => r.anchor_tx).sort(), ["tx-1-BTC", "tx-1-ETH"]);
+  void commit;
 });
 
 test("daily v2: an on-chain commitment missing from the database is reported", async () => {
