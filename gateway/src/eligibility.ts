@@ -23,6 +23,7 @@
  *
  * 付款時（x402 onBeforeVerify）：付款交易的 sender 不在白名單 → 拒絕，買方的錢不會被扣。
  */
+import { NET } from "./network.js";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -43,7 +44,7 @@ import { serialize, waitForNode } from "./txqueue.js";
 export const MIN_AGE = 18;
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 分鐘內要完成證明
 export const ELIGIBILITY_TTL_MS = 30 * 24 * 3600 * 1000; // 驗證一次有效 30 天
-export const CHAIN_TIMEOUT_MS = 60_000; // 上鏈要等最終確認，給寬一點
+export const CHAIN_TIMEOUT_MS = 180_000; // 上鏈要等最終確認；測試網有時要一兩分鐘，給寬一點
 
 export type Policy = { minAge: number; restrictedCountries: string[] };
 
@@ -82,7 +83,7 @@ export function policyId(p: Policy): string {
 export function buildClaims(p: Policy, identityProviders: number[]): VerificationRequestV1.SubjectClaims[] {
   return VerificationRequestV1.claimsBuilder()
     .addAccountClaims(
-      identityProviders.map((i) => new IdentityProviderDID("Testnet", i)),
+      identityProviders.map((i) => new IdentityProviderDID(NET.did, i)),
       (b) => b.addMinimumAge(p.minAge).addNonMembership("countryOfResidence", p.restrictedCountries),
     )
     .getClaims();
@@ -203,6 +204,7 @@ export function postgresPersistence(url: string): Persistence {
 /** 白名單 + 未使用的請求（白名單寫入 Persistence，重開不會掉；未完成的請求只放記憶體） */
 export class EligibilityStore {
   private challenges = new Map<string, Challenge>();
+  private busy = new Set<string>();
   // 沒有原型鏈的物件：帳號字串當 key，排除 "__proto__" 之類的原型污染
   private eligible: Record<string, Eligible> = Object.create(null);
 
@@ -220,11 +222,33 @@ export class EligibilityStore {
 
   /** 取出並作廢（只能用一次） */
   take(id: string): Challenge {
-    const c = this.challenges.get(id);
-    this.challenges.delete(id);
-    if (!c) throw new Error("驗證請求不存在或已經用過");
-    if (c.expires < this.now()) throw new Error("驗證請求已過期，請重新開始");
+    const c = this.claim(id);
+    this.finish(id);
     return c;
+  }
+
+  /**
+   * 開始驗證：鎖住這個請求（同時只能有一個驗證在跑），但先不刪。
+   * 驗證失敗（證明不符、節點逾時）就 release，使用者可以在期限內重試，不用重新上鏈一個請求；
+   * 成功才 finish 刪掉，所以同一個請求不會被用兩次。
+   */
+  claim(id: string): Challenge {
+    const c = this.challenges.get(id);
+    if (!c) throw new Error("驗證請求不存在或已經用過");
+    if (c.expires < this.now()) {
+      this.challenges.delete(id);
+      throw new Error("驗證請求已過期，請重新開始");
+    }
+    if (this.busy.has(id)) throw new Error("這個驗證請求正在處理中，請稍候");
+    this.busy.add(id);
+    return c;
+  }
+  release(id: string) {
+    this.busy.delete(id);
+  }
+  finish(id: string) {
+    this.busy.delete(id);
+    this.challenges.delete(id);
   }
 
   async grant(e: Omit<Eligible, "verifiedAt" | "expiresAt">): Promise<Eligible> {
@@ -259,12 +283,18 @@ export function concordiumChain(anchorKeyFile: string): Chain {
   const metadata = () => ({ sender: anchor.accountAddress, signer: anchor.signer });
   const nodeNonce = async () => (await grpc.getNextAccountNonce(anchor.accountAddress)).nonce.value;
   let ips: number[] | undefined;
+  let ipsAt = 0;
 
   return {
     async identityProviders() {
-      if (!ips) {
-        ips = [];
-        for await (const ip of grpc.getIdentityProviders()) ips.push(ip.ipIdentity);
+      // 只快取非空的名單，而且一小時更新一次：節點暫時回空的，不會讓之後所有驗證都被拒絕
+      if (!ips || Date.now() - ipsAt > 3_600_000) {
+        const fresh: number[] = [];
+        for await (const ip of grpc.getIdentityProviders()) fresh.push(ip.ipIdentity);
+        if (fresh.length) {
+          ips = fresh;
+          ipsAt = Date.now();
+        } else if (!ips) throw new Error("節點沒有回傳身分提供者名單，請稍後再試");
       }
       return ips;
     },
@@ -304,7 +334,7 @@ export function concordiumChain(anchorKeyFile: string): Chain {
           parsed.presentation as VerifiablePresentationV1.Type,
           grpc,
           { metadata: metadata(), info: { service: "veriflow" } },
-          { network: "Testnet" },
+          { network: NET.did },
         );
         if (out.type !== "failed") await grpc.waitForTransactionFinalization(out.result.anchorTransactionRef);
         return out;
@@ -345,7 +375,18 @@ export class EligibilityService {
   }
 
   async verify(id: string, presentationJson: string): Promise<Eligible> {
-    const c = this.store.take(id);
+    const c = this.store.claim(id);
+    try {
+      const rec = await this.verifyClaimed(id, c, presentationJson);
+      this.store.finish(id);
+      return rec;
+    } catch (e) {
+      this.store.release(id);
+      throw e;
+    }
+  }
+
+  private async verifyClaimed(id: string, c: Challenge, presentationJson: string): Promise<Eligible> {
     if (c.policy !== this.policyId) throw new Error("政策已更新，請重新開始");
 
     const parsed = this.chain.parsePresentation(presentationJson);

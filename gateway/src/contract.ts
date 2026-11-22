@@ -13,6 +13,7 @@
  *
  * 設定 REGISTRY_CONTRACT=<index> 之後，gateway 的每個付費訊號改成用合約 commit 上鏈。
  */
+import { NET } from "./network.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -181,7 +182,7 @@ async function deploy(horizonDays: number) {
     const { nonce } = await grpc.getNextAccountNonce(owner.accountAddress);
     const built = tx.addMetadata({ sender: owner.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
     const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(built, owner.signer));
-    console.log(`  tx https://ccdexplorer.io/testnet/transaction/${TransactionHash.toHexString(hash)}`);
+    console.log(`  tx ${NET.explorer}/transaction/${TransactionHash.toHexString(hash)}`);
     return (await grpc.waitForTransactionFinalization(hash, 120_000)).summary as any;
   };
 
@@ -232,7 +233,7 @@ async function main() {
     const c = (await (await fetch(`${api}/commitments/${arg}`)).json()) as { canonical?: string; revealed?: boolean };
     if (!c.canonical) throw new Error("not revealed yet by the API (horizon not reached)");
     const tx = await client.reveal(c.canonical);
-    return console.log(`reveal sent: https://ccdexplorer.io/testnet/transaction/${tx}`);
+    return console.log(`reveal sent: ${NET.explorer}/transaction/${tx}`);
   }
   console.log("usage: npm run contract -- deploy [horizonDays] | status | show <commitment> | reveal <commitment>");
 }

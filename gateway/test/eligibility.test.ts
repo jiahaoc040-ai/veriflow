@@ -104,6 +104,29 @@ test("request id can only be used once", async () => {
   await assert.rejects(svc.verify(id, "{}"), /用過/);
 });
 
+test("a failed attempt does not burn the request: the buyer can retry with a correct proof", async () => {
+  const chain = fakeChain({ kind: "identity" });
+  const svc = new EligibilityService(POLICY, new EligibilityStore(), chain);
+  const { id } = await svc.challenge(BUYER);
+  await assert.rejects(svc.verify(id, "{}"), /帳號 credential/); // wrong credential kind
+  (chain as any).parsePresentation = fakeChain({}).parsePresentation; // the buyer retries with an account credential
+  const rec = await svc.verify(id, "{}");
+  assert.equal(rec.account, BUYER);
+  assert.equal((chain as any).requests, 1); // no second request anchored
+  await assert.rejects(svc.verify(id, "{}"), /用過/); // and after success it is spent
+});
+
+test("two verifications of one request cannot run at the same time", async () => {
+  const store = new EligibilityStore();
+  store.put("x", { account: BUYER, request: {} as any, wanted: [], policy: "p" });
+  store.claim("x");
+  assert.throws(() => store.claim("x"), /處理中/);
+  store.release("x");
+  store.claim("x");
+  store.finish("x");
+  assert.throws(() => store.claim("x"), /用過/);
+});
+
 test("unknown request id is refused", async () => {
   const { svc } = await run();
   await assert.rejects(svc.verify("00".repeat(32), "{}"), /不存在/);

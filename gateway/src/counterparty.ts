@@ -13,6 +13,7 @@
  *
  * 任何一項不過就不付款（fail closed）。Registry 連不到也一樣不付。
  */
+import { NET } from "./network.js";
 import { createHash } from "node:crypto";
 import type { Check } from "./verify.js";
 
@@ -31,6 +32,29 @@ export type SellerVerdict = {
 };
 
 /** Agent Card 裡 badge 的 token address（"ccd:<genesis>/cis-2:JyP9…" → "JyP9…"） */
+/** Agent Card 最大 64 KiB：賣方回傳超大或不停的內容時，買方不會被拖住 */
+export const MAX_CARD_BYTES = 64 * 1024;
+
+export async function readCapped(r: Response, max: number): Promise<Buffer> {
+  const len = Number(r.headers.get("content-length") ?? "0");
+  if (len > max) throw new Error(`response larger than ${max} bytes`);
+  if (!r.body) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const reader = r.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      throw new Error(`response larger than ${max} bytes`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
 export function badgeTokenAddress(card: unknown): string | undefined {
   const exts = (card as { capabilities?: { extensions?: { uri?: string; params?: { tokenAddress?: string } }[] } })?.capabilities
     ?.extensions;
@@ -49,7 +73,7 @@ export async function verifySeller(opts: {
   fetch?: typeof fetch;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
-  const network = opts.network ?? "testnet";
+  const network = opts.network ?? NET.name;
   const checks: Check[] = [];
   const out: SellerVerdict = { ok: false, checks, payTo: opts.payTo };
   const done = () => ({ ...out, ok: checks.length === 5 && checks.every((c) => c.ok) });
@@ -58,8 +82,8 @@ export async function verifySeller(opts: {
   // 1. 賣方網站宣告的 badge
   let tokenAddress: string | undefined;
   try {
-    const r = await f(`${opts.gateway}/.well-known/agent-card.json`);
-    tokenAddress = r.ok ? badgeTokenAddress(await r.json()) : undefined;
+    const r = await f(`${opts.gateway}/.well-known/agent-card.json`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+    tokenAddress = r.ok ? badgeTokenAddress(JSON.parse((await readCapped(r, MAX_CARD_BYTES)).toString("utf8"))) : undefined;
     checks.push({
       name: "seller advertises a Verified by Concordium badge",
       ok: !!tokenAddress,
@@ -104,9 +128,12 @@ export async function verifySeller(opts: {
   // 4. 自己下載 card、自己算雜湊
   try {
     if (!rec.agent_uri) throw new Error("no agent_uri on-chain");
-    const r = await f(rec.agent_uri);
+    // https only (plain http allowed only for a local test server)
+    if (!/^https:\/\//.test(rec.agent_uri) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(rec.agent_uri))
+      throw new Error(`agent_uri is not https: ${rec.agent_uri.slice(0, 80)}`);
+    const r = await f(rec.agent_uri, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const sha = createHash("sha256").update(Buffer.from(await r.arrayBuffer())).digest("hex");
+    const sha = createHash("sha256").update(await readCapped(r, MAX_CARD_BYTES)).digest("hex");
     checks.push({
       name: "Agent Card unchanged since pinned on-chain (own SHA-256)",
       ok: !!rec.metadata_hash_hex && sha === rec.metadata_hash_hex.toLowerCase(),

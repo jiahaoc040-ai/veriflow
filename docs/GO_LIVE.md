@@ -11,7 +11,7 @@ Every piece runs for real on Concordium testnet at <https://veriflow-yrhp.onrend
 - **An MCP server**, already used by Claude Desktop to verify the seller, pay, and verify the signal on-chain.
 - **Daily signals**: one per asset per daily close, committed on-chain automatically.
 
-Most of going live is configuration and operations, but not all of it. The network is still hardcoded in a few places (the eligibility DID network and audit call, the x402 CAIP-2 network, the registry network and genesis used by `set-wallet`); those become one network setting, with a test, before mainnet. The contract also needs a v2 (one commit per asset and day, a separate hot committer under a cold owner) and a review. There is no public Concordium facilitator yet, so VeriFlow keeps sponsoring buyer fees itself.
+Most of going live is configuration and operations, but not all of it. The network is one setting, `CONCORDIUM_NETWORK` (`testnet` or `mainnet`). It drives the x402 CAIP-2 network, the Verify & Access DID network, the Agent Registry network and the explorer links. A test fails the build if a network value is written anywhere else, and the gateway refuses to start against a node from another chain. Contract v2 (one call per asset and day, a cold owner, a revocable committer) is live on testnet and needs an external review before mainnet. There is no public Concordium facilitator yet, so VeriFlow keeps sponsoring buyer fees itself.
 
 ## Who the users are
 

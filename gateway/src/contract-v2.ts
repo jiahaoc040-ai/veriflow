@@ -11,6 +11,7 @@
  *   npm run contract2 -- status                 合約摘要（REGISTRY_V2_CONTRACT）
  *   npm run contract2 -- slot <BTC|ETH> <YYYY-MM-DD>
  */
+import { NET } from "./network.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -201,7 +202,7 @@ async function deploy() {
     const built = tx.addMetadata({ sender: owner.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
     const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(built, owner.signer));
     const hex = TransactionHash.toHexString(hash);
-    console.log(`  tx https://ccdexplorer.io/testnet/transaction/${hex}`);
+    console.log(`  tx ${NET.explorer}/transaction/${hex}`);
     return { hex, summary: (await grpc.waitForTransactionFinalization(hash, 180_000)).summary as any };
   };
   const moduleRef = ModuleReference.fromHexString(refHex);
@@ -234,9 +235,9 @@ async function main() {
     if (!a) throw new Error("usage: set-committer <account address>");
     const w = owner();
     if (sameAccount(a, w.address)) throw new Error("the committer cannot be the owner or an alias of it");
-    return console.log(`set_committer ${a}: https://ccdexplorer.io/testnet/transaction/${await w.setCommitter(a)}`);
+    return console.log(`set_committer ${a}: ${NET.explorer}/transaction/${await w.setCommitter(a)}`);
   }
-  if (cmd === "revoke-committer") return console.log(`revoked: https://ccdexplorer.io/testnet/transaction/${await owner().revokeCommitter()}`);
+  if (cmd === "revoke-committer") return console.log(`revoked: ${NET.explorer}/transaction/${await owner().revokeCommitter()}`);
   console.log("usage: npm run contract2 -- deploy | set-committer <account> | revoke-committer | status | slot <BTC|ETH> <YYYY-MM-DD>");
 }
 

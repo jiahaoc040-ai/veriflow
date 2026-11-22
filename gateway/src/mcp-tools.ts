@@ -4,6 +4,7 @@
  * 免費工具（兩版都有）：get_track_record、list_commitments、verify_signal、check_eligibility
  * 只有本機版有：get_signal（付款）、check_seller（買方付款前驗證賣方）——要用買方自己的錢包，公開伺服器不碰任何人的金鑰
  */
+import { NET } from "./network.js";
 import { ContractAddress } from "@concordium/web-sdk";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -13,7 +14,7 @@ import { createGrpc, grpcEndpoint } from "./grpc.js";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { allOk, verifyCommitment } from "./verify.js";
 
-export const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
+export const EXPLORER = `${NET.explorer}/transaction/`;
 export const json = (x: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(x, null, 2) }] });
 export const fail = (msg: string) => ({ content: [{ type: "text" as const, text: msg }], isError: true });
 export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));

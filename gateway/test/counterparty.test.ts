@@ -95,3 +95,9 @@ test("badge token address parsing", () => {
   assert.equal(badgeTokenAddress({ capabilities: { extensions: [{ uri: "other", params: { tokenAddress: TOKEN } }] } }), undefined);
   assert.equal(badgeTokenAddress({ capabilities: { extensions: [{ uri: "https://docs.concordium.com/a2a-extensions/concordium-badge/v1", params: { tokenAddress: "x;rm -rf" } }] } }), undefined);
 });
+
+test("the card fetch is https only, capped in size, and does not follow redirects", async () => {
+  const { readCapped, MAX_CARD_BYTES } = await import("../src/counterparty.ts");
+  await assert.rejects(readCapped(new Response("x".repeat(MAX_CARD_BYTES + 1)), MAX_CARD_BYTES), /larger than/);
+  assert.equal((await readCapped(new Response("ok"), MAX_CARD_BYTES)).toString(), "ok");
+});

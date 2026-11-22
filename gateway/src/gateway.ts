@@ -12,6 +12,9 @@
  *
  * 執行：npm run gateway   （預設 http://localhost:4020）
  */
+import { NET, checkGenesis } from "./network.js";
+import { createGrpc } from "./grpc.js";
+import { BlockHash } from "@concordium/web-sdk";
 import express from "express";
 import { rateLimit as baselineLimit } from "express-rate-limit";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
@@ -84,10 +87,15 @@ app.use(express.json({ limit: "256kb" }));
 // 速率限制：challenge 每次都花 CCD 上鏈，限制最嚴；全站上限換 IP 也繞不過
 const MIN = 60_000;
 const ip = (req: express.Request) => req.ip ?? "unknown";
+const validAccount = (req: express.Request) => {
+  const a = String(req.body?.account ?? "");
+  return /^[1-9A-HJ-NP-Za-km-z]{50}$/.test(a) ? a : null;
+};
 const limitChallenge = rateLimit([
   { limiter: new RateLimiter(5, 10 * MIN), key: ip, what: "per IP" },
-  { limiter: new RateLimiter(3, 60 * MIN), key: (req) => String(req.body?.account ?? ""), what: "per account" },
-  { limiter: new RateLimiter(Number(env("CHALLENGES_PER_HOUR", "60")), 60 * MIN), key: () => "all", what: "site-wide hourly budget" },
+  // 帳號格式不對的請求根本不會上鏈：不吃掉這個帳號或全站的額度（每 IP 的限制照算）
+  { limiter: new RateLimiter(3, 60 * MIN), key: (req) => validAccount(req) ?? undefined, what: "per account" },
+  { limiter: new RateLimiter(Number(env("CHALLENGES_PER_HOUR", "60")), 60 * MIN), key: (req) => (validAccount(req) ? "all" : undefined), what: "site-wide hourly budget" },
 ]);
 const limitVerify = rateLimit([{ limiter: new RateLimiter(10, 10 * MIN), key: ip, what: "per IP" }]);
 const limitRead = rateLimit([{ limiter: new RateLimiter(120, MIN), key: ip, what: "per IP" }]);
@@ -295,6 +303,18 @@ setInterval(refreshOperatorBalance, 10 * 60_000);
 
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
+  // 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈；連不上就只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停
+  createGrpc()
+    .getConsensusStatus()
+    .then((c) => checkGenesis(BlockHash.toHexString(c.genesisBlock)))
+    .then(() => console.log(`network: ${NET.name} (${NET.caip2})`))
+    .catch((e) => {
+      if (/is not (testnet|mainnet)/.test(String(e))) {
+        console.error(`❌ ${e instanceof Error ? e.message : e}`);
+        process.exit(1);
+      }
+      console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
+    });
   console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });

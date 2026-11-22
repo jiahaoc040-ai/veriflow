@@ -20,6 +20,8 @@
  * 擁有者帳號：REGISTRY_OWNER_KEY_FILE（預設 = FACILITATOR_KEY_FILE）
  * Agent Card 網址：AGENT_CARD_URL（預設 GitHub 上的 agent-card.json）
  */
+import { NET, checkGenesis, txLink } from "./network.js";
+import { BlockHash } from "@concordium/web-sdk";
 import { createHash } from "node:crypto";
 import {
   AccountAddress,
@@ -36,7 +38,7 @@ import { env, loadAccount } from "./config.js";
 import { createGrpc } from "./grpc.js";
 
 export const REGISTRY_MCP = env("REGISTRY_MCP_URL", "https://agent-registry-mcp.concordium.com/mcp");
-export const REGISTRY_NETWORK = "testnet";
+export const REGISTRY_NETWORK = NET.name;
 export const DEFAULT_CARD_URL = "https://raw.githubusercontent.com/jiahaoc040-ai/veriflow/main/agent-card.json";
 /** VeriFlow 在 testnet Agent Registry <12802,0> 的 token id（2026-11-20 註冊） */
 export const VERIFLOW_TOKEN_ID = "1313";
@@ -143,7 +145,7 @@ async function submit(owner: ReturnType<typeof loadAccount>, built: any) {
   const signed = await Transaction.signAndFinalize(tx, owner.signer);
   const hash = await grpc.sendTransaction(signed);
   const txHex = TransactionHash.toHexString(hash);
-  console.log(`submitted ${built.receive_name}: https://ccdexplorer.io/testnet/transaction/${txHex}`);
+  console.log(`submitted ${built.receive_name}: ${txLink(txHex)}`);
   const outcome = await grpc.waitForTransactionFinalization(hash, 120_000);
   const s: any = outcome.summary;
   if (s.type !== "accountTransaction" || s.transactionType === "failed")
@@ -210,7 +212,7 @@ async function main() {
       wallet: wallet.address,
       deadlineMs,
       contract: { index: BigInt(msg.contract_address?.index ?? 12802), subindex: BigInt(msg.contract_address?.subindex ?? 0) },
-      genesis: TESTNET_GENESIS,
+      genesis: checkGenesis(BlockHash.toHexString((await createGrpc().getConsensusStatus()).genesisBlock)),
     });
     console.log(`授權訊息檢查通過（agent #${arg}、擁有者 ${ownerB58}、新錢包 ${wallet.address}、nonce ${nonce}）`);
     const sigs = await wallet.signer.sign(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) as ArrayBuffer);

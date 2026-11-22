@@ -9,13 +9,13 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AccountAddress, buildAccountSigner, parseWallet } from "@concordium/web-sdk";
-import { CONCORDIUM_TESTNET_CAIP2 } from "@x402/concordium";
+import { NET } from "./network.js";
 
 /** gateway/ 資料夾；.env 與金鑰檔的相對路徑都以這裡為準（MCP 客戶端可能從別的資料夾啟動我們） */
 export const GATEWAY_DIR = resolve(fileURLToPath(new URL("..", import.meta.url)));
 config({ path: resolve(GATEWAY_DIR, ".env"), quiet: true });
 
-export const NETWORK = CONCORDIUM_TESTNET_CAIP2;
+export const NETWORK = NET.caip2;
 
 export function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback;
