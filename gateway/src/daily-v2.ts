@@ -123,8 +123,20 @@ async function main() {
   let w: ReturnType<typeof createV2Writer>;
   try {
     w = createV2Writer(keyFile, address);
-  } catch {
-    throw new Error("could not load the committer key file");
+  } catch (e) {
+    // 只印形狀，不印內容：大小、是不是 JSON、最上層欄位名稱、錯誤種類
+    const { readFileSync, existsSync } = await import("node:fs");
+    let shape = "file missing";
+    if (existsSync(keyFile)) {
+      const raw = readFileSync(keyFile, "utf8");
+      let keys = "not JSON";
+      try {
+        const j = JSON.parse(raw);
+        keys = `JSON keys [${Object.keys(j).join(", ")}]${j.value ? `, value keys [${Object.keys(j.value).join(", ")}]` : ""}, environment ${typeof j.environment === "string" ? j.environment : "?"}`;
+      } catch {}
+      shape = `${raw.length} bytes, ${keys}`;
+    }
+    throw new Error(`could not load the committer key file (${shape}; ${e instanceof Error ? e.constructor.name : typeof e})`);
   }
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS signals_v2_one_per_day ON signals (asset, as_of) WHERE canonical LIKE '%"momentum_e6":%'`);
   const cols = "commitment, asset, as_of, canonical, anchor_tx";
