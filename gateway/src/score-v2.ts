@@ -18,9 +18,9 @@ import { momentumE6, type Candle } from "./signal-v2.js";
 export const RULE_V2 = {
   version: "v2",
   // Filled in from the deployment before this file is hashed; changing any of them is a new rule.
-  contractIndex: 0n,
-  moduleRef: "",
-  initTx: "",
+  contractIndex: 13115n,
+  moduleRef: "08e3b49e4e6d0a11f1d2af4c6754537d695cfe19945b9b6d7fb5b8722f4df6cc",
+  initTx: "dba400c20a96eaa1609e5e1f954ac5887aa473785ad5676b3dad99364263a946",
   assets: ["BTC", "ETH"] as const,
   horizonDays: 7,
   lookbackDays: 30,
