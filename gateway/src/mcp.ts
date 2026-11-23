@@ -21,6 +21,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { createBuyerAgent } from "./agent.js";
+import { AGENT_REGISTRY_TEXT } from "./registry-node.js";
 import { ABOUT, EXPLORER, createChainReader, errText, fail, json, registerPublicTools } from "./mcp-tools.js";
 
 const agent = createBuyerAgent();
@@ -93,7 +94,7 @@ server.registerTool(
   async () => {
     try {
       const v = await agent.checkSeller();
-      return json({ verified: v.ok, ...v, checked_in: "Concordium Agent Registry <12802,0> via agent-registry-mcp.concordium.com" });
+      return json({ verified: v.ok, ...v, checked_in: `Concordium Agent Registry ${AGENT_REGISTRY_TEXT}, read from a node; badge via agent-registry-mcp.concordium.com` });
     } catch (e) {
       return fail(`Seller check failed: ${errText(e)}`);
     }

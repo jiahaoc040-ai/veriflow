@@ -2,7 +2,7 @@
  * 網路設定集中在這裡：CONCORDIUM_NETWORK=testnet（預設）或 mainnet
  * ----------------------------------------------------------------
  * 所有跟網路有關的值都從這一組取得：x402 的 CAIP-2、Verify & Access 的 DID 網路、
- * Agent Registry 的網路名稱、區塊瀏覽器連結。setAgentWallet 的 genesis 不寫死，
+ * Agent Registry 的網路名稱與合約位址、區塊瀏覽器連結。setAgentWallet 的 genesis 不寫死，
  * 從節點讀，並要求它的前 32 個字元等於 CAIP-2（避免用錯節點或簽到別條鏈）。
  * 測試會確認其他檔案裡沒有寫死 "Testnet"、"ccdexplorer.io/testnet" 或 CAIP-2。
  */
@@ -12,8 +12,9 @@ import { CONCORDIUM_MAINNET_CAIP2, CONCORDIUM_TESTNET_CAIP2 } from "@x402/concor
 export type NetworkName = "testnet" | "mainnet";
 
 export const NETWORKS = {
-  testnet: { name: "testnet", did: "Testnet", caip2: CONCORDIUM_TESTNET_CAIP2, explorer: "https://ccdexplorer.io/testnet" },
-  mainnet: { name: "mainnet", did: "Mainnet", caip2: CONCORDIUM_MAINNET_CAIP2, explorer: "https://ccdexplorer.io/mainnet" },
+  // agentRegistry：CIS-8004 合約。testnet 由官方 badge 檢查回傳；mainnet 見 docs.concordium.com 的 Agent Registry 頁（10082,0）
+  testnet: { name: "testnet", did: "Testnet", caip2: CONCORDIUM_TESTNET_CAIP2, explorer: "https://ccdexplorer.io/testnet", agentRegistry: { index: 12802n, subindex: 0n } },
+  mainnet: { name: "mainnet", did: "Mainnet", caip2: CONCORDIUM_MAINNET_CAIP2, explorer: "https://ccdexplorer.io/mainnet", agentRegistry: { index: 10082n, subindex: 0n } },
 } as const;
 
 export function selectNetwork(v = process.env.CONCORDIUM_NETWORK ?? "testnet") {

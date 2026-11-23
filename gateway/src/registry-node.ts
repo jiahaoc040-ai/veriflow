@@ -10,8 +10,10 @@
 import "./env-file.js";
 import { AccountAddress, ContractAddress, Parameter, ReceiveName, ReturnValue } from "@concordium/web-sdk";
 import { createGrpc } from "./grpc.js";
+import { NET } from "./network.js";
 
-export const AGENT_REGISTRY = ContractAddress.create(12802n, 0n);
+export const AGENT_REGISTRY = ContractAddress.create(NET.agentRegistry.index, NET.agentRegistry.subindex);
+export const AGENT_REGISTRY_TEXT = `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`;
 
 export type AgentOnChain = {
   tokenId: string;

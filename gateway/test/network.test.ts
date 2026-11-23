@@ -11,6 +11,8 @@ test("the bundle is the single source of network values", () => {
   assert.equal(selectNetwork("testnet").caip2, CONCORDIUM_TESTNET_CAIP2);
   assert.equal(selectNetwork("mainnet").caip2, CONCORDIUM_MAINNET_CAIP2);
   assert.equal(selectNetwork("mainnet").did, "Mainnet");
+  assert.equal(selectNetwork("testnet").agentRegistry.index, 12802n);
+  assert.equal(selectNetwork("mainnet").agentRegistry.index, 10082n);
   assert.throws(() => selectNetwork("devnet"), /testnet or mainnet/);
 });
 
@@ -30,7 +32,7 @@ test("no network-sensitive literal outside network.ts", () => {
       .split("\n")
       .filter((l) => !/^\s*(\/\/|\*|\/\*\*)/.test(l)) // comments may mention testnet
       .join("\n");
-    for (const pat of [/"Testnet"/, /ccdexplorer\.io\/testnet/, /CONCORDIUM_TESTNET_CAIP2/, /ccd:4221332d/]) if (pat.test(code)) bad.push(`${f}: ${pat}`);
+    for (const pat of [/"Testnet"/, /ccdexplorer\.io\/testnet/, /CONCORDIUM_TESTNET_CAIP2/, /ccd:4221332d/, /12802/, /10082/]) if (pat.test(code)) bad.push(`${f}: ${pat}`);
   }
   assert.deepEqual(bad, []);
 });

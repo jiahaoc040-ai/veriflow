@@ -211,7 +211,7 @@ async function main() {
       owner: ownerB58,
       wallet: wallet.address,
       deadlineMs,
-      contract: { index: BigInt(msg.contract_address?.index ?? 12802), subindex: BigInt(msg.contract_address?.subindex ?? 0) },
+      contract: { index: BigInt(msg.contract_address?.index ?? NET.agentRegistry.index), subindex: BigInt(msg.contract_address?.subindex ?? NET.agentRegistry.subindex) },
       genesis: checkGenesis(BlockHash.toHexString((await createGrpc().getConsensusStatus()).genesisBlock)),
     });
     console.log(`授權訊息檢查通過（agent #${arg}、擁有者 ${ownerB58}、新錢包 ${wallet.address}、nonce ${nonce}）`);

@@ -13,6 +13,7 @@ import { registryAddress, TESTNET_REGISTRY_INDEX } from "./contract.js";
 import { createGrpc, grpcEndpoint } from "./grpc.js";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { allOk, verifyCommitment } from "./verify.js";
+import { AGENT_REGISTRY_TEXT } from "./registry-node.js";
 
 export const EXPLORER = `${NET.explorer}/transaction/`;
 export const json = (x: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(x, null, 2) }] });
@@ -115,7 +116,7 @@ export function publicOps(api: PublicApi, readSettled: ReturnType<typeof createC
         accepts: decodePaymentRequiredHeader(header).accepts,
         before_paying: [
           `The paying account's owner proves once, with the Concordium wallet, age >= 18 and not resident in a restricted country: ${api.gateway}/verify`,
-          "Verify the seller: agent #1313 in the Concordium Agent Registry (CIS-8004 <12802,0>) — badge valid, Active, Agent Card hash, and payTo equal to its on-chain agentWallet",
+          `Verify the seller: the agent the 402 names in the Concordium Agent Registry (CIS-8004 ${AGENT_REGISTRY_TEXT}) — badge valid, Active, Agent Card hash, and payTo equal to its on-chain agentWallet`,
         ],
         buy_with: [
           "VeriFlow's local MCP server (pays from your own key, verifies the seller first): git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway && npm ci && npm run mcp:config -- --install",

@@ -9,7 +9,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # only to publish the report to the score-reports branch
+
+concurrency: score-v2
 
 jobs:
   score:
@@ -51,7 +53,21 @@ jobs:
             (if .performance.published then
               "**Performance** (\(.performance.unit)): \(.performance.scored_days) scored days · signal \(.performance.mean_7d_return_signal) · always on \(.performance.mean_7d_return_always_on) · always off 0 · x vs always on \(.performance.x_vs_always_on) · \(.performance.caveat)"
              else "**Performance:** not published — \(.performance.reason). Pending days (exit candle still open): \(.performance.pending_days | length)." end)
-          ' "$r" >> "$GITHUB_STEP_SUMMARY"
+          ' "$r" > score-v2-summary.md
+          cat score-v2-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always() && hashFiles('gateway/score-v2-report.json') != ''
+        name: Publish the report where anyone can read it (branch score-reports)
+        run: |
+          d=$(mktemp -d)
+          git fetch -q origin score-reports && git worktree add -q "$d" origin/score-reports || { git worktree add -q --detach "$d" && git -C "$d" checkout -q --orphan score-reports && git -C "$d" rm -rqf . ; }
+          mkdir -p "$d/score-v2/history"
+          stamp=$(jq -r .run_at score-v2-report.json | tr -d ':')
+          cp score-v2-report.json "$d/score-v2/latest.json"
+          cp score-v2-report.json "$d/score-v2/history/$stamp.json"
+          { cat score-v2-summary.md; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID · code at commit $GITHUB_SHA"; } > "$d/score-v2/README.md"
+          cd "$d"
+          git config user.name "score-v2 workflow"; git config user.email "actions@users.noreply.github.com"
+          git add -A && git commit -qm "score-v2 report $stamp" && git push -q origin HEAD:score-reports
       - if: always()
         uses: actions/upload-artifact@v4
         with:

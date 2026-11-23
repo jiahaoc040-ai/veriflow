@@ -250,13 +250,14 @@ async function main() {
     const reader = createV2Reader(address);
     if (!(await reader.slot("BTC", day(1)))) throw new Error(`BTC ${day(1)} has no commit yet; wait for the daily job (after ~00:20 UTC) so the duplicate cannot become the real call`);
     for (const [what, asset, asOf] of attempts) {
+      let sent: string | undefined;
       try {
-        const tx = await w.commit(asset, asOf, randomHash());
+        const tx = await w.commit(asset, asOf, randomHash(), async (h) => void (sent = h));
         console.log(`✗ UNEXPECTED: ${what} was accepted: ${txLink(tx)}`);
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        const tx = /\(([0-9a-f]{64})\)/.exec(m)?.[1];
-        console.log(`✓ rejected by the chain — ${what} (${asset} ${asOf})${tx ? `: ${txLink(tx)}` : `: ${m}`}`);
+        if (e instanceof RejectedError) console.log(`✓ rejected by the chain — ${what} (${asset} ${asOf}): ${txLink(sent ?? /\(([0-9a-f]{64})\)/.exec(m)?.[1] ?? "?")}`);
+        else console.log(`? outcome unknown — ${what} (${asset} ${asOf})${sent ? `: sent ${txLink(sent)}, open it to see the result` : ""}: ${m}`);
       }
     }
     return;

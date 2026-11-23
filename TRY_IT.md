@@ -51,11 +51,11 @@ print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
 ```
 
 **Only one commit exists for BTC, 2026-11-21.** The contract rejects a second one. To see this:
-- open [CCDScan testnet](https://testnet.ccdscan.io/) and search for `13115` (searching `<13115,0>` finds nothing);
-- click the contract row `<13115,0>`, `veriflow_registry_v2`;
+- open [CCDScan testnet](https://testnet.ccdscan.io/) and type `13115` in the search box (searching `<13115,0>` finds nothing);
+- the suggestions include an old block at height 13115; click the **contract** row `<13115,0>`, `veriflow_registry_v2` (pressing Enter does not open it). CCDScan shortens the module to `08e3b4`; hover over it for the full hash, or open [the contract on CCDExplorer](https://ccdexplorer.io/testnet/contract/13115/0);
 - under **Events**, each day has exactly one `commit` per asset. CCDScan says "No embedded event schema"; the readable fields are under **Message**. The BTC 2026-11-21 message carries commitment `10cb3dc2…8eda`. Times there are in your local time zone.
 
-If you cloned the repo, you can also run `cd gateway && npm ci && npm run contract2 -- slot BTC 2026-11-21` (Node 22 or newer). It prints the same commitment, `committed_at: 2026-11-22T08:03:30.623Z` and `reveal: null`.
+If you cloned the repo, you can also run `cd gateway && npm ci && npm run contract2 -- slot BTC 2026-11-21` (Node 22 or newer). It needs no key and no `.env`; it reads Concordium's public testnet node. It prints the same commitment, `committed_at: 2026-11-22T08:03:30.623Z` and `reveal: null`. An error such as `ECONNRESET` or a timeout means the public node dropped the connection; run it again.
 
 A rejected transaction never changes the contract, so a working rule leaves no mark in the event list. The only evidence of a rejection is the rejected transaction itself, which the explorers list separately from events.
 
@@ -118,7 +118,7 @@ The fields are:
 
 Every run of the [`score-v2` workflow](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) repeats this comparison. It runs four times a day. A run fails unless the files it scores with are exactly the registered ones, the contract was created from that module, and the registration came before the first commit. A green run means the published numbers come from the pre-registered rule.
 
-Open a run and scroll to its summary; it is readable without signing in to GitHub. It shows the registered text it matched, commit and reveal integrity as fractions, every failure by day and asset, and the performance numbers or the reason they are not published yet. The logs and the JSON report need a GitHub login.
+GitHub hides run summaries and logs from visitors who are not signed in, so every run also publishes its result to the [`score-reports` branch](https://github.com/jiahaoc040-ai/veriflow/tree/score-reports/score-v2): `README.md` there is the latest result in plain words, `latest.json` the full report, and `history/` every past run. Each result shows the registered text it matched, commit and reveal integrity as fractions, every failure by day and asset, and the performance numbers or the reason they are not published yet, with a link to the run and the commit it ran.
 
 ### Who is who
 
@@ -128,6 +128,10 @@ Open a run and scroll to its summary; it is readable without signing in to GitHu
 | `3WSAJwTZ…5NGavf8` | 19394 | Agent #1313's `agentWallet` in the registry. Every purchase pays here. |
 | `4HgaCRwX…VwT3nmCj` | 19719 | Committer of contract `<13115,0>`, appointed by the owner in `set_committer`. It also sponsors buyers' transaction fees. |
 | `4Vf4qUg5…QF52FgkjMQ16r` | 19528 | A test buyer. |
+
+To check the first two rows yourself:
+- [Concordium's badge check for #1313](https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC) (hosted by Concordium) lists the owner and `agent_wallet`;
+- or, from the cloned repo, `cd gateway && npm run agent -- 1313` calls `agentOf(1313)` on the registry contract through the public node and prints owner, wallet, Agent Card location and hash, and status.
 
 The payment page for `935bc182…` shows 1 CCD from 19528 to 19394, with fees paid by 19719. It does not name the call it paid for; the buyer receives the string in the HTTP response, which is why Path A has to trust this page for it, and Path B does not.
 

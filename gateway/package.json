@@ -1,6 +1,7 @@
 {
   "name": "veriflow-gateway",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "x402 payment gateway (Concordium) in front of the VeriFlow Python API",
   "scripts": {
@@ -12,6 +13,7 @@
     "mcp": "tsx src/mcp.ts",
     "mcp:config": "tsx src/mcp-config.ts",
     "registry": "tsx src/registry.ts",
+    "agent": "tsx src/registry-node.ts",
     "diag": "tsx src/diag.ts",
     "contract": "tsx src/contract.ts",
     "score": "tsx src/score.ts",
