@@ -33,14 +33,14 @@ What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RIS
 | **v2 `<13115,0>`** (live since 2026-11-22) | [`docs/SCORING-v2.md`](docs/SCORING-v2.md) + [`gateway/src/score-v2.ts`](gateway/src/score-v2.ts) at `8d07d44`, registered in [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) | the first commit (rule 07:06 UTC, committer 07:33, first commit 08:03 on 2026-11-22) | Integrity counts every day. A performance number appears only if no day ever fails, starting when the first exit candle closes on **2026-11-30 00:00 UTC**. It is the mean 7-day return against both constant books, and never a hit rate. |
 | v1 `<13094,0>` (retired 2026-11-22) | [`docs/SCORING.md`](docs/SCORING.md) + [`gateway/src/score.ts`](gateway/src/score.ts) at `94c7603`, registered in [`39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95) | any price outcome | Integrity only. Block day 2026-11-20 holds 3 BTC and 2 ETH commits, which v1 could not reject. That day is why v2 exists. Days after v1 retired are counted as missing, by the rule fixed beforehand. |
 
-The `score-v2` and `score` workflows rerun these rules daily on GitHub's machines from the chain and Binance. To check a registration yourself, hash the files at the named commit and compare them with the transaction's data. The exact commands are in [TRY_IT.md](TRY_IT.md) Path A, step 4.
+The `score-v2` (four times a day) and `score` (twice a day) workflows rerun these rules on GitHub's machines from the chain and Binance. To check a registration yourself, hash the files at the named commit and compare them with the transaction's data. The exact commands are in [TRY_IT.md](TRY_IT.md) Path A, step 4.
 
 **Daily operation, on GitHub's machines and not on VeriFlow's server:**
 
 | Workflow | Job | Schedule |
 |---|---|---|
 | [`daily-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml) | Commits the calls and reveals due ones | hourly |
-| [`score-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) | Scores the calls | daily |
+| [`score-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) | Scores the calls | four times a day |
 | [`watch`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/watch.yml) | Checks that agent #1313's wallet, card, status and owner, and contract v2's owner and committer, have not changed | every 6 hours |
 
 **Live service:** https://veriflow-yrhp.onrender.com (testnet)
@@ -313,7 +313,7 @@ Anyone can check it without trusting us: read the agent with CIS-8004 `agentOf` 
 
 The `Dockerfile` runs the Python API, the facilitator and the gateway together; the public port serves the dashboard (`/`), buyer verification (`/verify`), the paid `/signal/{asset}` and the Agent Card (`/.well-known/agent-card.json`). CI builds the image and smoke-tests it against Postgres on every change.
 
-Target: **Render free web service + Neon Postgres**, both free without a card. `render.yaml` is a one-click Blueprint. Render's free plan has 512 MB, so the facilitator runs inside the gateway process; CI runs the container capped at 512 MB. A scheduled workflow pings the URL every 10 minutes so judges never hit a cold start. (Hugging Face Docker Spaces now need a paid plan; the wrapper in `deploy/huggingface/` still works there.)
+Target: **Render free web service + Neon Postgres**, both free without a card. `render.yaml` is a one-click Blueprint. Render's free plan has 512 MB, so the facilitator runs inside the gateway process; CI runs the container capped at 512 MB. The `keepalive` workflow requests `/health` every 10 minutes so the free instance rarely sleeps; GitHub can delay scheduled runs, so a judge may still occasionally wait for a cold start (about a minute). (Hugging Face Docker Spaces now need a paid plan; the wrapper in `deploy/huggingface/` still works there.)
 
 | Secret / variable | Value |
 |---|---|

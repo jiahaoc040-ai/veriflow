@@ -52,7 +52,7 @@ print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
 
 **Only one commit exists for BTC, 2026-11-21.** The contract rejects a second one. To see this:
 - open [CCDScan testnet](https://testnet.ccdscan.io/) and type `13115` in the search box (searching `<13115,0>` finds nothing);
-- the suggestions include an old block at height 13115; click the **contract** row `<13115,0>`, `veriflow_registry_v2` (pressing Enter does not open it). CCDScan shortens the module to `08e3b4`; hover over it for the full hash, or open [the contract on CCDExplorer](https://ccdexplorer.io/testnet/contract/13115/0);
+- the suggestions show two rows: a block `6b645d @ 13115` ("Age over 4 years"), and the contract `<13115,0>` created by `4dNMXm`. Click the **contract** row (pressing Enter does not open it). Its page names it `veriflow_registry_v2`. CCDScan shortens the module to `08e3b4`; hover over it for the full hash, or open [the contract on CCDExplorer](https://ccdexplorer.io/testnet/contract/13115/0);
 - under **Events**, each day has exactly one `commit` per asset. CCDScan says "No embedded event schema"; the readable fields are under **Message**. The BTC 2026-11-21 message carries commitment `10cb3dc2…8eda`. Times there are in your local time zone.
 
 If you cloned the repo, you can also run `cd gateway && npm ci && npm run contract2 -- slot BTC 2026-11-21` (Node 22 or newer). It needs no key and no `.env`; it reads Concordium's public testnet node. It prints the same commitment, `committed_at: 2026-11-22T08:03:30.623Z` and `reveal: null`. An error such as `ECONNRESET` or a timeout means the public node dropped the connection; run it again.
@@ -131,7 +131,7 @@ GitHub hides run summaries and logs from visitors who are not signed in, so ever
 
 To check the first two rows yourself:
 - owner: [Concordium's badge check for #1313](https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC) (hosted by Concordium) shows owner `4dNMXmNK…JF5wjUNt`, Active, and the Agent Card hash;
-- wallet: the owner bound it in [`setAgentWallet` `8238b866…`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) on the registry contract `<12802,0>`, sent by 19527, naming `3WSAJwTZ…`;
+- wallet: the owner bound it in [`setAgentWallet` `8238b866…`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) on the registry contract `<12802,0>`, sent by 19527, with `new_wallet: 3WSAJwTZ…5NGavf8`. The page shows `token_id: 2105000000000000`: that is 1313 written as 8 little-endian bytes (`0x0521` = 1313; check with `python3 -c "print(int.from_bytes(bytes.fromhex('2105000000000000'),'little'))"`);
 - both at once, straight from the chain: from the cloned repo, `cd gateway && npm run agent -- 1313` calls `agentOf(1313)` on `<12802,0>` through the public node and prints owner, wallet, Agent Card location and hash, and status.
 
 The payment page for `935bc182…` shows 1 CCD from 19528 to 19394, with fees paid by 19719. It does not name the call it paid for; the buyer receives the string in the HTTP response, which is why Path A has to trust this page for it, and Path B does not.

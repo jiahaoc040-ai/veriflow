@@ -331,7 +331,7 @@ setInterval(refreshOperatorBalance, 10 * 60_000);
 // SDK 有些檢查內部沒有 await（例如 createChecked 的 context 檢查）：一個壞的證明不能讓整個伺服器結束
 process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 
-// 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：開始接受連線之前先查，之後每 10 分鐘再查一次。
+// 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：開始接受連線之前先查，之後每分鐘再查一次。
 // 連不上只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停。
 const checkNetwork = () =>
     createGrpc()
@@ -345,8 +345,9 @@ const checkNetwork = () =>
         }
         console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
       });
-await Promise.race([checkNetwork(), new Promise((r) => setTimeout(r, 15_000))]); // 節點太慢就先啟動，10 分鐘後再查
-setInterval(checkNetwork, 10 * 60_000).unref();
+// gRPC 呼叫 20 秒逾時，所以等 25 秒：節點有回應時，錯鏈一定在開始接受連線之前被擋下；完全沒回應才先啟動，之後每分鐘再查
+await Promise.race([checkNetwork(), new Promise((r) => setTimeout(r, 25_000))]);
+setInterval(checkNetwork, 60_000).unref();
 
 app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
