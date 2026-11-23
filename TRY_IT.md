@@ -7,7 +7,7 @@ Each step says what to run, what you should see, and what that shows.
 
 Path A trusts this page for one thing only: the call string. Everything else is checked against the chain and Binance. Path B removes that trust, because you receive the string yourself.
 
-All times are UTC. A **close** is the end of a Binance daily candle: the 2026-11-21 close is at 2026-11-22 00:00.
+All times are UTC. CCDExplorer shows UTC without a label; CCDScan shows your local time. A **close** is the end of a Binance daily candle: the 2026-11-21 close is at 2026-11-22 00:00.
 
 ## Path A: check a bought call (2 minutes)
 
@@ -36,7 +36,7 @@ Open the commit transaction: <https://ccdexplorer.io/testnet/transaction/fe340ee
 | Function / contract | `commit` on `veriflow_registry_v2` `<13115,0>`, type "contract updated" | The call went into contract v2. |
 | **Parameter** | `as_of: 2026-11-21`, `asset: BTC`, commitment `10cb3dc2…8eda` | The hash from step 1 is stored under BTC, 2026-11-21. |
 | Timestamp | `2026-11-22 08:03:30` (UTC; the page does not label it) | The commit came 8 hours after the 2026-11-21 close. The contract only accepts a commit for that day between 2026-11-22 00:00 and 2026-11-23 00:00. |
-| Sender | account index `19719`. Click it to see `4HgaCRwX…VwT3nmCj` | The committer. The owner appointed it in [`set_committer` `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f), whose sender, index `19527`, opens as `4dNMXmNK…`, the owner of agent #1313. |
+| Sender | account index `19719`. Click it to see `4HgaCRwX…VwT3nmCj` | The committer. The owner appointed it in [`set_committer` `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f), whose sender, index `19527`, opens as `4dNMXmNK…`. The account page does not say that `4dNM…` owns agent #1313; the registry does (see the table below). |
 
 The Event line below is the same data in hex. To decode it, copy the hex and run:
 
@@ -50,7 +50,14 @@ print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
 # tag 0 asset BTC as_of 2026-11-21 commitment 10cb3dc2…8eda committed_at_ms 1795334610623
 ```
 
-**Only one commit exists for BTC, 2026-11-21.** The contract rejects a second one. To see this, open [CCDScan testnet](https://testnet.ccdscan.io/), search for contract `<13115,0>`, and open its events. Each day has exactly one `commit` per asset. If you cloned the repo, you can also run `cd gateway && npm ci && npm run contract2 -- slot BTC 2026-11-21`.
+**Only one commit exists for BTC, 2026-11-21.** The contract rejects a second one. To see this:
+- open [CCDScan testnet](https://testnet.ccdscan.io/) and search for `13115` (searching `<13115,0>` finds nothing);
+- click the contract row `<13115,0>`, `veriflow_registry_v2`;
+- under **Events**, each day has exactly one `commit` per asset. CCDScan says "No embedded event schema"; the readable fields are under **Message**. The BTC 2026-11-21 message carries commitment `10cb3dc2…8eda`. Times there are in your local time zone.
+
+If you cloned the repo, you can also run `cd gateway && npm ci && npm run contract2 -- slot BTC 2026-11-21` (Node 22 or newer). It prints the same commitment, `committed_at: 2026-11-22T08:03:30.623Z` and `reveal: null`.
+
+A rejected transaction never changes the contract, so a working rule leaves no mark in the event list. The only evidence of a rejection is the rejected transaction itself, which the explorers list separately from events.
 
 ### 3. Recompute the call from Binance
 
@@ -109,7 +116,22 @@ The fields are:
 - `08e3b49e…` is the module reference of its code (on CCDScan, the contract's module);
 - the last two are the hashes you just computed.
 
-Every run of the [`score-v2` workflow](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) repeats this comparison. A run fails unless the files it scores with are exactly the registered ones, the contract was created from that module, and the registration came before the first commit. A green run means the published numbers come from the pre-registered rule.
+Every run of the [`score-v2` workflow](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) repeats this comparison. It runs four times a day. A run fails unless the files it scores with are exactly the registered ones, the contract was created from that module, and the registration came before the first commit. A green run means the published numbers come from the pre-registered rule.
+
+Open a run and scroll to its summary; it is readable without signing in to GitHub. It shows the registered text it matched, commit and reveal integrity as fractions, every failure by day and asset, and the performance numbers or the reason they are not published yet. The logs and the JSON report need a GitHub login.
+
+### Who is who
+
+| Account | Index on the explorers | Role, and where that is recorded |
+|---|---|---|
+| `4dNMXmNK…JF5wjUNt` | 19527 | Owner of agent #1313 in the CIS-8004 Agent Registry `<12802,0>` (`agentOf(1313)`), and owner of contract `<13115,0>` (its creator on CCDScan). Kept offline. |
+| `3WSAJwTZ…5NGavf8` | 19394 | Agent #1313's `agentWallet` in the registry. Every purchase pays here. |
+| `4HgaCRwX…VwT3nmCj` | 19719 | Committer of contract `<13115,0>`, appointed by the owner in `set_committer`. It also sponsors buyers' transaction fees. |
+| `4Vf4qUg5…QF52FgkjMQ16r` | 19528 | A test buyer. |
+
+The payment page for `935bc182…` shows 1 CCD from 19528 to 19394, with fees paid by 19719. It does not name the call it paid for; the buyer receives the string in the HTTP response, which is why Path A has to trust this page for it, and Path B does not.
+
+The README's "latest purchase" is a different, later purchase (an ETH call). Either works; this page uses the BTC one.
 
 ### What Path A shows, and what it does not
 
@@ -137,7 +159,7 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
 1. **Wallet and identity.**
    - Install the [Concordium Browser Wallet](https://chromewebstore.google.com/search/concordium%20wallet) in Chrome and switch it to **Testnet**.
    - Create an identity with one of the test identity providers the wallet lists, then create an account under it.
-   - If the identity step fails, see Concordium's [wallet setup docs](https://docs.concordium.com/).
+   - If the identity step fails, search the Concordium developer documentation for "browser wallet" setup.
 2. **Test CCD.** Request testnet CCD for that account in the wallet; the testnet build offers a faucet. 2 CCD is enough.
 3. **Prove eligibility once.**
    - Open `https://veriflow-yrhp.onrender.com/verify?account=<your account address>` and press **Prove eligibility**.
@@ -148,9 +170,11 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
 4. **Set up the buyer.**
    ```bash
    git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway
-   npm ci
+   npm ci                      # Node 22 or newer
    cp .env.example .env        # BUYER_KEY_FILE=keys/buyer.export and GATEWAY_URL (the live testnet gateway) are already set
+   mkdir -p keys
    ```
+   The buyer needs nothing else from `.env`. Leave `SELLER_ADDRESS`, `GATEWAY_SECRET` and the other seller settings empty; they are for running your own gateway. The comments in `.env.example` are in Chinese; the variable names are what matter.
    In the wallet, use *Accounts → your account → Private key → Export*. It downloads `<account address>.export`. Move it into place:
    ```bash
    mv ~/Downloads/<account address>.export keys/buyer.export

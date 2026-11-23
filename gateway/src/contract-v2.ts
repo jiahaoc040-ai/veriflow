@@ -11,7 +11,7 @@
  *   npm run contract2 -- status                 合約摘要（REGISTRY_V2_CONTRACT）
  *   npm run contract2 -- slot <BTC|ETH> <YYYY-MM-DD>
  */
-import { NET } from "./network.js";
+import { NET, txLink } from "./network.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -225,8 +225,8 @@ async function deploy() {
 async function main() {
   const [cmd, a, b] = process.argv.slice(2);
   if (cmd === "deploy") return deploy();
-  const address = v2Address();
-  if (!address) throw new Error("set REGISTRY_V2_CONTRACT=<index> in gateway/.env first (printed by `deploy`)");
+  // 沒設定就用測試網上已部署的 <13115,0>
+  const address = v2Address() ?? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n);
   const show = (x: unknown) => console.log(JSON.stringify(x, null, 2));
   if (cmd === "status") return show(await createV2Reader(address).summary());
   if (cmd === "slot") return show(await createV2Reader(address).slot(a, b));
@@ -237,8 +237,32 @@ async function main() {
     if (sameAccount(a, w.address)) throw new Error("the committer cannot be the owner or an alias of it");
     return console.log(`set_committer ${a}: ${NET.explorer}/transaction/${await w.setCommitter(a)}`);
   }
+  if (cmd === "prove-rejection") {
+    // 示範：用上鏈帳號故意送兩筆不合規則的 commit，讓鏈上留下「被合約拒絕」的交易（每筆只花一點手續費）
+    const w = createV2Writer(env("COMMITTER_KEY_FILE"), address);
+    const day = (n: number) => new Date(Date.now() - n * DAY_MS).toISOString().slice(0, 10);
+    const randomHash = () => createHash("sha256").update(String(Math.random())).digest("hex");
+    const attempts: [string, string, string][] = [
+      ["a second call for a day that already has one", "BTC", day(1)],
+      ["a late call, three days after its close", "BTC", day(3)],
+    ];
+    // 安全閥：只在昨天的 BTC 已經有真的 commit 時才送「重複」那筆；否則這筆隨機雜湊會變成當天唯一的 commit
+    const reader = createV2Reader(address);
+    if (!(await reader.slot("BTC", day(1)))) throw new Error(`BTC ${day(1)} has no commit yet; wait for the daily job (after ~00:20 UTC) so the duplicate cannot become the real call`);
+    for (const [what, asset, asOf] of attempts) {
+      try {
+        const tx = await w.commit(asset, asOf, randomHash());
+        console.log(`✗ UNEXPECTED: ${what} was accepted: ${txLink(tx)}`);
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        const tx = /\(([0-9a-f]{64})\)/.exec(m)?.[1];
+        console.log(`✓ rejected by the chain — ${what} (${asset} ${asOf})${tx ? `: ${txLink(tx)}` : `: ${m}`}`);
+      }
+    }
+    return;
+  }
   if (cmd === "revoke-committer") return console.log(`revoked: ${NET.explorer}/transaction/${await owner().revokeCommitter()}`);
-  console.log("usage: npm run contract2 -- deploy | set-committer <account> | revoke-committer | status | slot <BTC|ETH> <YYYY-MM-DD>");
+  console.log("usage: npm run contract2 -- deploy | set-committer <account> | revoke-committer | status | slot <BTC|ETH> <YYYY-MM-DD> | prove-rejection");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

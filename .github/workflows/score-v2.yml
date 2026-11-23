@@ -4,7 +4,8 @@ name: score-v2
 # reading only contract v2 state from a Concordium node and Binance daily candles.
 on:
   schedule:
-    - cron: "47 1 * * *"
+    # GitHub delays or skips scheduled runs; four chances a day
+    - cron: "47 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -28,7 +29,29 @@ jobs:
         env:
           SCORING_V2_ANCHOR_TX: ${{ vars.SCORING_V2_ANCHOR_TX }}
       - if: always()
-        run: cat score-v2-report.json >> "$GITHUB_STEP_SUMMARY" || true
+        name: Readable summary (visible without signing in)
+        run: |
+          r=score-v2-report.json
+          [ -f "$r" ] || { echo "No report: the run stopped before scoring. See the log." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          jq -r '
+            "## VeriFlow scoring rule v2 — contract `\(.contract)`",
+            "",
+            "Run \(.run_at), valid until \(.valid_until).",
+            "",
+            "**Rule anchor:** " + (if .complete then "verified — the scripts run here are byte-identical to the rule registered on-chain before the first commit, and the contract is the named deployment" else "NOT verified: " + (.problems | join("; ")) end),
+            "",
+            "Registered text: `\(.hashes.data)`",
+            "",
+            "| | |", "|---|---|",
+            "| Commit integrity \(.integrity.window | join(" → ")) | \(.integrity.commit.numerator) / \(.integrity.commit.denominator) required slots committed |",
+            "| Reveal integrity | \(.integrity.reveal.numerator) / \(.integrity.reveal.denominator) due calls revealed and matching Binance |",
+            "",
+            (if (.integrity.failures | length) > 0 then "**Failures:**\n" + (.integrity.failures | map("- \(.as_of) \(.asset): \(.reason)") | join("\n")) else "No failures." end),
+            "",
+            (if .performance.published then
+              "**Performance** (\(.performance.unit)): \(.performance.scored_days) scored days · signal \(.performance.mean_7d_return_signal) · always on \(.performance.mean_7d_return_always_on) · always off 0 · x vs always on \(.performance.x_vs_always_on) · \(.performance.caveat)"
+             else "**Performance:** not published — \(.performance.reason). Pending days (exit candle still open): \(.performance.pending_days | length)." end)
+          ' "$r" >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v4
         with:

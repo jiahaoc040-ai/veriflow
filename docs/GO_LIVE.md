@@ -1,60 +1,61 @@
-# VeriFlow go-live plan: testnet → mainnet → real users
+# Path to production: testnet → mainnet → real users
 
-## Where we are (testnet, live today)
+## What runs today (testnet)
 
-Every piece runs for real on Concordium testnet at <https://veriflow-yrhp.onrender.com>. Nothing is mocked.
+Everything below is live on Concordium testnet at <https://veriflow-yrhp.onrender.com>, with transactions anyone can open. Some parts are testnet stand-ins, listed after.
 
-- **x402 payments** with a self-hosted facilitator that sponsors the fee.
-- **Verify & Access V1 eligibility**, with zero-knowledge proofs and both the request and the audit record anchored on-chain.
-- **A Rust commit–reveal contract**, `<13094,0>`.
-- **Agent #1313 in the Agent Registry**: it carries the Verified by Concordium badge (15/15 checks pass), the Agent Card hash is pinned on-chain, and the payout wallet is bound on-chain.
-- **An MCP server**, already used by Claude Desktop to verify the seller, pay, and verify the signal on-chain.
-- **Daily signals**: one per asset per daily close, committed on-chain automatically.
+- **x402 v2 payments.** 1 CCD per call, paid to agent #1313's on-chain `agentWallet`. The 402 names the agent (`concordium-agent` extension), and our buyer refuses to sign unless the registry, read from a node, agrees on the wallet.
+- **Verify & Access V1 eligibility.** A zero-knowledge proof of age ≥ 18 and residence outside a restricted list. The request (VRA) and audit record (VAA) are anchored on-chain, and the proof is re-checked against the live policy at settlement.
+- **Agent #1313 in the CIS-8004 Agent Registry `<12802,0>`.** Verified by Concordium badge, Agent Card hash pinned on-chain, payout wallet bound on-chain. The owner account is kept offline.
+- **Contract v2 `<13115,0>`.** One call per asset and day, accepted only in the day after the close, revealed after 7 days, label checked against momentum on reveal. Owner offline; a separate low-balance committer key on the server.
+- **Scoring rule anchored before the first call** and re-run by a public GitHub workflow four times a day.
+- **MCP server** that Claude Desktop uses to check the seller, pay, and verify the call on-chain.
 
-Most of going live is configuration and operations, but not all of it. The network is one setting, `CONCORDIUM_NETWORK` (`testnet` or `mainnet`). It drives the x402 CAIP-2 network, the Verify & Access DID network, the Agent Registry network and the explorer links. A test fails the build if a network value is written anywhere else, and the gateway refuses to start against a node from another chain. Contract v2 (one call per asset and day, a cold owner, a revocable committer) is live on testnet and needs an external review before mainnet. There is no public Concordium facilitator yet, so VeriFlow keeps sponsoring buyer fees itself.
+**Testnet stand-ins:**
+- Identities come from testnet identity providers.
+- We run our own x402 facilitator and sponsor buyers' fees, because there is no public Concordium facilitator.
+- Eligibility is cached in our database after the proof; settlement re-checks the stored proof and its on-chain anchors, but buyers still rely on our server to run that check.
+- The only buyer so far is us.
+
+## What changes for mainnet
+
+The network is one setting, `CONCORDIUM_NETWORK` (`testnet` or `mainnet`). It drives the x402 CAIP-2 network, the Verify & Access DID network, the Agent Registry network and the explorer links. A test fails the build if a network value is written anywhere else, and the gateway refuses to start against a node from another chain.
+
+The setting is not the whole job. Mainnet also needs:
+
+1. **A new agent.** Register in the mainnet Agent Registry from a mainnet identity, get the badge, and bind a mainnet `agentWallet`. The agent id will differ from #1313; the buyer reads it from the 402 and the registry, not from code.
+2. **A new contract and a new anchored rule.** Deploy contract v2 to mainnet after an external review, then anchor a scoring rule that names the mainnet contract and module before its first commit, exactly as on testnet.
+3. **Key handling.** Owner key on a hardware wallet. The committer and the fee sponsor are separate low-balance accounts, topped up by hand.
+4. **Pricing.** 1 CCD is not a stable price. We want to price in a Concordium stablecoin (PLT). Whether the x402 Concordium scheme can carry PLT transfers as-is, or needs payment-code changes, is the first thing to check.
+5. **Legal review** of selling a market signal to anonymous agents, before the first mainnet sale. The restricted-country list is one configuration value.
 
 ## Who the users are
 
-1. **Autonomous trading and treasury agents.** Today they consume signals from Telegram channels and dashboards with unverifiable histories. VeriFlow gives them a regime signal they can check on-chain before paying, per call, with no account or subscription.
-2. **Agent platforms with verified humans behind agents**, that already use Concordium identity. A VeriFlow MCP or A2A tool is a drop-in "market regime" capability for their agents.
-3. **Other signal sellers.** VeriFlow is also a pattern: commit-before-outcome, daily public commitments, and one call per asset and day enforced by the contract. A data seller with a private model can reuse it to give buyers a record of calls that cannot be edited or backdated (MIT licensed).
+1. **Trading and treasury agents** that today take signals from channels and dashboards with histories nobody can check. Here they can check the seller and every past call on-chain before paying, per call, with no account.
+2. **Agent platforms whose agents have verified humans behind them.** VeriFlow is a drop-in MCP tool for them.
+3. **Other signal sellers.** The contract and scoring workflow are a reusable pattern (MIT): commit before the outcome, one call per day, a rule fixed in advance. A seller with a private model gets a record buyers can trust without trusting the seller.
 
-## Why someone pays
-
-- A buyer can check every committed call and its on-chain receipt before paying (`get_track_record`, `list_commitments`), for free. This shows that the record is complete and unedited. It does not show that the calls are right.
-- One call costs 1 CCD on testnet. Mainnet pricing moves to a stablecoin (see M2); no fiat price is claimed before that.
-- Compliance is built in. The seller never learns who the buyer is, only that they are 18 or older and not in a restricted country. This is what lets a regulated-style product sell to anonymous agents at all.
+The signal itself is a public 30-day momentum rule and carries no edge. The product being demonstrated is the accountability around it.
 
 ## Milestones
 
 | # | When | What | Done when |
 |---|---|---|---|
-| M0 | Dec 2026 (hackathon) | Testnet product above. Contract v2 live since 2026-11-22: one call per asset and day enforced on-chain, cold owner, low-balance committer, scoring rule anchored before the first commit. The first v2 exits close on 2026-11-30. | The `score-v2` workflow verifies the anchored rule and runs daily; all links on CCDExplorer |
-| M1 | Jan 2027 | **Mainnet deployment.** Deploy the registry contract to mainnet. Register the agent in the mainnet Agent Registry (CIS-8004 `<10082,0>`) with the badge and an on-chain `agentWallet`. Point the facilitator and Verify & Access at mainnet identity providers. | First mainnet sale verified end to end by a third-party agent |
-| M2 | Q1 2027 | **Stable pricing.** Price in a Concordium PLT stablecoin (e.g. EURQ) instead of CCD. `@x402/concordium` already supports PLT transfers, so this is a change to the gateway's price configuration, not to the payment code. | Buyers pay a fixed euro price |
-| M3 | Q1 2027 | **Distribution.** List in the MCP Registry, publish a hosted remote MCP endpoint, and add A2A skills. Integrate with one agent platform that already uses Concordium identity. | 10 distinct paying buyer accounts |
-| M4 | Q2 2027 | **Track record at scale.** Add more assets (SOL, majors), and run 90 days of daily, uninterrupted commitments. Publish only what the anchored rule prints: the result against both constant books, with counts. No hit rate. | 90-day public record |
-| M5 | Q2 2027 | **Hardening.** Hardware-backed signing for the anchor/sponsor key, monitored facilitator balance, and paid hosting with an SLA. Get an external review of the contract. | Audit report published |
+| M0 | Dec 2026 | The testnet system above, with the first reveals (from 2026-11-29) and the first published score (after 2026-11-30). | Reveal transactions on CCDExplorer; a green `score-v2` run with numbers |
+| M1 | Q1 2027 | Contract review; mainnet agent, contract and anchored rule; hardware-wallet owner. | First mainnet sale bought by an agent we do not run |
+| M2 | Q1 2027 | Stable pricing (PLT), if the payment scheme supports it. | A buyer pays a fixed stablecoin price |
+| M3 | Q2 2027 | One agent platform integration; MCP Registry listing. | 10 distinct paying buyer accounts |
+| M4 | Q2 2027 | More assets; 90 days of uninterrupted commits. Publish only what the anchored rule prints, against always-on and always-off. No hit rate. | 90-day public record |
 
-## What it costs to run
+## Costs
 
-| Item | Testnet today | Mainnet |
-|---|---|---|
-| Hosting (API, gateway, facilitator in one container) | Render free tier | ~$7–25/month for an always-on instance (estimate) |
-| Database | Neon Postgres, free tier | Neon paid tier, ~$20/month (estimate) |
-| On-chain fees | Test CCD | Each daily commitment, each sponsored payment, and each eligibility anchor costs a fraction of a cent in CCD. It is covered by sales once there are more than a handful a day. |
+On-chain fees are small: each commit, sponsored payment and eligibility anchor costs a small amount of CCD. Hosting today is a free-tier container and a free-tier Postgres database; mainnet needs an always-on paid instance. We have not priced it yet and do not quote a number here.
 
-Revenue goes to a separate payout account that the server cannot sign for. The server holds only the anchor/sponsor key.
+## Risks
 
-## Risks and how we handle them
-
-| Risk | Mitigation |
+| Risk | Handling |
 |---|---|
-| The signal underperforms | The record is public by design. Buyers see this before paying, and we cannot hide it. The product's promise is honesty, not alpha. |
-| Regulatory classification of signals | The product carries a "not investment advice" notice. ZK eligibility enforces age and restricted-country rules. The list of restricted countries is a single configuration value. Legal review comes before M1. |
-| Price data access from cloud hosts | We use several sources: Binance public hosts, then OKX. If a refresh fails, the server keeps using data that already includes the latest close. Otherwise the request fails, and no stale signal is ever issued. |
-| Key compromise | The payout account is separate from the server key. Push protection and secret scanning are on. Hardware-backed signing comes in M5. |
-
-## Grant use (Concordium grants programme)
-
-Funding would go to M1 (mainnet deployment and the contract review), M3 (distribution and integration with an agent platform), and M4 (more assets and a 90-day public record). Each tranche is tied to a milestone that anyone can check on CCDExplorer.
+| The signal underperforms | The record is public by design and buyers see it before paying. The promise is honesty, not alpha. |
+| Regulatory classification | "Not investment advice" notice; zero-knowledge age and country checks; legal review before M1. |
+| Server key compromise | The server cannot move the payout wallet or the agent. A stolen committer key can only commit inside the daily window, and the owner can revoke it. `watch` alerts on any change to the agent or the contract roles. |
+| Price data access | Binance public data host, with OKX as fallback. No call is issued from stale data. |

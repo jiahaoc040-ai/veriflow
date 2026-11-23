@@ -40,14 +40,21 @@ export function decodeAgentOf(buf: Buffer): AgentOnChain | null {
     return v;
   };
   const account = () => AccountAddress.toBase58(AccountAddress.fromBuffer(new Uint8Array(bytes(32)).buffer as ArrayBuffer));
-  if (u8() === 0) return null;
-  const idBytes = bytes(u8());
-  const tokenId = idBytes.length === 8 ? idBytes.readBigUInt64LE(0).toString() : idBytes.toString("hex");
+  // 嚴格解析：Option 的標籤只能是 0 或 1，token id 必須正好 8 bytes；其他一律丟錯（買方因此拒絕付款）
+  const opt = (what: string) => {
+    const t = u8();
+    if (t > 1) throw new Error(`agentOf: illegal option tag ${t} for ${what}`);
+    return t === 1;
+  };
+  if (!opt("record")) return null;
+  const idLen = u8();
+  if (idLen !== 8) throw new Error(`agentOf: token id length ${idLen}, expected 8`);
+  const tokenId = bytes(8).readBigUInt64LE(0).toString();
   const owner = account();
-  const agentUri = u8() === 1 ? (() => { const n = buf.readUInt32LE(o); o += 4; return bytes(n).toString("utf8"); })() : null;
-  const metadataHash = u8() === 1 ? bytes(32).toString("hex") : null;
-  if (u8() === 1) throw new Error("agentOf: external_reference is set; this reader does not decode it");
-  const wallet = u8() === 1 ? account() : null;
+  const agentUri = opt("agent_uri") ? (() => { if (o + 4 > buf.length) throw new Error("agentOf: truncated"); const n = buf.readUInt32LE(o); o += 4; return bytes(n).toString("utf8"); })() : null;
+  const metadataHash = opt("metadata_hash") ? bytes(32).toString("hex") : null;
+  if (opt("external_reference")) throw new Error("agentOf: external_reference is set; this reader does not decode it");
+  const wallet = opt("agent_wallet") ? account() : null;
   const tag = u8();
   if (tag > 1) throw new Error(`agentOf: unknown status tag ${tag}`);
   return { tokenId, owner, agentUri, metadataHash, wallet, status: tag === 0 ? "Active" : "Revoked" };
@@ -65,7 +72,9 @@ export async function readAgent(tokenId: string, grpc?: ReturnType<typeof create
     parameter: Parameter.fromBuffer(new Uint8Array(encodeAgentTokenId(BigInt(tokenId))).buffer as ArrayBuffer),
   });
   if (res.tag !== "success" || !res.returnValue) throw new Error(`CIS-8004.agentOf failed (${res.tag})`);
-  return decodeAgentOf(Buffer.from(ReturnValue.toHexString(res.returnValue), "hex"));
+  const a = decodeAgentOf(Buffer.from(ReturnValue.toHexString(res.returnValue), "hex"));
+  if (a && a.tokenId !== tokenId) throw new Error(`agentOf(${tokenId}) returned agent #${a.tokenId}`);
+  return a;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

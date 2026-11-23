@@ -49,7 +49,7 @@ The `score-v2` and `score` workflows rerun these rules daily on GitHub's machine
 - [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json).
 - Hosted read-only MCP at `/mcp` and A2A at `/a2a`. Paying runs in the local MCP server with the buyer's own key.
 
-**Docs:** [Try it](TRY_IT.md) · [Scoring rule v2](docs/SCORING-v2.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
+**Docs:** [Try it](TRY_IT.md) · [Scoring rule v2](docs/SCORING-v2.md) · [Path to production](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
 
 [![test](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml)
 [![docker](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml)

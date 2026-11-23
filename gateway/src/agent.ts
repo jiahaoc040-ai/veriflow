@@ -31,16 +31,35 @@ export function createBuyerAgent() {
   let lastSellerCheck: SellerVerdict | undefined;
   /** 402 的 concordium-agent 擴充欄位：只是指名（registry、token id），錢包一律從鏈上讀；網路或 registry 不對就當作沒指名 */
   const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, network: string) => {
-    const info = (pr?.extensions?.[AGENT_EXTENSION] as { info?: { network?: string; registry?: string; tokenId?: string } } | undefined)?.info;
-    if (!info) return undefined;
+    const info = (pr?.extensions?.[AGENT_EXTENSION] as { info?: { network?: string; registry?: string; tokenId?: string; badge?: string } } | undefined)?.info;
+    // 這個買方只付給「有指名自己」的賣方：沒有指名就拒絕（協定允許不指名，買方的政策不允許）
+    if (!info) return "unnamed";
     if (info.network !== network || info.registry !== `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}` || !/^\d+$/.test(info.tokenId ?? ""))
       return "mismatch";
-    return info.tokenId;
+    return `${info.tokenId}|${info.badge ?? ""}`;
   };
   const checkSeller = async (payTo: string, named?: string) =>
-    named === "mismatch"
-      ? { ok: false, checks: [{ name: "402 names an agent on this network's registry", ok: false, detail: "concordium-agent extension names another network or registry" }], payTo }
-      : verifySeller({ gateway, payTo, registry: registryTool, network: REGISTRY_NETWORK, readAgent: (id) => readAgent(id), expectTokenId: named });
+    named === "mismatch" || named === "unnamed"
+      ? {
+          ok: false,
+          checks: [
+            {
+              name: "402 names an agent on this network's registry",
+              ok: false,
+              detail: named === "unnamed" ? "the 402 has no concordium-agent extension: the seller does not name itself" : "concordium-agent extension names another network or registry",
+            },
+          ],
+          payTo,
+        }
+      : verifySeller({
+          gateway,
+          payTo,
+          registry: registryTool,
+          network: REGISTRY_NETWORK,
+          readAgent: (id) => readAgent(id),
+          expectTokenId: named?.split("|")[0],
+          expectBadge: named?.split("|")[1] || undefined,
+        });
 
   // 簽名之前的最後一道關卡：賣方驗證不過就中止，錢包根本不會被叫到
   client.onBeforePaymentCreation(async ({ selectedRequirements, paymentRequired }) => {

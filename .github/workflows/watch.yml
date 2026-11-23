@@ -24,3 +24,5 @@ jobs:
           node-version: "26"
       - run: npm ci
       - run: npm run watch
+        env:
+          REGISTRY_V2_CONTRACT: ${{ vars.REGISTRY_V2_CONTRACT }}

@@ -76,8 +76,9 @@ export async function verifySeller(opts: {
   fetch?: typeof fetch;
   /** 直接向節點讀 CIS-8004 的 agent 紀錄；有的話，狀態、card 位置與雜湊、收款錢包都以節點讀到的為準 */
   readAgent?: (tokenId: string) => Promise<AgentOnChain | null>;
-  /** 402 回應的 concordium-agent 擴充欄位指名的 agent（有的話必須一致） */
+  /** 402 回應的 concordium-agent 擴充欄位指名的 agent 與 badge（有的話必須一致） */
   expectTokenId?: string;
+  expectBadge?: string;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
   const network = opts.network ?? NET.name;
@@ -112,13 +113,16 @@ export async function verifySeller(opts: {
   }
   // 託管服務只用來從 badge 找到 token id；紀錄本身直接向節點讀，兩者不一致就不付
   const problems: string[] = [];
+  if (opts.expectBadge && opts.expectBadge !== tokenAddress) problems.push(`the 402 names badge ${opts.expectBadge}, the card advertises ${tokenAddress}`);
   if (opts.expectTokenId && rec.token_id !== opts.expectTokenId)
     problems.push(`the 402 names agent #${opts.expectTokenId}, the badge resolves to #${rec.token_id ?? "?"}`);
   let source = "hosted registry service";
+  if (opts.readAgent && !rec.token_id) problems.push("the hosted service returned no token id, so the agent cannot be read from a node");
   if (opts.readAgent && rec.token_id) {
     try {
       const node = await opts.readAgent(rec.token_id);
       if (!node) problems.push(`agent #${rec.token_id} not found on-chain`);
+      else if (node.tokenId !== rec.token_id) problems.push(`node returned agent #${node.tokenId} for #${rec.token_id}`);
       else {
         source = "read from a Concordium node";
         if ((rec.agent_wallet ?? null) !== node.wallet) problems.push("hosted service and node disagree on agentWallet");

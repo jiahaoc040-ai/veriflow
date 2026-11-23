@@ -140,3 +140,27 @@ test("the node record is authoritative: a hosted answer that disagrees refuses p
   const down = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => { throw new Error("UNAVAILABLE"); } });
   assert.equal(down.ok, false);
 });
+
+test("strict decoding and a mandatory node read: illegal tags, wrong id length, no token id, wrong badge", async () => {
+  const { decodeAgentOf, encodeAgentTokenId } = await import("../src/registry-node.ts");
+  const owner = Buffer.alloc(32, 1);
+  assert.throws(() => decodeAgentOf(Buffer.from([2])), /illegal option tag/);
+  assert.throws(() => decodeAgentOf(Buffer.concat([Buffer.from([1, 7]), Buffer.alloc(7)])), /token id length/);
+  assert.throws(() => decodeAgentOf(Buffer.concat([Buffer.from([1]), encodeAgentTokenId(1313n), owner, Buffer.from([2])])), /illegal option tag 2 for agent_uri/);
+  const node = { tokenId: "1313", owner: OWNER, agentUri: "https://cards.test/agent-card.json", metadataHash: sha(CARD), wallet: WALLET, status: "Active" as const };
+  // hosted record without a token id: cannot read the node, so refuse
+  const w = world();
+  const noId: typeof w.registry = async (name, args) => {
+    const r = await w.registry(name, args);
+    return name === "agent_by_token_address" ? { ...r, token_id: undefined } : r;
+  };
+  const v = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, registry: noId, fetch: w.fetch, readAgent: async () => node });
+  assert.equal(v.ok, false);
+  assert.match(summarize(v), /no token id/);
+  // node answers with another agent
+  const swapped = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => ({ ...node, tokenId: "7" }) });
+  assert.equal(swapped.ok, false);
+  // the 402 names another badge than the card advertises
+  const badge = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => node, expectTokenId: "1313", expectBadge: "SomeOtherBadge123" });
+  assert.equal(badge.ok, false);
+});

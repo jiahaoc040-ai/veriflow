@@ -44,7 +44,11 @@ function fakeGateway(): Promise<string> {
     }
     if (url === "/signal/BTC") {
       // 未付款：x402 的 402，PAYMENT-REQUIRED 標頭說要付給誰
-      const required = { x402Version: 2, accepts: [{ scheme: "exact", network: "ccd:test", amount: "1000000", asset: "CCD", payTo: SELLER_WALLET }] };
+      const required = {
+        x402Version: 2,
+        accepts: [{ scheme: "exact", network: "ccd:test", amount: "1000000", asset: "CCD", payTo: SELLER_WALLET }],
+        extensions: { "concordium-agent": { info: { network: "ccd:test", registry: "12802.0", badge: TOKEN, tokenId: "1313" } } },
+      };
       res.writeHead(402, { "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(required)).toString("base64") });
       return res.end("{}");
     }

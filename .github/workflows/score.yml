@@ -5,7 +5,7 @@ name: score
 # counter) and Binance daily candles. Nothing comes from VeriFlow's server or database.
 on:
   schedule:
-    - cron: "37 1 * * *"
+    - cron: "37 1,13 * * *"
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,22 @@ jobs:
       - run: npm ci
       - run: npm run score -- --spec-hash
       - run: npm run score
-      - run: cat score-report.json >> "$GITHUB_STEP_SUMMARY" || true
+      - if: always()
+        name: Readable summary (visible without signing in)
+        run: |
+          r=score-report.json
+          [ -f "$r" ] || { echo "No report: the run stopped before scoring. See the log." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          jq -r '
+            "## VeriFlow scoring rule v1 — retired contract `\(.contract)`",
+            "",
+            "Run \(.run_at). Registered text: `\(.hashes.data)`",
+            "",
+            "Commit integrity \(.integrity.window | join(" → ")): \(.integrity.commit.numerator) / \(.integrity.commit.denominator). Reveal integrity: \(.integrity.reveal.numerator) / \(.integrity.reveal.denominator).",
+            "",
+            (.integrity.failures | map("- \(.day) \(.asset): \(.reason)") | join("\n")),
+            "",
+            "**Performance:** " + (if .performance.published then "published" else "not published — \(.performance.reason)" end)
+          ' "$r" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: score-report
