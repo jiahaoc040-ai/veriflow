@@ -6,7 +6,8 @@ name: daily-v2
 # asset and day, so repeated runs only retry what is missing.
 on:
   schedule:
-    - cron: "7 */2 * * *"
+    # GitHub delays or skips scheduled runs; hourly gives many chances inside each 24-hour commit window
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
