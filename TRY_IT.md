@@ -196,7 +196,7 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **The result**: `status: 200`, the `canonical` string, the `commitment`, the `commit tx` link and the `payment tx` link.
    - **On a failed seller check**, it prints ✗ and stops before anything is signed.
 
-   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: so far each day's calls were committed between 00:04 and 08:03 UTC. If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
+   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: so far each day's calls were committed at 08:03 UTC (2026-11-22) and 02:29 UTC (2026-11-23). If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
 6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
    - hash the `canonical` string exactly as printed;
    - open your `commit tx` link and check that its Parameter shows your asset, your `as_of` and your commitment;
