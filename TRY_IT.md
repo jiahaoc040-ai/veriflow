@@ -1,105 +1,180 @@
 # Try VeriFlow yourself
 
-There are two paths.
+Each step says what to run, what you should see, and what that shows.
 
-- **Path A** takes about 2 minutes and needs no wallet, no key and no trust in VeriFlow's server. You need a terminal with `sha256sum` (macOS: `shasum -a 256`), `curl` and `python3`, plus a browser.
-- **Path B** takes about 30 minutes and pays for a call yourself on Concordium testnet.
+- **Path A: about 2 minutes, no wallet.** Check a call that was really bought, against the chain and Binance. You need a terminal with `shasum` (on Linux, `sha256sum`), `curl`, `python3` and `git`, and a browser.
+- **Path B: about 30 minutes.** Buy a call yourself on Concordium testnet with your own testnet identity.
 
-## Path A: check a call that was already bought (2 minutes)
+Path A trusts this page for one thing only: the call string. Everything else is checked against the chain and Binance. Path B removes that trust, because you receive the string yourself.
 
-On 2026-11-22 a buyer agent paid 1 testnet CCD for the BTC call for the 2026-11-21 close. It received this exact string:
+All times are UTC. A **close** is the end of a Binance daily candle: the 2026-11-21 close is at 2026-11-22 00:00.
+
+## Path A: check a bought call (2 minutes)
+
+On 2026-11-22 a buyer agent paid 1 testnet CCD ([payment `935bc182…`](https://ccdexplorer.io/testnet/transaction/935bc182245754dfef95661c7006beed4fd8635e8c40605c96a2ad571f7c1879)) for the BTC call for the 2026-11-21 close. It received this exact string. These are the bytes to hash, with no spaces or newlines:
 
 ```
 {"as_of":"2026-11-21","asset":"BTC","momentum_e6":-260395,"nonce":"7294f91f41330af85ea8f6af86dc2f9c","signal":"RISK_OFF"}
 ```
 
-**1. Hash it.** The result is the commitment.
+### 1. Hash it
 
 ```bash
 printf '%s' '{"as_of":"2026-11-21","asset":"BTC","momentum_e6":-260395,"nonce":"7294f91f41330af85ea8f6af86dc2f9c","signal":"RISK_OFF"}' | shasum -a 256
-# 10cb3dc27d440d2e08278e7e454bd11abbb61ceffb91b34279ab28fd7d7a8eda
 ```
 
-Change one character and the hash changes.
+**You should see** `10cb3dc27d440d2e08278e7e454bd11abbb61ceffb91b34279ab28fd7d7a8eda`. That is the commitment. Change one character and the hash changes.
 
-**2. Find that hash on-chain.** Open the commit transaction on CCDExplorer:
-<https://ccdexplorer.io/testnet/transaction/fe340eeaa2623405880a57208c88004fb4f12b7b56479876e8be6f24a4ada718>
+### 2. Find that hash on-chain
 
-Check four things:
-- It is the function `commit` on contract `<13115,0>` (`veriflow_registry_v2`), of type "contract updated".
-- Under **Parameter** it shows `as_of` `2026-11-21`, asset `BTC` and the commitment `10cb3dc2…8eda`. The Event line below is hex. Decoded, it is a tag (`00`), the asset, the `as_of`, the commitment and the commit time.
-- Its timestamp is `2026-11-22 08:03:30`. The explorer shows times in UTC without saying so. That is within a day of the 2026-11-21 close. The call's outcome is known only when its exit candle closes, on 2026-11-30 00:00 UTC, about eight days later.
-- The sender is shown as account index `19719`. Click it to see the address `4HgaCRwX…VwT3nmCj`. That is the committer the contract owner appointed, which you can confirm on the owner's [`set_committer` transaction `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) (sender shown as index `19527`, which opens as `4dNMXmNK…`; parameter `4HgaCRwX…`).
+Open the commit transaction: <https://ccdexplorer.io/testnet/transaction/fe340eeaa2623405880a57208c88004fb4f12b7b56479876e8be6f24a4ada718>
 
-The contract accepts one commit per asset and day, and only in the day after that close. A second hash for BTC on 2026-11-21 would have been rejected by the chain.
+**You should see:**
 
-**3. Recompute the call from Binance.** The rule is public: `momentum_e6` is the 30-day change in the Binance BTCUSDT daily close, in millionths. The call is `RISK_ON` only if `momentum_e6` is above 0.
+| On the page | Value | What it shows |
+|---|---|---|
+| Function / contract | `commit` on `veriflow_registry_v2` `<13115,0>`, type "contract updated" | The call went into contract v2. |
+| **Parameter** | `as_of: 2026-11-21`, `asset: BTC`, commitment `10cb3dc2…8eda` | The hash from step 1 is stored under BTC, 2026-11-21. |
+| Timestamp | `2026-11-22 08:03:30` (UTC; the page does not label it) | The commit came 8 hours after the 2026-11-21 close. The contract only accepts a commit for that day between 2026-11-22 00:00 and 2026-11-23 00:00. |
+| Sender | account index `19719`. Click it to see `4HgaCRwX…VwT3nmCj` | The committer. The owner appointed it in [`set_committer` `6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f), whose sender, index `19527`, opens as `4dNMXmNK…`, the owner of agent #1313. |
+
+The Event line below is the same data in hex. To decode it, copy the hex and run:
+
+```bash
+python3 -c "
+h=bytes.fromhex(input('event hex: ')); i=1
+def s():
+    global i; n=int.from_bytes(h[i:i+4],'little'); v=h[i+4:i+4+n].decode(); i+=4+n; return v
+a=s(); d=s(); c=h[i:i+32].hex(); t=int.from_bytes(h[i+32:i+40],'little')
+print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
+# tag 0 asset BTC as_of 2026-11-21 commitment 10cb3dc2…8eda committed_at_ms 1795334610623
+```
+
+**Only one commit exists for BTC, 2026-11-21.** The contract rejects a second one. To see this, open [CCDScan testnet](https://testnet.ccdscan.io/), search for contract `<13115,0>`, and open its events. Each day has exactly one `commit` per asset. If you cloned the repo, you can also run `cd gateway && npm ci && npm run contract2 -- slot BTC 2026-11-21`.
+
+### 3. Recompute the call from Binance
+
+The rule is public:
+- `momentum_e6` is the change from the 2026-10-22 close to the 2026-11-21 close of Binance BTCUSDT, in millionths, rounded half away from zero;
+- the call is `RISK_ON` only if `momentum_e6 > 0`.
 
 ```bash
 python3 - <<'EOF'
 import json, urllib.request
-def close(ms):
+def close(ms):   # the daily candle that OPENS at this time (UTC)
     url = f"https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime={ms}&limit=1"
     return json.load(urllib.request.urlopen(url))[0][4]          # decimal string
 def units(s):                                                     # exact, in 1e-8
     i, _, f = s.partition("."); return int(i) * 10**8 + int((f + "0" * 8)[:8])
-now, then = units(close(1795219200000)), units(close(1792627200000))  # 2026-11-21, 2026-10-22
+now  = units(close(1795219200000))   # candle opening 2026-11-21 00:00
+then = units(close(1792627200000))   # candle opening 2026-10-22 00:00
 n, d = (now - then) * 10**6, then
 m = (2 * abs(n) + d) // (2 * d) * (1 if n >= 0 else -1)          # round half away from zero
-print(m, "RISK_ON" if m > 0 else "RISK_OFF")                      # -260395 RISK_OFF
+print(m, "RISK_ON" if m > 0 else "RISK_OFF")
 EOF
 ```
 
-Binance's API refuses some locations (HTTP 451). If you get that, read the two closes on any BTCUSDT daily chart and compute `60215.77 / 81416.09 − 1`.
+**You should see** `-260395 RISK_OFF`, which matches the string from step 1.
 
-**4. Check that the scoring rule was fixed before the first call.** The owner registered the hashes of the rule files before the committer was appointed and before any commit:
-<https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271>
+If Binance answers HTTP 451 where you are, read the two daily closes from any BTCUSDT chart. They are 60215.77 for the candle opening 2026-11-21 and 81416.09 for the candle opening 2026-10-22. Compute `(60215.77 / 81416.09 − 1) × 1,000,000 = −260394.72…` and round half away from zero to get −260395.
+
+The contract enforces the second half of the rule itself. When this call is revealed, it rejects any text whose `signal` contradicts its `momentum_e6`. The first half, whether `momentum_e6` equals Binance, is what you just checked. The scoring rule also checks it every day.
+
+### 4. Check that the scoring rule was fixed before the first call
+
+The owner registered the hashes of the rule files in [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) at 2026-11-22 07:06:10. That was before the committer was appointed (07:33:20) and before the first commit (08:03:30, the BTC call above).
 
 ```bash
 git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow
-git show 8d07d44:docs/SCORING-v2.md | shasum -a 256         # 6c862bfe…
-git show 8d07d44:gateway/src/score-v2.ts | shasum -a 256    # babc11e5…
+git show 8d07d44:docs/SCORING-v2.md | shasum -a 256
+# 6c862bfec9a427da83bd4cb1482e0a61f938e4c1fc54a07861ef36fb0a93b1c0
+git show 8d07d44:gateway/src/score-v2.ts | shasum -a 256
+# babc11e585bfdd9e54e64832540d36669c1a1641446fb3bb3b5947922c4f6f88
 ```
 
-On the explorer the "Data Registered" event shows the data as hex. Copy the hex and decode it:
+On the explorer, the "Data Registered" event shows the data as hex. Decode it:
 
 ```bash
 python3 -c "print(bytes.fromhex(input('hex: ')).decode())"
-# veriflow:scoring:v2:13115:08e3b49e…:6c862bfe…:babc11e5…
 ```
 
-Both full hashes are in that text. Each run of the `score-v2` GitHub workflow repeats this check and fails if the files differ.
+**You should see**:
 
-**What Path A proves.** The call was committed before its outcome, under its own asset and day. It was not changed afterwards, and it follows the published rule. It does not prove that the call is right. Nothing is scored until the exit candle closes on 2026-11-30, and the rule never prints a hit rate.
+```
+veriflow:scoring:v2:13115:08e3b49e4e6d0a11f1d2af4c6754537d695cfe19945b9b6d7fb5b8722f4df6cc:6c862bfe…:babc11e5…
+```
+
+The fields are:
+- `13115` is the contract;
+- `08e3b49e…` is the module reference of its code (on CCDScan, the contract's module);
+- the last two are the hashes you just computed.
+
+Every run of the [`score-v2` workflow](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) repeats this comparison. A run fails unless the files it scores with are exactly the registered ones, the contract was created from that module, and the registration came before the first commit. A green run means the published numbers come from the pre-registered rule.
+
+### What Path A shows, and what it does not
+
+**It shows:**
+- this call was committed on-chain before its outcome, under its own asset and day;
+- nothing else can be stored for that slot;
+- its `momentum_e6` is Binance's 30-day change;
+- its label follows the rule;
+- the scoring rule was fixed before the first call.
+
+When the call is revealed (from 2026-11-29 08:03, by anyone), the contract accepts only text that hashes to `10cb3dc2…`.
+
+**It does not show that the call is right.** The rule is public and carries no edge.
+
+The scoring rule measures each call over the 7 days after it is committed:
+- from the close of the commit's day (the candle opening 2026-11-22);
+- to the close 7 days later (the candle opening 2026-11-29, which closes 2026-11-30 00:00).
+
+It publishes the mean 7-day return of the calls against always-on and always-off. It never publishes a hit rate. The first number can appear after 2026-11-30 00:00 in the `score-v2` workflow's run summary, and only if no day has failed.
 
 ## Path B: buy a call yourself (about 30 minutes, testnet)
 
-Two steps take most of the time: getting a testnet identity, and exporting a key to a file. Only use a testnet account with test CCD.
+Two steps take most of the time: getting a testnet identity, and exporting an account key to a file. Use only a testnet account holding test CCD.
 
-1. Install the **Concordium Browser Wallet** (Chrome), switch to **Testnet**, and create an identity with a test identity provider. Then create an account.
-2. Get testnet CCD for that account from the wallet's testnet faucet.
-3. Prove eligibility once at <https://veriflow-yrhp.onrender.com/verify>. Connect the wallet and approve the zero-knowledge proof: age 18 or over, and residence not in a restricted list. Your date of birth and country are not revealed.
-4. Export the account key from the wallet (*Private key → Export*), and set up the buyer:
+1. **Wallet and identity.**
+   - Install the [Concordium Browser Wallet](https://chromewebstore.google.com/search/concordium%20wallet) in Chrome and switch it to **Testnet**.
+   - Create an identity with one of the test identity providers the wallet lists, then create an account under it.
+   - If the identity step fails, see Concordium's [wallet setup docs](https://docs.concordium.com/).
+2. **Test CCD.** Request testnet CCD for that account in the wallet; the testnet build offers a faucet. 2 CCD is enough.
+3. **Prove eligibility once.**
+   - Open `https://veriflow-yrhp.onrender.com/verify?account=<your account address>` and press **Prove eligibility**.
+   - In the wallet, select **that same account** and approve.
+   - You prove age ≥ 18 and residence not in CU, IR, KP, SY or US, without revealing either.
+   - **You should see** "✅ Eligible … can now buy signals (until …)", with links to the request (VRA) and audit (VAA) transactions.
+   - If your residence is on the list, the proof cannot be made and you cannot buy. That is the point of the check.
+4. **Set up the buyer.**
    ```bash
-   cd veriflow/gateway && npm ci
-   cp .env.example .env
-   mv ~/Downloads/<your account>.export keys/buyer.export   # BUYER_KEY_FILE in .env points here
+   git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway
+   npm ci
+   cp .env.example .env        # BUYER_KEY_FILE=keys/buyer.export and GATEWAY_URL (the live testnet gateway) are already set
    ```
-   `GATEWAY_URL` already points at the live testnet gateway.
-5. Buy the BTC call:
+   In the wallet, use *Accounts → your account → Private key → Export*. It downloads `<account address>.export`. Move it into place:
    ```bash
-   npm run buyer -- BTC
+   mv ~/Downloads/<account address>.export keys/buyer.export
    ```
-   Before signing, the buyer checks the seller:
-   - agent #1313 has the Verified by Concordium badge and is Active;
-   - the SHA-256 of its Agent Card matches the hash on-chain;
-   - x402 `payTo` equals the agent's on-chain `agentWallet`.
+5. **Buy.** Run `npm run buyer -- BTC` (or `-- ETH`).
 
-   If any check fails, it refuses to pay. It then pays 1 CCD and prints the call, the commitment and the anchor transaction.
-6. Verify what you bought: run Path A steps 1–3 with your own string. Or use Claude Desktop:
-   ```bash
-   npm run mcp:config -- --install
-   ```
-   Restart Claude Desktop, open a normal chat (not a Cowork task), and ask it to buy a BTC signal and verify it. `verify_signal` reads the anchor straight from a Concordium node.
+   **You should see** three things:
+   - **The seller check**, with five ✓ lines:
+     1. badge;
+     2. agent #1313 Active, "read from a Concordium node";
+     3. official badge check;
+     4. Agent Card hash;
+     5. `payTo` equals the on-chain wallet.
+   - **The result**: `status: 200`, the `canonical` string, the `commitment`, the `commit tx` link and the `payment tx` link.
+   - **On a failed seller check**, it prints ✗ and stops before anything is signed.
 
-If today's call is not committed yet (before about 00:10 UTC), the gateway answers 503 and nothing is charged.
+   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job commits it hourly from 00:17, so try again after about 01:00.
+6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
+   - hash the `canonical` string exactly as printed;
+   - open your `commit tx` link and check that its Parameter shows your asset, your `as_of` and your commitment;
+   - for step 3, change the two candle times to your `as_of` and 30 days earlier, and the symbol for ETH.
+
+   **Or use Claude Desktop as the buyer:**
+   - Run `npm run mcp:config -- --install`. It adds a `veriflow` entry to Claude Desktop's `claude_desktop_config.json` and prints the file's path.
+   - Quit Claude Desktop with ⌘Q and reopen it.
+   - In a normal chat (not a Cowork task), ask: "Use VeriFlow to buy a BTC signal and verify it."
+   - **Done** looks like: seller check 5/5, a payment link, and `verify_signal` 5/5. The fifth check reads "committed under this signal's own day on contract <13115,0>".

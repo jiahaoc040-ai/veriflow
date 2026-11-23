@@ -1,31 +1,65 @@
 # VeriFlow
 
-VeriFlow sells a BTC or ETH `RISK_ON` / `RISK_OFF` call over x402 on Concordium testnet. The seller is agent **#1313** in the Concordium Agent Registry. Every call is committed on contract **`<13115,0>`**, one per asset and day, by a committer (`4Hga…`) that the owner appointed and can revoke; the owner itself cannot commit. A buyer who holds the canonical string can SHA-256 it and find that digest under its own asset and day. `<13094,0>` is the retired v1 log.
+**A paid AI agent you can hold to account on Concordium.** Before a buyer agent pays VeriFlow, it reads the Agent Registry to see who it is paying. Before VeriFlow lets anyone buy, the buyer proves eligibility with a zero-knowledge proof, and that proof is re-checked at every payment. Every call VeriFlow sells is committed on-chain before its outcome, one per asset and day, so it cannot be edited, backdated or hedged afterwards.
+
+What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, 1 testnet CCD over x402. The call is the reference seller. The product is the three checks around it, which a seller with a private model can reuse.
+
+**Start here:** [TRY_IT.md](TRY_IT.md). Path A takes 2 minutes and needs no wallet: check a call that was really bought, against the chain and Binance. Path B takes about 30 minutes: buy one yourself on testnet.
+
+## How Identity, the Agent Registry and payments work together
+
+| Question | Concordium piece | What happens | See it on-chain | What it does not prove |
+|---|---|---|---|---|
+| **Who is paid?** | Agent Registry (CIS-8004 [`<12802,0>`](https://ccdexplorer.io/testnet/contract/12802/0)), agent **#1313**, Verified by Concordium badge | Before signing, the buyer reads #1313 **straight from a Concordium node**: Active, the Agent Card hash, the owner, and the payout wallet. It pays only if x402 `payTo` equals that wallet. The 402 names the agent in a `concordium-agent` extension, as a pointer only; the wallet always comes from the chain. Any failure means the wallet is never asked to sign. | Wallet bound by [`setAgentWallet` `8238b866…`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) to [`3WSAJwTZ…`](https://ccdexplorer.io/testnet/account/3WSAJwTZqVRypnGMkUjW28QDES8h1FUBoCwrzQ1rdN35NGavf8) | A stock x402 client pays `payTo` without asking. The badge's identity check itself is Concordium's hosted service, not on-chain data. |
+| **Who may buy?** | Verify & Access V1 | The buyer proves age ≥ 18 and residence outside CU, IR, KP, SY and US, without revealing either. The request (VRA) and audit record (VAA) are anchored. **At every payment** the gateway re-runs the official check on the stored proof. It also requires both anchors to be VeriFlow's own and the credential to still belong to the paying account. Any failure, including a node error, refuses the payment. | Buyer `4Vf4…`: [VRA `edc30fac…`](https://ccdexplorer.io/testnet/transaction/edc30fac188ba167b37e8f7338ce691a0f00932303201230576056e8a103a5d6), [VAA `c40957b4…`](https://ccdexplorer.io/testnet/transaction/c40957b4731064f10103ae7272509cd26a1863ae75746e74f53d8578b4a71e90) | Whether the restricted list is the right one for a given jurisdiction is a legal question. These are testnet identity providers. |
+| **What was sold, and when?** | Smart contract v2 [`<13115,0>`](https://ccdexplorer.io/testnet/contract/13115/0) (Rust, this repo) | The contract accepts **one call per asset and day**, and only within the day after that close. Only a committer appointed by the cold owner [`4dNM…`](https://ccdexplorer.io/testnet/account/4dNMXmNKa2i5hvABfbRJ6NebGopaWSPNmMrbvroSzgJF5wjUNt) can commit, and the owner itself cannot. After 7 days anyone can reveal. The contract hashes the text and checks its asset, day, and `RISK_ON ⇔ momentum_e6 > 0`. | Committer [`4HgaCRwX…`](https://ccdexplorer.io/testnet/account/4HgaCRwXHYWLAbHA4NE5LD8Cv8xYvuW4hP6RACaT1xVwT3nmCj) appointed by [`6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) | That a call is right. The rule is public and carries no edge. The record shows calls were made before outcomes and never changed. |
+
+**The latest purchase, end to end (2026-11-22).**
+
+1. A buyer agent checked the seller 5/5.
+2. It paid 1 CCD: [`5c939e2c…`](https://ccdexplorer.io/testnet/transaction/5c939e2cd467525e59ffabccf8a30d3621ec32139ddb8fe5239672b56f2e7dc3). The payment settled only after the buyer's stored proof passed the re-check.
+3. It received `{"as_of":"2026-11-21","asset":"ETH","momentum_e6":-294462,…,"signal":"RISK_OFF"}`.
+4. It verified the call 5/5 from a node, with no VeriFlow server involved:
+   - the commit [`4f2a0474…`](https://ccdexplorer.io/testnet/transaction/4f2a04747f40df0dbd1f480498c46f5426685cfacf1a7dd6400ed92fe1677114) is finalized;
+   - it carries this commitment;
+   - the text hashes to it;
+   - it was anchored within a day of the close;
+   - it sits under ETH, 2026-11-21 on `<13115,0>`.
+
+## Which scoring rule covers which call
+
+| Contract | Rule | Fixed on-chain before | What it publishes |
+|---|---|---|---|
+| **v2 `<13115,0>`** (live since 2026-11-22) | [`docs/SCORING-v2.md`](docs/SCORING-v2.md) + [`gateway/src/score-v2.ts`](gateway/src/score-v2.ts) at `8d07d44`, registered in [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) | the first commit (rule 07:06 UTC, committer 07:33, first commit 08:03 on 2026-11-22) | Integrity counts every day. A performance number appears only if no day ever fails, starting when the first exit candle closes on **2026-11-30 00:00 UTC**. It is the mean 7-day return against both constant books, and never a hit rate. |
+| v1 `<13094,0>` (retired 2026-11-22) | [`docs/SCORING.md`](docs/SCORING.md) + [`gateway/src/score.ts`](gateway/src/score.ts) at `94c7603`, registered in [`39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95) | any price outcome | Integrity only. Block day 2026-11-20 holds 3 BTC and 2 ETH commits, which v1 could not reject. That day is why v2 exists. Days after v1 retired are counted as missing, by the rule fixed beforehand. |
+
+The `score-v2` and `score` workflows rerun these rules daily on GitHub's machines from the chain and Binance. To check a registration yourself, hash the files at the named commit and compare them with the transaction's data. The exact commands are in [TRY_IT.md](TRY_IT.md) Path A, step 4.
+
+**Daily operation, on GitHub's machines and not on VeriFlow's server:**
+
+| Workflow | Job | Schedule |
+|---|---|---|
+| [`daily-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml) | Commits the calls and reveals due ones | hourly |
+| [`score-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) | Scores the calls | daily |
+| [`watch`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/watch.yml) | Checks that agent #1313's wallet, card, status and owner, and contract v2's owner and committer, have not changed | every 6 hours |
+
+**Live service:** https://veriflow-yrhp.onrender.com (testnet)
+- `GET /signal/BTC` answers **402** with the price, `payTo`, the buyer-proof requirement and the `concordium-agent` extension.
+- [`/verify`](https://veriflow-yrhp.onrender.com/verify): buyer eligibility.
+- [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json).
+- Hosted read-only MCP at `/mcp` and A2A at `/a2a`. Paying runs in the local MCP server with the buyer's own key.
+
+**Docs:** [Try it](TRY_IT.md) · [Scoring rule v2](docs/SCORING-v2.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
 
 [![test](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/test.yml)
 [![docker](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/docker.yml)
 [![contract](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/contract.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/contract.yml)
 [![security](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/security.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/security.yml)
 [![codeql](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/codeql.yml/badge.svg)](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/codeql.yml)
-![Concordium testnet](https://img.shields.io/badge/Concordium-testnet-0d1b2a)
-![agent](https://img.shields.io/badge/Agent%20Registry-%231313%20verified-2ea44f)
 
-**Live demo: https://veriflow-yrhp.onrender.com** (testnet) — dashboard with in-browser verification · [`/verify`](https://veriflow-yrhp.onrender.com/verify) buyer eligibility · [Agent Card](https://veriflow-yrhp.onrender.com/.well-known/agent-card.json)
+These badges show the code builds and its tests and scans pass: gateway, Python, the contract's Wasm end-to-end tests, Docker, and security. They are not evidence for the on-chain claims above. The links in the tables are.
 
-**Try it:** [TRY_IT.md](TRY_IT.md). Check a bought call in 2 minutes with no wallet, or buy one yourself.
-
-**Docs:** [Scoring rule v2](docs/SCORING-v2.md) · [Scoring rule v1](docs/SCORING.md) · [Go-live plan](docs/GO_LIVE.md) · [Threat model](docs/THREAT_MODEL.md)
-
-`sha256(docs/SCORING.md)` and `sha256(gateway/src/score.ts)` at `94c7603` are the register-data of [tx `39356396…`](https://ccdexplorer.io/testnet/transaction/39356396cd2f61573caae2228a68c770aa086b14195385b64b86e477cc3e8d95), sent by `4dNM…` at 2026-11-21 14:57:24 UTC, before any price outcome existed. For `<13094,0>` the published result is integrity only. Block day 2026-11-20 failed, with 3 BTC commits and 2 ETH commits. The `score` workflow reruns the rule daily on GitHub's machines from the chain and Binance, and it publishes no performance number for this contract.
-
-| Check | What the code and chain do |
-|---|---|
-| Who is paid | The local buyer checks the badge, the card hash, and that `payTo` equals the on-chain `agentWallet`, before it signs (`gateway/src/counterparty.ts`). [`setAgentWallet`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) on `<12802,0>` names `3WSAJwTZ…`. A stock x402 client pays `payTo` without asking. |
-| Who may buy | Before every payment settles, the gateway re-runs the official Verify & Access check on the buyer's stored proof: the zero-knowledge proof, the statements, the credential still active and the request still on-chain. It also checks that the audit record anchored on-chain is that proof's record, and that the credential still belongs to the paying account. Any failure, including a node error, refuses the payment. `GET /eligibility/:account` returns neither the proof nor the credential id. |
-| The hash you hold | On `<13115,0>` a commit is keyed by `(asset, as_of)`. A second call for the same day is rejected, and so is a commit outside the day after that close. Only the appointed committer can commit, never the owner. After 7 days anyone can `reveal`. The contract hashes the text, requires its asset and day to equal the key, and requires `RISK_ON` exactly when `momentum_e6 > 0`. On the retired `<13094,0>` a different hash was simply a second commit, which is why its 2026-11-20 failed (3 BTC, 2 ETH). |
-| How an agent calls it | Hosted `POST /mcp` and `POST /a2a` are read-only. Paying (`get_signal`) runs in the local stdio MCP server, with the buyer's own key. |
-
-Transactions linked in this README are Concordium testnet transactions you can open on CCDExplorer. Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026).
+Built for the [Concordium Trusted Agents Hackathon](https://www.concordium.com/article/concordium-trusted-agents-hackathon-encode-club) (Encode Club, 2026). Every transaction linked here is a Concordium testnet transaction.
 
 ## Architecture
 
@@ -35,60 +69,59 @@ flowchart LR
     H["Human owner<br/>(Concordium wallet)"]
     A["Buyer agent<br/>Claude + VeriFlow MCP"]
   end
-  subgraph Seller["VeriFlow (one container)"]
-    G["x402 gateway<br/>+ facilitator (sponsors fees)"]
-    P["Signal API<br/>(Python)"]
-    D["Daily scheduler"]
+  subgraph Seller["VeriFlow"]
+    G["x402 gateway + facilitator<br/>(Render, sponsors fees)"]
+    P["Signal API<br/>(sells the committed call)"]
+    D["daily-v2 job<br/>(GitHub Actions, committer 4Hga)"]
   end
   subgraph Chain["Concordium testnet"]
     R["Agent Registry CIS-8004<br/>agent #1313 · badge · agentWallet"]
-    C["Commit–reveal contract<br/>&lt;13094,0&gt;"]
+    C["Contract v2 &lt;13115,0&gt;<br/>one call per asset and day"]
     V["Verify & Access V1<br/>request + audit anchors"]
   end
-  H -- "ZK proof: 18+, not restricted (stored, re-checked at every payment)" --> V
-  A -- "1. check seller (badge, card hash, payTo = agentWallet)" --> R
+  H -- "ZK proof: 18+, not restricted" --> V
+  A -- "1. read #1313 from a node: Active, card hash, payTo = agentWallet" --> R
   A -- "2. pay over x402" --> G
+  G -- "re-check stored proof at every payment" --> V
   G --> P
-  P -- "commitment" --> G
-  G -- "commit hash before outcome" --> C
-  D -- "every daily close" --> G
-  A -- "3. local buyer reads the anchor from a node, rechecks hash + time" --> C
+  D -- "commit sha256(call) in the day after the close; reveal after 7 days" --> C
+  A -- "3. read the commit from a node: hash, day, asset" --> C
 ```
 
 ```mermaid
 sequenceDiagram
   participant B as Buyer agent (MCP)
-  participant R as Agent Registry
+  participant R as Agent Registry (node)
   participant G as VeriFlow gateway
   participant F as Facilitator
   participant C as Concordium
+  Note over C: daily-v2 already committed today's call to <13115,0>
   B->>G: GET /signal/ETH
-  G-->>B: 402 PAYMENT-REQUIRED (payTo, 1 CCD, buyerProof)
-  B->>R: agent_by_token_address + check_badge
-  B->>B: own SHA-256 of Agent Card, payTo == agentWallet?
+  G-->>B: 402 PAYMENT-REQUIRED (payTo, 1 CCD, buyerProof, concordium-agent #1313)
+  B->>R: CIS-8004.agentOf(1313) + official badge check
+  B->>B: Active? own SHA-256 of the Agent Card? payTo == agentWallet?
   alt seller fails any check
     B-->>B: abort before signing (wallet never asked)
   else verified
     B->>G: PAYMENT-SIGNATURE (sponsored transfer)
-    G->>F: verify: re-check the payer's stored proof (official check + VAA + credential owner)
+    G->>F: verify: re-check the payer's stored proof (official check, our VRA/VAA, credential owner)
     F->>C: settle (fee sponsored)
-    G->>C: commit sha256(signal) to contract
-    G-->>B: signal + canonical JSON + anchor tx
-    B->>C: local buyer reads the anchor tx from a node (or a block explorer)
-    B->>B: hash matches, anchored within a day of the close
+    G-->>B: committed call + canonical JSON + commit tx
+    B->>C: read the commit from a node
+    B->>B: hash matches, same asset and day, within a day of the close
   end
 ```
 
-## Status
+## History and components
 
-End-to-end on the public deployment (2026-11-20): buyer proved eligibility with Verify & Access V1 ([VRA](https://ccdexplorer.io/testnet/transaction/319fb153a51071110ac719949fba70db3dae5ad853e13d061b50cd3ae4a32df3) · [VAA](https://ccdexplorer.io/testnet/transaction/6e98cdabd513ade5ba5b69b662d0b6ab43a147e7f1ebd797b0e8b5db82024ca9)), paid 1 CCD over x402 ([payment](https://ccdexplorer.io/testnet/transaction/30617d582f4d927dd28c55aba0741446a543de8f116e8633cc356bb209c6d2c7)), and the signal was committed through the registry contract ([commit](https://ccdexplorer.io/testnet/transaction/98a8c8b9ca7c021fa39021b090196db748097547146cce453bc7f30b0bb1a61c)); the public dashboard verifies it in the browser.
+The first end-to-end run, on v1 (2026-11-20): buyer proved eligibility with Verify & Access V1 ([VRA](https://ccdexplorer.io/testnet/transaction/319fb153a51071110ac719949fba70db3dae5ad853e13d061b50cd3ae4a32df3) · [VAA](https://ccdexplorer.io/testnet/transaction/6e98cdabd513ade5ba5b69b662d0b6ab43a147e7f1ebd797b0e8b5db82024ca9)), paid 1 CCD over x402 ([payment](https://ccdexplorer.io/testnet/transaction/30617d582f4d927dd28c55aba0741446a543de8f116e8633cc356bb209c6d2c7)), and the signal was committed through the registry contract ([commit](https://ccdexplorer.io/testnet/transaction/98a8c8b9ca7c021fa39021b090196db748097547146cce453bc7f30b0bb1a61c)); the public dashboard verifies it in the browser.
 
 | Component | State |
 |---|---|
 | Signal engine (`veriflow/signal.py`) | ✅ works, tested |
 | Signal API (`veriflow/api.py`) | ✅ works, tested; returns 402 without the gateway secret, and fails closed when no secret is configured |
-| Ledger + hit-rate scoring (`veriflow/ledger.py`) | ✅ works, tested |
-| On-chain anchoring (`gateway/src/anchor.ts`) | ✅ each paid signal's hash is written to Concordium as `veriflow:v1:<sha256>` (register data, no contract) |
+| Ledger (`veriflow/ledger.py`) | ✅ counts committed, matured and duplicate calls per contract; no hit rate (scoring is `score-v2.ts`) |
+| On-chain anchoring (`gateway/src/anchor.ts`) | v1 history: paid signals were first anchored as register data, then through contract `<13094,0>`. v2 calls are committed by `daily-v2` to `<13115,0>`. |
 | x402 gateway + self-hosted facilitator (`gateway/`) | ✅ end-to-end testnet payment settled ([tx](https://ccdexplorer.io/testnet/transaction/db37928ff59f3f9ecbaaaf675ba1c8e566677fcec06b76b5af8243169a8848d5)) |
 | Verify & Access V1 buyer eligibility (`gateway/src/eligibility.ts`, `/verify`) | ✅ ZK proof of age ≥ 18 + country not restricted, request and audit anchored on-chain ([VRA](https://ccdexplorer.io/testnet/transaction/61e5269537735f09a8234703a0c7c65bf9039b9bc071296b47781b4ec97b4c24), [VAA](https://ccdexplorer.io/testnet/transaction/c4dab99b0d273c3c2ee04a531238a4f5dcc4a0aef0f08db606316d6af72e3e5c)); unverified accounts are refused before payment settles; verified buyer then paid ([payment](https://ccdexplorer.io/testnet/transaction/04a9c9383eb689598ef9068aeaaf97160daf9af50e31e6274483b0792939f8fd), [anchor](https://ccdexplorer.io/testnet/transaction/973eaa16558c5f5f8aeb2c4d6e5804ef8db0271a06de62193432ad613ba68aca)) |
 | Rust smart contract (`contract/`) | ✅ on-chain commit–reveal registry deployed on testnet at `<13094,0>` ([init tx](https://ccdexplorer.io/testnet/transaction/590bb53e65c96599613b547370be32ecad8fef7aaf6dac405021eb35c6e01b88), module `7685e945…`); the gateway commits paid signals through it ([commit tx](https://ccdexplorer.io/testnet/transaction/d538e13d0624acbedc1f7b97a77da43cc82ded28522febcdab2b8f522741e0ab)); CI builds the Wasm and runs 8 end-to-end tests |
@@ -138,7 +171,7 @@ python scripts/run_signal.py BTC
 VERIFLOW_INSECURE_DEV=1 uvicorn veriflow.api:app --reload    # local only: without GATEWAY_SECRET the API refuses /signal unless this flag is set
 ```
 
-No API keys are needed for the signal: prices come from Binance and stablecoin supply from DefiLlama.
+No API keys are needed. The v2 call (`gateway/src/signal-v2.ts`, produced by `npm run daily2`) uses only Binance daily closes. The Python engine above is the retired v1 signal, which also used DefiLlama stablecoin supply; it is kept for history and tests.
 
 ## Verify it yourself
 
@@ -148,8 +181,8 @@ No API keys are needed for the signal: prices come from Binance and stablecoin s
 
 | Who checks | What | How |
 |---|---|---|
-| **Seller → buyer** | The paying account's owner is 18+ and not resident in a restricted country | Verify & Access V1 zero-knowledge proof, request and audit anchored on-chain; checked in the x402 facilitator before a payment settles |
-| **Buyer → seller** | The agent being paid is identity-verified, Active, its Agent Card is unchanged, and the money goes to **its own on-chain wallet** | Concordium Agent Registry (CIS-8004 `<12802,0>`, official hosted MCP): `agent_by_token_address` + `check_badge`, the card's SHA-256 recomputed by the buyer, x402 `payTo` must equal the registered `agentWallet` |
+| **Seller → buyer** | The paying account's owner is 18+ and not resident in a restricted country | Verify & Access V1 zero-knowledge proof, request and audit anchored on-chain by VeriFlow. The stored proof is re-checked in the gateway's `onBeforeVerify` hook before **every** payment settles. |
+| **Buyer → seller** | The agent being paid is identity-verified, Active, its Agent Card is unchanged, and the money goes to **its own on-chain wallet** | Agent #1313 is read straight from a Concordium node (`CIS-8004.agentOf` on `<12802,0>`, `gateway/src/registry-node.ts`). The hosted registry service is used only to resolve the badge and for the official badge check, and its answer must agree with the node. The buyer recomputes the card's SHA-256. x402 `payTo` must equal the on-chain `agentWallet`. The 402's `concordium-agent` extension must name the same agent. |
 
 The buyer check runs in an x402 client hook (`onBeforePaymentCreation`, `gateway/src/counterparty.ts`), so a seller that fails it is never even signed for — the wallet is not asked. It fails closed: if the registry is unreachable, the agent does not pay. This stops the impersonation attack where a scam endpoint copies an honest agent's badge and Agent Card but asks to be paid at its own address.
 
@@ -157,7 +190,7 @@ VeriFlow binds its x402 `payTo` to agent #1313 on-chain with `npm run registry -
 
 ## Operations
 
-`/health` reports the API status and the operator account (`4dNM…`) that pays for daily commitments, automatic reveals and sponsored buyer fees: `{"ok":true,"operator":{"account":…,"balance_ccd":…,"low":false}}`. The balance is refreshed every 10 minutes in the background (health checks stay instant) and `low` turns true below `MIN_OPERATOR_CCD` (default 100), so an uptime monitor with a keyword check alerts before the record could stop.
+`/health` reports the API status and the operator account. Since 2026-11-22 that is the committer `4Hga…`, which pays for v1 reveals, eligibility anchors and sponsored buyer fees. The cold owner `4dNM…` is not on the server. The response is `{"ok":true,"operator":{"account":…,"balance_ccd":…,"low":false}}`. The balance is refreshed every 10 minutes in the background, and `low` turns true below `MIN_OPERATOR_CCD` (default 100). The on-chain state that only the cold owner can change is watched by the `watch` workflow.
 
 ## Agent guardrails
 
@@ -198,7 +231,7 @@ page ──POST /eligibility/verify──▶ gateway
    pass ──▶ audit record hash anchored ──▶ VAA (Verification Audit Anchor) ──▶ account allowlisted for 30 days
 ```
 
-At payment time an x402 `onBeforeVerify` hook reads the payer from the signed transaction (`signedTransaction.header.sender`). An unverified account gets `buyer_proof_required` and a link to `/verify`; its transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
+At payment time an x402 `onBeforeVerify` hook reads the payer from the signed transaction (`signedTransaction.header.sender`) and re-checks that account's stored proof. The official check is re-run, both anchors must be VeriFlow's, the proof must meet the current policy, and the credential must still belong to the payer. An account that fails gets `buyer_proof_required` and a link to `/verify`. Its transfer is never broadcast, so it is not charged. The 402 response also advertises the requirement up front in `extra.buyerProof`, following the format proposed in x402 issue #4182.
 
 ```bash
 cd gateway && npm test      # tests: eligibility rules (replay, wrong account, weaker statement, …), seller check, MCP over stdio, contract encoding, verifiers
@@ -250,30 +283,29 @@ The Agent Card's `url` points to a real A2A JSON-RPC endpoint: `POST https://ver
 curl -s https://veriflow-yrhp.onrender.com/a2a -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"1","parts":[{"kind":"text","text":"how do I buy a signal?"}]}}}'
 ```
 
-## Smart contract — on-chain commit–reveal (`contract/`, Rust)
+## Smart contract v2 — one call per asset and day (`contract-v2/`, Rust)
 
-Register-data anchors prove *when* a hash was written. The VeriFlow registry contract makes the rules themselves enforceable by the chain:
+Deployed on testnet as [`<13115,0>`](https://ccdexplorer.io/testnet/contract/13115/0) from module `08e3b49e…`, which CI built from `5e699ad` ([init `dba400c2…`](https://ccdexplorer.io/testnet/transaction/dba400c20a96eaa1609e5e1f954ac5887aa473785ad5676b3dad99364263a946)). There is no upgrade, delete or replace entrypoint.
 
 | Entrypoint | Who | Rule enforced on-chain |
 |---|---|---|
-| `commit` | seller only | records block time; a commitment can never be overwritten |
-| `reveal` | **anyone**, after the horizon (7 days) | the contract computes SHA-256 of the content and accepts it only if it matches a commitment; the signal value is stored with the content |
-| `commitment`, `view` | anyone | read a commitment and its reveal; totals |
-
-Because reveal is permissionless, the seller cannot "forget" a losing call: once the horizon passes, any buyer can publish the signal they received and the chain checks it. VeriFlow does not wait for buyers: the server reveals every contract commitment itself as soon as its horizon passes (`runRevealsOnce` in `gateway/src/daily.ts`, every 30 minutes, at most 5 per round), so each call's content and outcome end up on-chain automatically — winners and losers alike.
+| `commit(asset, as_of, hash)` | the appointed committer only, never the owner or one of its aliases | `asset` is `BTC` or `ETH`. `as_of` is a real `YYYY-MM-DD` date. The block time must be in `[as_of+1d, as_of+2d)` UTC. A second commit for the same `(asset, as_of)`, or a reused hash, is rejected. |
+| `reveal(canonical)` | **anyone**, 7 days after the commit | The contract computes SHA-256, finds the slot, and parses the fixed schema. It requires `asset` and `as_of` to equal the key, and `signal` to be `RISK_ON` exactly when `momentum_e6 > 0`. |
+| `set_committer`, `revoke_committer` | the cold owner | Appoints one committer (it replaces the previous one) or removes it. |
+| `slot`, `view` | anyone | Read one `(asset, as_of)` slot, or the totals, owner, committer and init time. |
 
 ```bash
-cd contract && cargo test                 # unit tests (end-to-end tests run in CI against the compiled Wasm)
-cd gateway && npm run contract -- deploy  # deploys the CI-built module from the GitHub release, prints REGISTRY_CONTRACT
+cd contract-v2 && cargo test --lib          # unit tests; the end-to-end tests run in CI against the compiled Wasm
+cd gateway && npm run contract2 -- status   # owner, committer, issued, revealed
 ```
 
-With `REGISTRY_CONTRACT` set, the gateway commits every paid and daily signal through the contract. `/onchain/<tx>` decodes the contract's `Committed` event into the same `veriflow:v1:<hash>` form, so the dashboard and MCP `verify_signal` keep working unchanged. The TypeScript client's encoding is tested byte-for-byte against fixtures generated from the Rust types.
+v1 (`contract/`, `<13094,0>`) keyed commits by hash only, so a second hash for the same day was just another commit. It is retired, and its reveals continue.
 
 ## Verified by Concordium
 
 VeriFlow is CIS-8004 agent **#1313** in Concordium's testnet Agent Registry `<12802,0>`. Badge: **`JyP9UWYKh54TD2MUJDfqC`** (`ccd:4221332d34e1694168c2a0c0b3fd0f27/cis-2:JyP9UWYKh54TD2MUJDfqC`).
 
-Anyone can check it without trusting us: resolve the badge with CIS-8004 `agent_of`, confirm the owner account and `Active` status, then fetch [`agent-card.json`](agent-card.json) and compare its SHA-256 with the on-chain `metadata_hash`. Concordium's hosted checker does all of this: `GET https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC`.
+Anyone can check it without trusting us: read the agent with CIS-8004 `agentOf` (`npx tsx src/registry-node.ts 1313` in `gateway/`), confirm the owner account and `Active` status, then fetch [`agent-card.json`](agent-card.json) and compare its SHA-256 with the on-chain `metadata_hash`. Concordium's hosted checker does all of this: `GET https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC`.
 
 > ⚠️ `agent-card.json` is hash-pinned on-chain. Editing it breaks the badge until the new hash is pinned with `npm run registry -- set-uri 1313`. `npm test` fails if the file changes, as a reminder.
 

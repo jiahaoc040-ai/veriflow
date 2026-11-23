@@ -97,7 +97,13 @@ before(async () => {
   const transport = new StdioClientTransport({
     command: entry.command,
     args: entry.args,
-    env: { ...entry.env, BUYER_KEY_FILE: throwawayKeyFile(), REGISTRY_MCP_URL: `${gateway}/mcp` }, // SDK 只另外帶 HOME、PATH 等少數變數，跟 Claude Desktop 一樣
+    env: {
+      ...entry.env,
+      BUYER_KEY_FILE: throwawayKeyFile(),
+      REGISTRY_MCP_URL: `${gateway}/mcp`,
+      // 假的節點紀錄，與假的託管服務一致（真實環境是直接讀 Concordium 節點）
+      VERIFLOW_TEST_AGENT_RECORD: JSON.stringify({ tokenId: "1313", owner: "4dNM", agentUri: `${gateway}/card.json`, metadataHash: createHash("sha256").update(CARD).digest("hex"), wallet: SELLER_WALLET, status: "Active" }),
+    }, // SDK 只另外帶 HOME、PATH 等少數變數，跟 Claude Desktop 一樣
     cwd: "/", // Claude Desktop 不會在專案資料夾裡啟動我們
     stderr: "pipe",
   });

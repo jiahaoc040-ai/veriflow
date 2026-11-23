@@ -54,8 +54,11 @@ export function decodeAgentOf(buf: Buffer): AgentOnChain | null {
 }
 
 /** 讀一個 agent；沒有這個 agent 回傳 null，節點連不上就丟錯 */
-export async function readAgent(tokenId: string, grpc = createGrpc(), registry = AGENT_REGISTRY): Promise<AgentOnChain | null> {
+export async function readAgent(tokenId: string, grpc?: ReturnType<typeof createGrpc>, registry = AGENT_REGISTRY): Promise<AgentOnChain | null> {
   if (!/^\d+$/.test(tokenId)) throw new Error(`bad token id ${tokenId}`);
+  // 只給測試用：整合測試沒有真的 Concordium 節點，用環境變數提供假的鏈上紀錄（買方自己的環境變數，不是賣方能控制的）
+  if (process.env.VERIFLOW_TEST_AGENT_RECORD) return JSON.parse(process.env.VERIFLOW_TEST_AGENT_RECORD) as AgentOnChain;
+  grpc ??= createGrpc();
   const res = await grpc.invokeContract({
     contract: registry,
     method: ReceiveName.fromString("CIS-8004.agentOf"),
