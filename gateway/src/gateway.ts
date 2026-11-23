@@ -333,20 +333,22 @@ process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignor
 
 // 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：開始接受連線之前先查，之後每分鐘再查一次。
 // 連不上只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停。
-const checkNetwork = () =>
+const checkNetwork = (): Promise<boolean> =>
     createGrpc()
       .getConsensusStatus()
       .then((c) => checkGenesis(BlockHash.toHexString(c.genesisBlock)))
-      .then(() => console.log(`network: ${NET.name} (${NET.caip2})`))
+      .then(() => (console.log(`network: ${NET.name} (${NET.caip2})`), true))
       .catch((e) => {
         if (/is not (testnet|mainnet)/.test(String(e))) {
           console.error(`❌ ${e instanceof Error ? e.message : e}`);
           process.exit(1);
         }
         console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
+        return false;
       });
-// gRPC 呼叫 20 秒逾時，所以等 25 秒：節點有回應時，錯鏈一定在開始接受連線之前被擋下；完全沒回應才先啟動，之後每分鐘再查
-await Promise.race([checkNetwork(), new Promise((r) => setTimeout(r, 25_000))]);
+// 開始接受連線之前，最多試 3 次（每次 gRPC 20 秒逾時）拿到節點的 genesis；錯鏈就停。
+// 3 次都拿不到才先啟動（節點不通時付款本來就做不了），之後每分鐘再查。
+for (let i = 0; i < 3 && !(await Promise.race([checkNetwork(), new Promise<boolean>((r) => setTimeout(() => r(false), 25_000))])); i++);
 setInterval(checkNetwork, 60_000).unref();
 
 app.listen(PORT, () => {

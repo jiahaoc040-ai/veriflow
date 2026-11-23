@@ -39,8 +39,8 @@ The `score-v2` (four times a day) and `score` (twice a day) workflows rerun thes
 
 | Workflow | Job | Schedule |
 |---|---|---|
-| [`daily-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml) | Commits the calls and reveals due ones | hourly |
-| [`score-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) | Scores the calls | four times a day |
+| [`daily-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml) | Commits the calls and reveals due ones | scheduled hourly (GitHub delays scheduled runs; commits so far landed 00:04–08:03 UTC) |
+| [`score-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) | Scores the calls | scheduled four times a day (GitHub may delay or skip scheduled runs) |
 | [`watch`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/watch.yml) | Checks that agent #1313's wallet, card, status and owner, and contract v2's owner and committer, have not changed | every 6 hours |
 
 **Live service:** https://veriflow-yrhp.onrender.com (testnet)

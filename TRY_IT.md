@@ -116,9 +116,9 @@ The fields are:
 - `08e3b49e…` is the module reference of its code (on CCDScan, the contract's module);
 - the last two are the hashes you just computed.
 
-Every run of the [`score-v2` workflow](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) repeats this comparison. It runs four times a day. A run fails unless the files it scores with are exactly the registered ones, the contract was created from that module, and the registration came before the first commit. A green run means the published numbers come from the pre-registered rule.
+Every run of the [`score-v2` workflow](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) repeats this comparison. It is scheduled four times a day; GitHub delays or skips scheduled runs, so in practice the gap can be longer. A run fails unless the files it scores with are exactly the registered ones, the contract was created from that module, and the registration came before the first commit. A green run means the published numbers come from the pre-registered rule.
 
-GitHub hides run summaries and logs from visitors who are not signed in, so every run also publishes its result to the [`score-reports` branch](https://github.com/jiahaoc040-ai/veriflow/tree/score-reports/score-v2): `README.md` there is the latest result in plain words, `latest.json` the full report, and `history/` every past run. Each result shows the registered text it matched, commit and reveal integrity as fractions, every failure by day and asset, and the performance numbers or the reason they are not published yet, with a link to the run and the commit it ran.
+GitHub hides run summaries and logs from visitors who are not signed in, so every run also publishes its result to the [`score-reports` branch](https://github.com/jiahaoc040-ai/veriflow/tree/score-reports/score-v2): `README.md` there is the latest result in plain words, `latest.json` the full report, and `history/` every run since publishing started (2026-11-23 06:05 UTC). Each result shows the registered text it matched, commit and reveal integrity as fractions, every failure by day and asset, and the performance numbers or the reason they are not published yet, with a link to the run and the commit it ran.
 
 ### Who is who
 
@@ -127,7 +127,7 @@ GitHub hides run summaries and logs from visitors who are not signed in, so ever
 | `4dNMXmNK…JF5wjUNt` | 19527 | Owner of agent #1313 in the CIS-8004 Agent Registry `<12802,0>` (`agentOf(1313)`), and owner of contract `<13115,0>` (its creator on CCDScan). Kept offline. |
 | `3WSAJwTZ…5NGavf8` | 19394 | Agent #1313's `agentWallet` in the registry. Every purchase pays here. |
 | `4HgaCRwX…VwT3nmCj` | 19719 | Committer of contract `<13115,0>`, appointed by the owner in `set_committer`. It also sponsors buyers' transaction fees. |
-| `4Vf4qUg5…QF52FgkjMQ16r` | 19528 | A test buyer. |
+| `4Vf4qUg5…QFF52FgkjMQ16r` | 19528 | A test buyer. |
 
 To check the first two rows yourself:
 - owner: [Concordium's badge check for #1313](https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC) (hosted by Concordium) shows owner `4dNMXmNK…JF5wjUNt`, Active, and the Agent Card hash;
@@ -196,7 +196,7 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **The result**: `status: 200`, the `canonical` string, the `commitment`, the `commit tx` link and the `payment tx` link.
    - **On a failed seller check**, it prints ✗ and stops before anything is signed.
 
-   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job commits it hourly from 00:17, so try again after about 01:00.
+   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: so far each day's calls were committed between 00:04 and 08:03 UTC. If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
 6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
    - hash the `canonical` string exactly as printed;
    - open your `commit tx` link and check that its Parameter shows your asset, your `as_of` and your commitment;
