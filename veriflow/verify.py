@@ -45,10 +45,10 @@ def anchored_in_time(as_of: str, block_time: str) -> Check:
     closed, deadline = day + timedelta(days=1), day + timedelta(days=2)
     try:
         t = datetime.fromisoformat(block_time.replace("Z", "+00:00"))
-        ok = t < deadline
+        ok = closed <= t < deadline
     except ValueError:
         ok = False
-    return Check("上鏈時間在資料收盤後一天內（遠早於 7 天後的結果）", ok,
+    return Check("上鏈時間在資料收盤之後、一天之內（遠早於 7 天後的結果）", ok,
                  f"上鏈 {block_time}；資料 {as_of} 於 {closed.isoformat()} 收盤")
 
 
@@ -78,8 +78,8 @@ def verify(commitment: str, onchain: dict | None, canonical: str | None = None) 
             f"重算 SHA-256：{h}",
         ))
         as_of, block_time = as_of_of(canonical), (onchain or {}).get("block_time")
-        if as_of and block_time:
-            checks.append(anchored_in_time(as_of, block_time))
+        if as_of:
+            checks.append(anchored_in_time(as_of, block_time or "(unknown)"))
     return checks
 
 

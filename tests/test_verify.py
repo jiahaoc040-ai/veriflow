@@ -38,4 +38,5 @@ def test_anchoring_time_must_be_within_a_day_of_the_close():
     on_time = verify(c, chain("2026-11-20T05:00:42.000Z"), canon)
     assert len(on_time) == 4 and all_ok(on_time)
     assert not all_ok(verify(c, chain("2026-11-27T01:00:00.000Z"), canon))
-    assert len(verify(c, {"status": "finalized", "data_text": f"veriflow:v1:{c}"}, canon)) == 3  # 舊 gateway 沒有區塊時間
+    assert not all_ok(verify(c, chain("2026-11-19T23:59:59.000Z"), canon))  # 收盤前上鏈
+    assert not all_ok(verify(c, {"status": "finalized", "data_text": f"veriflow:v1:{c}"}, canon))  # 時間不明

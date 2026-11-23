@@ -28,7 +28,9 @@ test("anchoring time: within a day of the data close passes, late anchoring fail
   const late = verifyCommitment(c, chain("2026-11-27T01:00:00.000Z"), canon);
   assert.ok(!allOk(late));
   assert.match(late[3].detail, /closed 2026-11-20T00:00:00.000Z/);
-  // 沒有區塊時間（舊的 gateway）或內容不是 JSON：不做這一項，也不誤判
-  assert.equal(verifyCommitment(c, { status: "finalized", data_text: `veriflow:v1:${c}` }, canon).length, 3);
+  // 收盤前就上鏈（還不知道收盤價）也不算；時間不明也不算
+  assert.ok(!allOk(verifyCommitment(c, chain("2026-11-19T23:59:59.000Z"), canon)));
+  assert.ok(!allOk(verifyCommitment(c, { status: "finalized", data_text: `veriflow:v1:${c}` } as never, canon)));
+  // 內容不是 JSON（讀不出 as_of）：不做這一項，也不誤判
   assert.equal(verifyCommitment(C, { ...CHAIN, block_time: "2030-01-01T00:00:00Z" }, CANON).length, 3);
 });

@@ -97,9 +97,9 @@
       // 上鏈時間：as_of 那根日 K 隔天 00:00 UTC 收盤，必須在收盤後一天內上鏈（不能等結果出來才補寫）
       let asOf;
       try { asOf = JSON.parse(canonical).as_of; } catch (e) { asOf = undefined; }
-      if (/^\d{4}-\d{2}-\d{2}$/.test(asOf || "") && onchain && onchain.block_time) {
-        const day = Date.parse(asOf + "T00:00:00Z"), t = Date.parse(onchain.block_time);
-        out.push({ ok: t < day + 2 * 864e5, name: "anchored within a day of the data close", detail: "anchored " + onchain.block_time + ", data " + asOf + " closed " + new Date(day + 864e5).toISOString() });
+      if (/^\d{4}-\d{2}-\d{2}$/.test(asOf || "")) {
+        const day = Date.parse(asOf + "T00:00:00Z"), bt = (onchain && onchain.block_time) || "(unknown)", t = Date.parse(bt);
+        out.push({ ok: t >= day + 864e5 && t < day + 2 * 864e5, name: "anchored after the data close and within a day of it", detail: "anchored " + bt + ", data " + asOf + " closed " + new Date(day + 864e5).toISOString() });
       }
     }
     return out;

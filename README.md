@@ -23,7 +23,7 @@ What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RIS
    - the commit [`4f2a0474…`](https://ccdexplorer.io/testnet/transaction/4f2a04747f40df0dbd1f480498c46f5426685cfacf1a7dd6400ed92fe1677114) is finalized;
    - it carries this commitment;
    - the text hashes to it;
-   - it was anchored within a day of the close;
+   - it was anchored after the close and within a day of it;
    - it sits under ETH, 2026-11-21 on `<13115,0>`.
 
 ## Which scoring rule covers which call
@@ -108,7 +108,7 @@ sequenceDiagram
     F->>C: settle (fee sponsored)
     G-->>B: committed call + canonical JSON + commit tx
     B->>C: read the commit from a node
-    B->>B: hash matches, same asset and day, within a day of the close
+    B->>B: hash matches, same asset and day, anchored in the day after the close
   end
 ```
 
@@ -244,7 +244,7 @@ cd gateway && npm test      # tests: eligibility rules (replay, wrong account, w
 | `get_signal` | Pays ~1 CCD over x402 from `BUYER_KEY_FILE` (refuses more than `MAX_PAY_MICROCCD`) and returns the signal, its commitment and the anchor transaction |
 | `get_track_record` | Counts of committed and matured calls, and duplicate asset-days (free). No hit rate. |
 | `list_commitments` | Every commitment with its Concordium transaction (free) |
-| `verify_signal` | Reads the anchor **straight from a Concordium node** — the buyer's agent does not have to trust VeriFlow's server — and checks: confirmed, carries this commitment, and (with the `canonical` string) the content hashes to it and was anchored within a day of its data close, long before the 7-day outcome |
+| `verify_signal` | Finds the commit transaction through VeriFlow's `/commitments` list, then reads it **from a Concordium node** (our server can hide a commitment, not fake one) and checks: confirmed, carries this commitment, and (with the `canonical` string) the content hashes to it, it was anchored after its data close and within a day of it, and on v2 it sits under its own asset and day |
 | `check_eligibility` | Has this account passed the ZK eligibility check? Returns the `/verify` link if not |
 | `check_seller` | Without paying, asks the x402 endpoint whom to pay and verifies that seller in the Agent Registry (badge, Active, own card hash, `payTo` = on-chain `agentWallet`). `get_signal` runs the same check and refuses to pay on any failure |
 

@@ -32,11 +32,12 @@ export function asOfOf(canonical: string): string | undefined {
  * 晚上鏈的紀錄（例如等結果出來才補寫）就不算數。
  */
 export function anchoredInTime(asOf: string, blockTime: string): Check {
-  const deadline = Date.parse(`${asOf}T00:00:00Z`) + 2 * DAY_MS;
+  const closed = Date.parse(`${asOf}T00:00:00Z`) + DAY_MS;
+  const deadline = closed + DAY_MS;
   const t = Date.parse(blockTime);
   return {
-    name: "anchored within a day of the data close (long before the 7-day outcome)",
-    ok: Number.isFinite(t) && t < deadline,
+    name: "anchored after the data close and within a day of it (long before the 7-day outcome)",
+    ok: Number.isFinite(t) && t >= closed && t < deadline,
     detail: `anchored ${blockTime}; data ${asOf} closed ${new Date(Date.parse(`${asOf}T00:00:00Z`) + DAY_MS).toISOString()}`,
   };
 }
@@ -61,7 +62,7 @@ export function verifyCommitment(commitment: string, onchain: OnChain, canonical
     const h = sha256Hex(canonical);
     checks.push({ name: "signal content hashes to commitment", ok: h === commitment, detail: `sha256: ${h}` });
     const asOf = asOfOf(canonical);
-    if (asOf && onchain?.block_time) checks.push(anchoredInTime(asOf, onchain.block_time));
+    if (asOf) checks.push(anchoredInTime(asOf, onchain?.block_time ?? "(unknown)"));
     // 合約 v2：鏈上的鍵 (asset, as_of) 必須就是這個訊號的；同一天只能有這一筆，合約已經保證
     if (onchain?.contract) {
       let s: { asset?: unknown; as_of?: unknown } = {};

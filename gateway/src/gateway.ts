@@ -331,11 +331,9 @@ setInterval(refreshOperatorBalance, 10 * 60_000);
 // SDK 有些檢查內部沒有 await（例如 createChecked 的 context 檢查）：一個壞的證明不能讓整個伺服器結束
 process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 
-app.listen(PORT, () => {
-  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
-  // 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：啟動時查，之後每 10 分鐘再查一次。
-  // 連不上只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停。
-  const checkNetwork = () =>
+// 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：開始接受連線之前先查，之後每 10 分鐘再查一次。
+// 連不上只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停。
+const checkNetwork = () =>
     createGrpc()
       .getConsensusStatus()
       .then((c) => checkGenesis(BlockHash.toHexString(c.genesisBlock)))
@@ -347,8 +345,11 @@ app.listen(PORT, () => {
         }
         console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
       });
-  void checkNetwork();
-  setInterval(checkNetwork, 10 * 60_000).unref();
+await Promise.race([checkNetwork(), new Promise((r) => setTimeout(r, 15_000))]); // 節點太慢就先啟動，10 分鐘後再查
+setInterval(checkNetwork, 10 * 60_000).unref();
+
+app.listen(PORT, () => {
+  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
   console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });

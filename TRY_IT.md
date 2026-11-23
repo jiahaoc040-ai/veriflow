@@ -130,8 +130,9 @@ GitHub hides run summaries and logs from visitors who are not signed in, so ever
 | `4Vf4qUg5…QF52FgkjMQ16r` | 19528 | A test buyer. |
 
 To check the first two rows yourself:
-- [Concordium's badge check for #1313](https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC) (hosted by Concordium) lists the owner and `agent_wallet`;
-- or, from the cloned repo, `cd gateway && npm run agent -- 1313` calls `agentOf(1313)` on the registry contract through the public node and prints owner, wallet, Agent Card location and hash, and status.
+- owner: [Concordium's badge check for #1313](https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC) (hosted by Concordium) shows owner `4dNMXmNK…JF5wjUNt`, Active, and the Agent Card hash;
+- wallet: the owner bound it in [`setAgentWallet` `8238b866…`](https://ccdexplorer.io/testnet/transaction/8238b866de05398d95fd66be64a74b1f0e86279cd2b748838ebaa5fd4e44e33b) on the registry contract `<12802,0>`, sent by 19527, naming `3WSAJwTZ…`;
+- both at once, straight from the chain: from the cloned repo, `cd gateway && npm run agent -- 1313` calls `agentOf(1313)` on `<12802,0>` through the public node and prints owner, wallet, Agent Card location and hash, and status.
 
 The payment page for `935bc182…` shows 1 CCD from 19528 to 19394, with fees paid by 19719. It does not name the call it paid for; the buyer receives the string in the HTTP response, which is why Path A has to trust this page for it, and Path B does not.
 
