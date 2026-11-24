@@ -29,5 +29,7 @@ if (r.status === 200 && body && typeof body === "object") {
   console.log("commit tx: ", body.anchor_tx ? `${NET.explorer}/transaction/${body.anchor_tx}` : "(none)");
 } else console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
 if (r.paymentExplorer) console.log("payment tx:", r.paymentExplorer);
+const pr = r.payment as { success?: boolean; errorReason?: string; errorMessage?: string } | undefined;
+if (pr && pr.success === false) console.log(`settlement reported: ${pr.errorReason ?? "failed"}${pr.errorMessage && pr.errorMessage !== pr.errorReason ? ` — ${pr.errorMessage}` : ""}`);
 if (r.buyerAgentRefused) console.log(`\nThe seller refused our agent identity (nothing was charged). Check BUYER_AGENT_TOKEN_ID and that agent's on-chain agentWallet is ${agent.address}.`);
 if (r.needsVerification) console.log(`\nThis account has not proven eligibility yet. Open with the Concordium wallet: ${r.verifyUrl}`);

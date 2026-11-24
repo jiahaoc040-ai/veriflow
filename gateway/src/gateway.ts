@@ -29,6 +29,7 @@ import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
+import { paidOnChain } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
@@ -116,6 +117,20 @@ const resourceServer = new x402ResourceServer(
         message: `Account ${sender} has no current eligibility proof that passes the check at payment time. Verify at ${PUBLIC_URL}/verify?account=${sender}`,
       };
     }
+  })
+  // facilitator 回報結算失敗時：先記錄原因；若它給了交易雜湊，就自己從節點確認錢是否真的付了，付了就照常交貨
+  .onSettleFailure(async ({ error, paymentPayload, requirements }) => {
+    const e = error as Error & { errorReason?: string; errorMessage?: string; transaction?: string };
+    const payer = payerOf(paymentPayload.payload);
+    console.warn(`settlement reported failure: ${e.errorReason ?? e.message}${e.errorMessage && e.errorMessage !== e.errorReason ? ` (${e.errorMessage})` : ""} tx=${e.transaction || "-"} payer=${payer ?? "-"}`);
+    if (!e.transaction || !payer) return;
+    const paid = await paidOnChain(e.transaction, payer, requirements.payTo, requirements.amount, requirements.asset);
+    if (!paid.ok) {
+      console.warn(`not recovered: ${paid.why}`);
+      return;
+    }
+    console.log(`recovered: ${e.transaction} is finalized and pays ${requirements.amount} to ${requirements.payTo}`);
+    return { recovered: true as const, result: { success: true, transaction: e.transaction, network: requirements.network, payer } };
   })
   // 結算前再讀一次：驗證到結算之間（中間會上鏈）agent 被撤銷或換了錢包，就不收這筆錢
   .onBeforeSettle(async ({ paymentPayload, transportContext }) => {
