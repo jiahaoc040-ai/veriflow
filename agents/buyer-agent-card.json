@@ -1,0 +1,25 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "VeriFlow Buyer",
+  "description": "Reference buyer agent for VeriFlow. Before paying, it checks the seller in the Concordium Agent Registry (CIS-8004): badge, Active status, Agent Card hash, and that the x402 payTo is the seller's on-chain agentWallet. It names itself to the seller with the X-Concordium-Agent header; the seller then reads this agent from a Concordium node and accepts the payment only if it comes from this agent's on-chain agentWallet. Testnet only.",
+  "version": "0.1.0",
+  "provider": {
+    "organization": "VeriFlow",
+    "url": "https://github.com/jiahaoc040-ai/veriflow"
+  },
+  "documentationUrl": "https://github.com/jiahaoc040-ai/veriflow/blob/main/TRY_IT.md",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "buy_signal",
+      "name": "Buy a verified signal over x402",
+      "description": "Pays a CIS-8004-registered seller over x402 on Concordium testnet only after verifying it on-chain, and identifies itself as a registered agent.",
+      "tags": ["x402", "concordium", "buyer"]
+    }
+  ]
+}

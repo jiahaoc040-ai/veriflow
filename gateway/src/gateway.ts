@@ -12,7 +12,7 @@
  *
  * 執行：npm run gateway   （預設 http://localhost:4020）
  */
-import { AGENT_REGISTRY } from "./registry-node.js";
+import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
 import { AGENT_EXTENSION } from "./counterparty.js";
 import { NET, checkGenesis } from "./network.js";
 import { createGrpc } from "./grpc.js";
@@ -29,6 +29,7 @@ import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
+import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
@@ -53,6 +54,7 @@ const eligibility = new EligibilityService(
   PUBLIC_URL,
 );
 const REQUIRE_ELIGIBILITY = env("REQUIRE_ELIGIBILITY", "true") !== "false";
+const BUYER_AGENT_POLICY = parsePolicy(process.env.BUYER_AGENT);
 
 // 免費主機只有 512 MB：EMBED_FACILITATOR=1 時 facilitator 跑在同一個 Node 程序裡（省約 130 MB）。
 // 必須在建立付款中介層「之前」啟動並等它開始監聽，否則中介層啟動時查詢 /supported 會失敗。
@@ -63,9 +65,17 @@ const resourceServer = new x402ResourceServer(
 )
   .register(NETWORK, new ExactConcordiumScheme())
   // 付款交易送去結算之前：sender 沒通過資格驗證 → 拒絕（交易不會上鏈，買方不會被扣款）
-  .onBeforeVerify(async ({ paymentPayload }) => {
-    if (!REQUIRE_ELIGIBILITY) return;
+  .onBeforeVerify(async ({ paymentPayload, transportContext }) => {
     const sender = payerOf(paymentPayload.payload);
+    // 雙向驗證：買方若在標頭指名自己的 agent，賣方從節點確認它是 Active，而且付款帳號就是它鏈上的 agentWallet
+    const req = (transportContext as { request?: { adapter?: { req?: express.Request } } } | undefined)?.request?.adapter?.req;
+    const buyerAgent = await checkBuyerAgent(req?.header(BUYER_AGENT_HEADER), sender, BUYER_AGENT_POLICY, (id) => readAgent(id));
+    if (!buyerAgent.ok) {
+      console.log(`refused buyer agent from ${sender}: ${buyerAgent.reason}`);
+      return { abort: true, reason: "buyer_agent_check_failed", message: buyerAgent.reason };
+    }
+    if (buyerAgent.named && req?.res) req.res.locals.buyerAgent = buyerAgent;
+    if (!REQUIRE_ELIGIBILITY) return;
     // 每一筆付款都重新檢查證明（不只看資料庫有沒有紀錄）；節點連不上也拒絕，不退回只看資料庫
     try {
       if (!sender) throw new Error("no payer");
@@ -125,6 +135,9 @@ app.use(
                 buyerProof: ["adult", "region"],
                 buyerProofPolicy: eligibility.describe(),
                 buyerProofUrl: `${PUBLIC_URL}/verify`,
+                // 買方 agent 可以用這個標頭指名自己在 CIS-8004 的 token id；賣方從節點核對付款帳號＝它的 agentWallet
+                buyerAgentHeader: "X-Concordium-Agent",
+                buyerAgentPolicy: BUYER_AGENT_POLICY,
               },
             },
           },
@@ -194,6 +207,8 @@ app.get("/signal/:asset", async (req, res) => {
         return res.status(503).json({ error: "anchor_failed", detail: "The signal could not be committed on-chain, so it was not sold and you were not charged. Try again shortly." });
       }
     }
+    const ba = res.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
+    if (ba) body.buyer_agent = { token_id: ba.tokenId, registry: `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`, agent_wallet: ba.wallet, checked: "read from a Concordium node: Active, and the payer is its agentWallet" };
     res.json(body);
   } catch (e) {
     res.status(502).json({ error: `VeriFlow API unreachable: ${String(e)}` });
@@ -250,6 +265,9 @@ const dashboardPage = new URL("../public/index.html", import.meta.url);
 app.get("/", limitRead, (_req, res) => res.sendFile(dashboardPage.pathname, NO_CACHE_FILE));
 const agentCard = new URL("../../agent-card.json", import.meta.url);
 app.get("/.well-known/agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(agentCard.pathname, NO_CACHE_FILE));
+// 示範買方 agent 的 Agent Card（它在 CIS-8004 登記時釘住這個檔案的 SHA-256，所以內容不能再改）
+const buyerCard = new URL("../../agents/buyer-agent-card.json", import.meta.url);
+app.get("/agents/buyer-agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(buyerCard.pathname, NO_CACHE_FILE));
 
 app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
   try {

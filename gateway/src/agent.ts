@@ -28,6 +28,10 @@ export function createBuyerAgent() {
     spendControls: { allowedAssets: [{ network: NETWORK, asset: "CCD", maxAmountPerPayment: maxPay }] },
   });
   const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
+  // 買方自己在 CIS-8004 登記的 agent（選填）。賣方會從節點確認付款帳號就是它的 agentWallet
+  const buyerAgentId = (process.env.BUYER_AGENT_TOKEN_ID ?? "").trim();
+  if (buyerAgentId && !/^\d{1,20}$/.test(buyerAgentId)) throw new Error("BUYER_AGENT_TOKEN_ID must be a CIS-8004 token id (digits)");
+  const agentHeaders: Record<string, string> = buyerAgentId ? { "X-Concordium-Agent": buyerAgentId } : {};
   let lastSellerCheck: SellerVerdict | undefined;
   /** 402 的 concordium-agent 擴充欄位：只是指名（registry、token id），錢包一律從鏈上讀；網路或 registry 不對就當作沒指名 */
   const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, network: string) => {
@@ -71,6 +75,7 @@ export function createBuyerAgent() {
 
   return {
     address: buyer.address,
+    agentTokenId: buyerAgentId || undefined,
     gateway,
     maxPayMicroCcd: maxPay,
 
@@ -90,7 +95,7 @@ export function createBuyerAgent() {
       lastSellerCheck = undefined;
       let res: Response;
       try {
-        res = await fetchWithPay(`${gateway}/signal/${encodeURIComponent(asset.toUpperCase())}`);
+        res = await fetchWithPay(`${gateway}/signal/${encodeURIComponent(asset.toUpperCase())}`, { headers: agentHeaders });
       } catch (e) {
         // 賣方驗證不過 → 沒有簽名、沒有付款
         const sc = lastSellerCheck as SellerVerdict | undefined; // 在 hook 裡被設定
@@ -109,6 +114,7 @@ export function createBuyerAgent() {
         payment,
         paymentExplorer: payment?.transaction ? getExplorerTxUrl(NETWORK, payment.transaction) : undefined,
         needsVerification: !res.ok && text.includes("buyer_proof_required"),
+        buyerAgentRefused: !res.ok && text.includes("buyer_agent_check_failed"),
         verifyUrl: `${gateway}/verify?account=${buyer.address}`,
         sellerCheck: lastSellerCheck,
         refused: false,
