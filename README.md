@@ -43,7 +43,7 @@ The demo buyer agent only pays in testnet CCD and refuses any single payment abo
 
 ## x402 payment gateway (`gateway/`)
 
-No public Concordium x402 facilitator was available, so VeriFlow runs its own with the official `@x402/concordium` package. The facilitator sponsors the transaction fee, so a buyer agent only needs the signal price in CCD.
+Payments settle through **Concordium's hosted testnet x402 facilitator** (`FACILITATOR_URL` and an API key in `FACILITATOR_API_KEY`; first settlement [`f0ec0ca6…`](https://ccdexplorer.io/testnet/transaction/f0ec0ca61ce29add3166f10a35e8814108d9da5e730c4256c3f7e6d635d4ed14), fees paid by Concordium's sponsor account). The facilitator sponsors the transaction fee, so a buyer agent only needs the signal price. If it reports a failed settlement with a transaction hash, the gateway checks that transaction on a node itself and delivers only for a finalized, exact payment to `payTo` from the payer. Without a key, the gateway runs its own facilitator from the official `@x402/concordium` package (the diagram below).
 
 ```
 buyer agent ──GET /signal/BTC──▶ gateway :4020 ──402 + requirements──▶ buyer
