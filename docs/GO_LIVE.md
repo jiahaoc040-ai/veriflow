@@ -13,7 +13,7 @@ Everything below is live on Concordium testnet at <https://veriflow-yrhp.onrende
 
 **Testnet stand-ins:**
 - Identities come from testnet identity providers.
-- We run our own x402 facilitator and sponsor buyers' fees, because there is no public Concordium facilitator.
+- We run our own x402 facilitator and sponsor buyers' fees. Concordium runs a hosted testnet facilitator that issues API keys to hackathon teams; moving settlement to it is a configuration change we have requested.
 - Eligibility is cached in our database after the proof; settlement re-checks the stored proof and its on-chain anchors, but buyers still rely on our server to run that check.
 - The only buyer so far is us.
 
