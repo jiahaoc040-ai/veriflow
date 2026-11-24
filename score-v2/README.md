@@ -1,6 +1,6 @@
 ## VeriFlow scoring rule v2 — contract `<13115,0>`
 
-Run 2026-11-23T18:47:00.402Z, valid until 2026-11-24T20:47:00.402Z.
+Run 2026-11-24T04:06:29.913Z, valid until 2026-11-25T06:06:29.913Z.
 
 **Rule anchor:** verified — the scripts run here are byte-identical to the rule registered on-chain before the first commit, and the contract is the named deployment
 
@@ -8,12 +8,12 @@ Registered text: `veriflow:scoring:v2:13115:08e3b49e4e6d0a11f1d2af4c6754537d695c
 
 | | |
 |---|---|
-| Commit integrity 2026-11-21 → 2026-11-21 | 2 / 2 required slots committed |
+| Commit integrity 2026-11-21 → 2026-11-22 | 4 / 4 required slots committed |
 | Reveal integrity | 0 / 0 due calls revealed and matching Binance |
 
 No failures.
 
-**Performance:** not published — no scored day yet. Pending days (exit candle still open): 1.
+**Performance:** not published — no scored day yet. Pending days (exit candle still open): 2.
 
 **The calls scored** (read from contract `<13115,0>` on a Concordium node; commitment = SHA-256 of the call text, revealed after 7 days):
 
@@ -21,5 +21,7 @@ No failures.
 |---|---|---|---|---|
 | 2026-11-21 | BTC | `10cb3dc27d440d2e08278e7e454bd11abbb61ceffb91b34279ab28fd7d7a8eda` | 2026-11-22T08:03:30.623Z | not yet |
 | 2026-11-21 | ETH | `0a9dff9f8c505fee0197b9115d49e85da751b40c4eb90f1a6b5dbb4a851eca4e` | 2026-11-22T08:03:36.623Z | not yet |
+| 2026-11-22 | BTC | `27c19a1e0626564c35b85da7e8f956c804e657ef77f2d0d0562708e5fac076a6` | 2026-11-23T02:29:16.623Z | not yet |
+| 2026-11-22 | ETH | `86e853ec79dc27f84edcaf494c90e5644023258c6c80a47c577469debeefe9e1` | 2026-11-23T02:29:22.623Z | not yet |
 
-Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/45241967171 · code at commit fc30a701fba58d9c9383b32d78a7d3920009bb6a
+Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/45324021266 · code at commit fc30a701fba58d9c9383b32d78a7d3920009bb6a
