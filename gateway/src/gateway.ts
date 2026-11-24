@@ -75,7 +75,20 @@ if (process.env.VERIFLOW_TEST_AGENT_RECORD) {
 if (process.env.EMBED_FACILITATOR) await (await import("./facilitator.js")).listening;
 
 const resourceServer = new x402ResourceServer(
-  new HTTPFacilitatorClient({ url: env("FACILITATOR_URL", "http://localhost:4021") }),
+  new HTTPFacilitatorClient({
+    url: env("FACILITATOR_URL", "http://localhost:4021"),
+    // Concordium 的官方測試網 facilitator 要 API key。金鑰只放環境變數，不進 repo、不進日誌
+    ...(process.env.FACILITATOR_API_KEY
+      ? {
+          createAuthHeaders: async () => {
+            const name = process.env.FACILITATOR_AUTH_HEADER || "Authorization";
+            const scheme = process.env.FACILITATOR_AUTH_SCHEME ?? (name.toLowerCase() === "authorization" ? "Bearer" : "");
+            const h = { [name]: scheme ? `${scheme} ${process.env.FACILITATOR_API_KEY}` : String(process.env.FACILITATOR_API_KEY) };
+            return { verify: h, settle: h, supported: h };
+          },
+        }
+      : {}),
+  }),
 )
   .register(NETWORK, new ExactConcordiumScheme())
   // 付款交易送去結算之前：sender 沒通過資格驗證 → 拒絕（交易不會上鏈，買方不會被扣款）
