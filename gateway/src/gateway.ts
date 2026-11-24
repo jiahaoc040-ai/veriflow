@@ -38,6 +38,15 @@ const AGENT_BADGE = env("AGENT_BADGE", "JyP9UWYKh54TD2MUJDfqC");
 const AGENT_TOKEN_ID = env("AGENT_TOKEN_ID", "1313");
 const PAY_TO = env("SELLER_ADDRESS");
 const PRICE_MICROCCD = env("PRICE_MICROCCD", "1000000"); // 1 CCD
+// 選填：同一個訊號也可以用 Protocol-Level Token 付款，例如 PLT_PRICE=VFUSD:1000000（1 VFUSD，6 位小數）
+// 買方從 402 的 accepts 裡挑自己的花費護欄允許的那一種
+const PLT_PRICE = (() => {
+  const v = (process.env.PLT_PRICE ?? "").trim();
+  if (!v) return undefined;
+  const m = /^([A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]):(\d{1,20})$/.exec(v);
+  if (!m) throw new Error("PLT_PRICE must look like VFUSD:1000000 (token id and amount in the token's smallest unit)");
+  return { asset: m[1], amount: m[2] };
+})();
 
 const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 
@@ -140,25 +149,26 @@ app.use(
     {
       "GET /signal/:asset": {
         accepts: [
-          {
-            scheme: "exact",
-            network: NETWORK,
-            payTo: PAY_TO,
-            price: {
-              amount: PRICE_MICROCCD,
-              asset: "CCD",
-              // 讓買方 agent 在付款前就知道要先證明資格（格式參考 x402 issue #4182 的 buyerProof 提案）
-              extra: {
-                buyerProof: ["adult", "region"],
-                buyerProofPolicy: eligibility.describe(),
-                buyerProofUrl: `${PUBLIC_URL}/verify`,
-                // 買方 agent 可以用這個標頭指名自己在 CIS-8004 的 token id；賣方從節點核對付款帳號＝它的 agentWallet
-                buyerAgentHeader: "X-Concordium-Agent",
-                buyerAgentPolicy: BUYER_AGENT_POLICY,
-              },
+          { asset: "CCD", amount: PRICE_MICROCCD },
+          ...(PLT_PRICE ? [PLT_PRICE] : []),
+        ].map((p) => ({
+          scheme: "exact",
+          network: NETWORK,
+          payTo: PAY_TO,
+          price: {
+            amount: p.amount,
+            asset: p.asset,
+            // 讓買方 agent 在付款前就知道要先證明資格（格式參考 x402 issue #4182 的 buyerProof 提案）
+            extra: {
+              buyerProof: ["adult", "region"],
+              buyerProofPolicy: eligibility.describe(),
+              buyerProofUrl: `${PUBLIC_URL}/verify`,
+              // 買方 agent 可以用這個標頭指名自己在 CIS-8004 的 token id；賣方從節點核對付款帳號＝它的 agentWallet
+              buyerAgentHeader: "X-Concordium-Agent",
+              buyerAgentPolicy: BUYER_AGENT_POLICY,
             },
           },
-        ],
+        })),
         description: "VeriFlow risk-regime signal (RISK_ON / RISK_OFF), committed on-chain",
         mimeType: "application/json",
         // 指名收款的 agent（CIS-8004 的 registry 與 token id）。不放錢包：買方從鏈上讀 agentWallet 再比對 payTo
@@ -387,7 +397,7 @@ for (let i = 0; i < 3 && !(await Promise.race([checkNetwork(), new Promise<boole
 setInterval(checkNetwork, 60_000).unref();
 
 app.listen(PORT, () => {
-  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD  anchor=${anchorer.address} via ${anchorer.mode}`);
+  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD${PLT_PRICE ? ` or ${PLT_PRICE.amount} ${PLT_PRICE.asset} units` : ""}  anchor=${anchorer.address} via ${anchorer.mode}`);
   console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
 });

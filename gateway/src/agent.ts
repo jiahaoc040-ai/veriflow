@@ -20,12 +20,15 @@ import { REGISTRY_NETWORK, registryTool } from "./registry.js";
 export function createBuyerAgent() {
   const buyer = loadAccount(env("BUYER_KEY_FILE"));
   const gateway = env("GATEWAY_URL", PUBLIC_GATEWAY);
-  const maxPay = env("MAX_PAY_MICROCCD", "2000000");
+  // 用哪一種資產付款：預設 CCD；設 BUYER_PAY_ASSET=VFUSD 之類就用那個 Protocol-Level Token（上限 BUYER_MAX_PAY，最小單位）
+  const payAsset = (process.env.BUYER_PAY_ASSET ?? "CCD").trim() || "CCD";
+  if (!/^[A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]$/.test(payAsset)) throw new Error("BUYER_PAY_ASSET must be CCD or a PLT token id");
+  const maxPay = payAsset === "CCD" ? env("MAX_PAY_MICROCCD", "2000000") : env("BUYER_MAX_PAY", "2000000");
   const client = x402Client.fromConfig({
     schemes: [
       { network: NETWORK, client: new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }) },
     ],
-    spendControls: { allowedAssets: [{ network: NETWORK, asset: "CCD", maxAmountPerPayment: maxPay }] },
+    spendControls: { allowedAssets: [{ network: NETWORK, asset: payAsset, maxAmountPerPayment: maxPay }] },
   });
   const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
   // 買方自己在 CIS-8004 登記的 agent（選填）。賣方會從節點確認付款帳號就是它的 agentWallet
@@ -76,6 +79,7 @@ export function createBuyerAgent() {
   return {
     address: buyer.address,
     agentTokenId: buyerAgentId || undefined,
+    payAsset,
     gateway,
     maxPayMicroCcd: maxPay,
 

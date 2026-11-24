@@ -13,7 +13,7 @@ import { createBuyerAgent } from "./agent.js";
 const asset = (process.argv[2] ?? "BTC").toUpperCase();
 const agent = createBuyerAgent();
 
-console.log(`buyer ${agent.address}${agent.agentTokenId ? ` (agent #${agent.agentTokenId})` : ""} → ${agent.gateway}/signal/${asset}`);
+console.log(`buyer ${agent.address}${agent.agentTokenId ? ` (agent #${agent.agentTokenId})` : ""} → ${agent.gateway}/signal/${asset}, paying in ${agent.payAsset}`);
 const r = await agent.buySignal(asset);
 if (r.sellerCheck) {
   console.log(`\nseller check: ${r.sellerCheck.ok ? "passed" : "FAILED — nothing was signed or paid"}`);
