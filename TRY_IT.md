@@ -201,7 +201,7 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    If your account owns an agent in the Agent Registry (`npm run registry -- register`, then `set-uri` and `set-wallet` with `REGISTRY_OWNER_KEY_FILE` and `SELLER_KEY_FILE` set to your key file and `SELLER_ADDRESS` empty), run `BUYER_AGENT_TOKEN_ID=<your id> npm run buyer -- BTC`.
    - **You should see** the five ✓ lines, then `the seller checked us: agent #<id> — read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet`.
    - **To see an impersonation refused**, name someone else's agent: `BUYER_AGENT_TOKEN_ID=1313 npm run buyer -- BTC`. You get `status: 402`, `buyer_agent_check_failed:wallet_mismatch`, and nothing is charged, because #1313's on-chain `agentWallet` is not your account.
-   - Our own run of both, on 2026-11-24: buyer agent #1478 was accepted and paid in [`515226b5…`](https://ccdexplorer.io/testnet/transaction/515226b587ccb056f3e1c406fe1a85e12382a6a19c61345ef41c821395289b88); the same account claiming #1313 was refused before anything was signed on-chain.
+   - Our own run of both, on 2026-11-24: buyer agent #1478 was accepted and paid in [`515226b5…`](https://ccdexplorer.io/testnet/transaction/515226b587ccb056f3e1c406fe1a85e12382a6a19c61345ef41c821395289b88); the same account claiming #1313 was refused before its payment was submitted, so nothing was charged.
 
 6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
    - hash the `canonical` string exactly as printed;
