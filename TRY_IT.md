@@ -50,7 +50,7 @@ print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
 # tag 0 asset BTC as_of 2026-11-21 commitment 10cb3dc2…8eda committed_at_ms 1795334610623
 ```
 
-**Contract v2 holds only one commit for BTC, 2026-11-21.** It rejects a second one. (The service's `/commitments` list also shows an older BTC 2026-11-21 entry, `ba9b801e…`, on the retired v1 contract `<13094,0>`, which had no such rule; that is why v1 was retired.) To see this:
+**Contract v2 holds only one commit for BTC, 2026-11-21.** It rejects a second one. (The service's `/commitments` list also shows an older BTC 2026-11-21 entry, `ba9b801e…`, from the retired v1 system, which did not enforce one call per asset and day; that is why v2 replaced it.) To see this:
 - open [CCDScan testnet](https://testnet.ccdscan.io/) and type `13115` in the search box (searching `<13115,0>` finds nothing);
 - the suggestions show two rows: a block `6b645d @ 13115` ("Age over 4 years"), and the contract `<13115,0>` created by `4dNMXm`. Click the **contract** row (pressing Enter does not open it). Its page names it `veriflow_registry_v2`. CCDScan shortens the module to `08e3b4`; hover over it for the full hash, or open [the contract on CCDExplorer](https://ccdexplorer.io/testnet/contract/13115/0);
 - under **Events**, each day has exactly one `commit` per asset. CCDScan says "No embedded event schema"; the readable fields are under **Message**. The BTC 2026-11-21 message carries commitment `10cb3dc2…8eda`. Times there are in your local time zone.
