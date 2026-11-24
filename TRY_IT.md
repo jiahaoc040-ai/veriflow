@@ -197,6 +197,12 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **On a failed seller check**, it prints ✗ and stops before anything is signed.
 
    It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: the commit time varies from day to day (see the [`daily-v2` runs](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml)). If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
+   **Optional: buy as a registered agent, and watch the seller check you back.**
+   If your account owns an agent in the Agent Registry (`npm run registry -- register`, then `set-uri` and `set-wallet` with `REGISTRY_OWNER_KEY_FILE` and `SELLER_KEY_FILE` set to your key file and `SELLER_ADDRESS` empty), run `BUYER_AGENT_TOKEN_ID=<your id> npm run buyer -- BTC`.
+   - **You should see** the five ✓ lines, then `the seller checked us: agent #<id> — read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet`.
+   - **To see an impersonation refused**, name someone else's agent: `BUYER_AGENT_TOKEN_ID=1313 npm run buyer -- BTC`. You get `status: 402`, `buyer_agent_check_failed:wallet_mismatch`, and nothing is charged, because #1313's on-chain `agentWallet` is not your account.
+   - Our own run of both, on 2026-11-24: buyer agent #1478 was accepted and paid in [`515226b5…`](https://ccdexplorer.io/testnet/transaction/515226b587ccb056f3e1c406fe1a85e12382a6a19c61345ef41c821395289b88); the same account claiming #1313 was refused before anything was signed on-chain.
+
 6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
    - hash the `canonical` string exactly as printed;
    - open your `commit tx` link and check that its Parameter shows your asset, your `as_of` and your commitment;
