@@ -10,16 +10,54 @@
   "documentationUrl": "https://github.com/jiahaoc040-ai/veriflow/blob/main/TRY_IT.md",
   "capabilities": {
     "streaming": false,
-    "pushNotifications": false
+    "pushNotifications": false,
+    "extensions": [
+      {
+        "uri": "https://docs.concordium.com/a2a-extensions/concordium-badge/v1",
+        "description": "Verified by Concordium badge — on-chain agent identity in a CIS-8004 registry",
+        "required": false,
+        "params": {
+          "tokenAddress": "ccd:4221332d34e1694168c2a0c0b3fd0f27/cis-2:JyP9Xd8nPLMb7cZK2y3oq",
+          "owner": {
+            "account": "ccd:4221332d34e1694168c2a0c0b3fd0f27:4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r"
+          },
+          "contracts": {
+            "cis8004": "ccd:4221332d34e1694168c2a0c0b3fd0f27:12802.0",
+            "cis8": "ccd:4221332d34e1694168c2a0c0b3fd0f27:12801.0"
+          },
+          "verify": "Resolve tokenAddress via CIS-8004 agent_of; confirm owner + status is Active + card SHA-256 equals metadata_hash.",
+          "verification": {
+            "service": "Concordium Agent Registry",
+            "verifyUrl": "https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9Xd8nPLMb7cZK2y3oq",
+            "mcp": "https://agent-registry-mcp.concordium.com/mcp",
+            "docs": "https://docs.concordium.com/en/mainnet/technical-reference/agent-registry/concordium-badge.html"
+          }
+        }
+      }
+    ]
   },
-  "defaultInputModes": ["application/json"],
-  "defaultOutputModes": ["application/json"],
+  "defaultInputModes": [
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
   "skills": [
     {
       "id": "buy_signal",
       "name": "Buy a verified signal over x402",
       "description": "Pays a CIS-8004-registered seller over x402 on Concordium testnet only after verifying it on-chain, and identifies itself as a registered agent.",
-      "tags": ["x402", "concordium", "buyer"]
+      "tags": [
+        "x402",
+        "concordium",
+        "buyer"
+      ]
+    }
+  ],
+  "registrations": [
+    {
+      "agentId": 1478,
+      "agentRegistry": "ccd:4221332d34e1694168c2a0c0b3fd0f27:12802.0"
     }
   ]
 }
