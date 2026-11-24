@@ -55,6 +55,11 @@ const eligibility = new EligibilityService(
 );
 const REQUIRE_ELIGIBILITY = env("REQUIRE_ELIGIBILITY", "true") !== "false";
 const BUYER_AGENT_POLICY = parsePolicy(process.env.BUYER_AGENT);
+// 測試用的假鏈上紀錄只給買方的整合測試用；賣方伺服器看到它就拒絕啟動，免得驗證被繞過
+if (process.env.VERIFLOW_TEST_AGENT_RECORD) {
+  console.error("❌ VERIFLOW_TEST_AGENT_RECORD is set; it replaces registry reads and must never be set on the gateway");
+  process.exit(1);
+}
 
 // 免費主機只有 512 MB：EMBED_FACILITATOR=1 時 facilitator 跑在同一個 Node 程序裡（省約 130 MB）。
 // 必須在建立付款中介層「之前」啟動並等它開始監聽，否則中介層啟動時查詢 /supported 會失敗。
@@ -72,7 +77,8 @@ const resourceServer = new x402ResourceServer(
     const buyerAgent = await checkBuyerAgent(req?.header(BUYER_AGENT_HEADER), sender, BUYER_AGENT_POLICY, (id) => readAgent(id));
     if (!buyerAgent.ok) {
       console.log(`refused buyer agent from ${sender}: ${buyerAgent.reason}`);
-      return { abort: true, reason: "buyer_agent_check_failed", message: buyerAgent.reason };
+      // 原因代碼放在 reason：x402 只把 reason 回給買方（message 會被丟掉）
+      return { abort: true, reason: `buyer_agent_check_failed:${buyerAgent.code}`, message: buyerAgent.reason };
     }
     if (buyerAgent.named && req?.res) req.res.locals.buyerAgent = buyerAgent;
     if (!REQUIRE_ELIGIBILITY) return;
@@ -87,6 +93,17 @@ const resourceServer = new x402ResourceServer(
         reason: "buyer_proof_required",
         message: `Account ${sender} has no current eligibility proof that passes the check at payment time. Verify at ${PUBLIC_URL}/verify?account=${sender}`,
       };
+    }
+  })
+  // 結算前再讀一次：驗證到結算之間（中間會上鏈）agent 被撤銷或換了錢包，就不收這筆錢
+  .onBeforeSettle(async ({ paymentPayload, transportContext }) => {
+    const req = (transportContext as { request?: { adapter?: { req?: express.Request } } } | undefined)?.request?.adapter?.req;
+    const named = req?.res?.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
+    if (!named) return;
+    const again = await checkBuyerAgent(named.tokenId, payerOf(paymentPayload.payload), BUYER_AGENT_POLICY, (id) => readAgent(id));
+    if (!again.ok || !again.named || again.wallet !== named.wallet) {
+      console.log(`refused at settlement, buyer agent #${named.tokenId}: ${again.ok ? "wallet changed" : again.reason}`);
+      return { abort: true, reason: `buyer_agent_check_failed:${again.ok ? "wallet_changed" : again.code}` };
     }
   });
 
@@ -208,7 +225,7 @@ app.get("/signal/:asset", async (req, res) => {
       }
     }
     const ba = res.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
-    if (ba) body.buyer_agent = { token_id: ba.tokenId, registry: `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`, agent_wallet: ba.wallet, checked: "read from a Concordium node: Active, and the payer is its agentWallet" };
+    if (ba) body.buyer_agent = { token_id: ba.tokenId, registry: `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`, owner: ba.owner, agent_wallet: ba.wallet, checked: "read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet" };
     res.json(body);
   } catch (e) {
     res.status(502).json({ error: `VeriFlow API unreachable: ${String(e)}` });

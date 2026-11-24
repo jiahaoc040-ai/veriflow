@@ -21,6 +21,7 @@ test("policy parsing defaults to optional", () => {
   assert.equal(parsePolicy("required"), "required");
   assert.equal(parsePolicy("off"), "off");
   assert.equal(parsePolicy("nonsense"), "optional");
+  assert.equal(parsePolicy(" Required "), "required");
 });
 
 test("no header: optional sells, required refuses, off ignores", async () => {
@@ -38,6 +39,7 @@ test("someone else's agent id is refused: the payer is not its agentWallet", asy
   const r = await checkBuyerAgent("2001", OTHER, "optional", reader(rec()));
   assert.equal(r.ok, false);
   assert.match(!r.ok ? r.reason : "", /agentWallet/);
+  assert.equal(!r.ok ? r.code : "", "wallet_mismatch");
 });
 
 test("revoked, missing, walletless, swapped or unreadable agents are refused", async () => {
