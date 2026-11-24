@@ -1,7 +1,3 @@
 {
-  "name": "VeriFlow Test Dollar",
-  "symbol": "VFUSD",
-  "decimals": 6,
-  "description": "Testnet-only stand-in for a fiat stablecoin, used to price VeriFlow's x402 signal API in a stable unit on Concordium testnet. It has no value and is not redeemable.",
-  "display": { "url": "https://github.com/jiahaoc040-ai/veriflow" }
+  "description": "VeriFlow Test Dollar: a testnet-only stand-in for a fiat stablecoin, used to price VeriFlow's x402 signal API in a stable unit on Concordium testnet. It has no value and is not redeemable. https://github.com/jiahaoc040-ai/veriflow"
 }
