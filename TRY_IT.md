@@ -50,7 +50,7 @@ print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
 # tag 0 asset BTC as_of 2026-11-21 commitment 10cb3dc2…8eda committed_at_ms 1795334610623
 ```
 
-**Only one commit exists for BTC, 2026-11-21.** The contract rejects a second one. To see this:
+**Contract v2 holds only one commit for BTC, 2026-11-21.** It rejects a second one. (The service's `/commitments` list also shows an older BTC 2026-11-21 entry, `ba9b801e…`, on the retired v1 contract `<13094,0>`, which had no such rule; that is why v1 was retired.) To see this:
 - open [CCDScan testnet](https://testnet.ccdscan.io/) and type `13115` in the search box (searching `<13115,0>` finds nothing);
 - the suggestions show two rows: a block `6b645d @ 13115` ("Age over 4 years"), and the contract `<13115,0>` created by `4dNMXm`. Click the **contract** row (pressing Enter does not open it). Its page names it `veriflow_registry_v2`. CCDScan shortens the module to `08e3b4`; hover over it for the full hash, or open [the contract on CCDExplorer](https://ccdexplorer.io/testnet/contract/13115/0);
 - under **Events**, each day has exactly one `commit` per asset. CCDScan says "No embedded event schema"; the readable fields are under **Message**. The BTC 2026-11-21 message carries commitment `10cb3dc2…8eda`. Times there are in your local time zone.
@@ -196,7 +196,7 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **The result**: `status: 200`, the `canonical` string, the `commitment`, the `commit tx` link and the `payment tx` link.
    - **On a failed seller check**, it prints ✗ and stops before anything is signed.
 
-   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: so far each day's calls were committed at 08:03 UTC (2026-11-22) and 02:29 UTC (2026-11-23). If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
+   It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: the commit time varies from day to day (see the [`daily-v2` runs](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml)). If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
 6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
    - hash the `canonical` string exactly as printed;
    - open your `commit tx` link and check that its Parameter shows your asset, your `as_of` and your commitment;

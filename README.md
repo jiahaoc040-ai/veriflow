@@ -39,7 +39,7 @@ The `score-v2` (four times a day) and `score` (twice a day) workflows rerun thes
 
 | Workflow | Job | Schedule |
 |---|---|---|
-| [`daily-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml) | Commits the calls and reveals due ones | scheduled hourly (GitHub delays scheduled runs; v2 commits so far landed at 08:03 and 02:29 UTC) |
+| [`daily-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml) | Commits the calls and reveals due ones | scheduled hourly, plus two daily backup triggers at 11:45 and 19:45 UTC (GitHub delays scheduled runs, so the commit time varies; see the run list) |
 | [`score-v2`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/score-v2.yml) | Scores the calls | scheduled four times a day (GitHub may delay or skip scheduled runs) |
 | [`watch`](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/watch.yml) | Checks that agent #1313's wallet, card, status and owner, and contract v2's owner and committer, have not changed | every 6 hours |
 
@@ -175,7 +175,7 @@ No API keys are needed. The v2 call (`gateway/src/signal-v2.ts`, produced by `np
 
 ## Verify it yourself
 
-`streamlit run dashboard.py` shows every commitment with a **one-click verify** button (it reads through the gateway's `/onchain`; the check that a v2 call sits under its own asset and day is only in the TypeScript verifier used by `verify_signal`). It reads the transaction back from Concordium, decodes `veriflow:v1:<hash>`, and checks it against the commitment. A buyer can paste the `canonical` signal they received; change a single character and verification fails. With the content in hand it also checks the anchoring block's time: a signal must be on-chain within a day of its data close, so a record written after the outcome was known fails verification. The same checks run in the public dashboard (in the browser), `veriflow/verify.py`, and the MCP `verify_signal` tool.
+`streamlit run dashboard.py` shows every commitment with a **one-click verify** button (it reads through the gateway's `/onchain`; the check that a v2 call sits under its own asset and day is only in the TypeScript verifier used by `verify_signal`). It reads the transaction back from Concordium, decodes `veriflow:v1:<hash>`, and checks it against the commitment. A buyer can paste the `canonical` signal they received; change a single character and verification fails. With the content in hand it also checks the anchoring block's time: a signal must be on-chain after its data close and within a day of it, so a record written before the data existed, or after the outcome was known, fails verification. The same checks run in the public dashboard (in the browser), `veriflow/verify.py`, and the MCP `verify_signal` tool.
 
 ## Trust in both directions
 
