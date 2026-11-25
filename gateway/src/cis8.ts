@@ -151,7 +151,15 @@ export async function checkEvmBinding(o: { address: string; publicKey: string; n
   if (derived.toLowerCase() !== o.address.toLowerCase()) return { ok: false, reason: `public key belongs to ${derived}, not ${o.address}` };
   let reg: Cis8Registration | null;
   try {
-    reg = await (o.read ?? ownerOfKey)({ namespace: o.namespace, keyType: EVM_KEY_TYPE, publicKey: o.publicKey });
+    // Public nodes sometimes answer a single call with a 502 or a reset: retry twice before giving up (still fail closed after that)
+    const key = { namespace: o.namespace, keyType: EVM_KEY_TYPE, publicKey: o.publicKey };
+    const read = o.read ?? ownerOfKey;
+    for (let i = 0; ; i++) {
+      try { reg = await read(key); break; } catch (e) {
+        if (i >= 2 || !/\b5\d\d\b|ECONNRESET|UNAVAILABLE|timed? ?out|DEADLINE/i.test(e instanceof Error ? e.message : String(e))) throw e;
+        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
   } catch (e) {
     return { ok: false, reason: `could not read CIS-8 from a Concordium node: ${e instanceof Error ? e.message : e}` };
   }
