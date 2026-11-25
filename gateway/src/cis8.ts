@@ -50,11 +50,14 @@ export function sameExternalKey(got: ExternalKey, asked: ExternalKey): boolean {
   const want = asked.keyType === "secp256k1-uncompressed" ? compressPublicKey(asked.publicKey).toString("hex") : asked.publicKey.replace(/^0x/i, "").toLowerCase();
   if (got.keyType === "secp256k1-compressed") return g === want;
   if (got.keyType === "secp256k1-uncompressed") return compressPublicKey(g).toString("hex") === want;
-  return false;
+  // 其他金鑰類型（例如 ed25519）：類型與位元組都要完全一樣
+  return got.keyType === asked.keyType && g === asked.publicKey.replace(/^0x/i, "").toLowerCase();
 }
 
 export function encodeExternalKey(k: ExternalKey): Buffer {
-  return Buffer.concat([str(k.namespace), str(k.keyType), bstr(normalizePublicKey(k.publicKey))]);
+  // 未壓縮的 secp256k1 先檢查格式；其他類型照原樣編碼
+  const pk = k.keyType === "secp256k1-uncompressed" ? normalizePublicKey(k.publicKey) : Buffer.from(k.publicKey.replace(/^0x/i, ""), "hex");
+  return Buffer.concat([str(k.namespace), str(k.keyType), bstr(pk)]);
 }
 
 /** 外部金鑰要簽的位元組（不含 EIP-191 前綴；personal_sign 會自己加） */

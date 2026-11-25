@@ -20,7 +20,7 @@ concurrency: census-${{ inputs.network || 'mainnet' }}
 jobs:
   census:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: gateway
@@ -62,13 +62,18 @@ jobs:
           NET: ${{ inputs.network || 'mainnet' }}
         run: |
           [ -f report/census-report.json ] || { echo "no report"; exit 0; }
-          git init -q pub && cd pub
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch -q --depth 1 origin score-reports && git checkout -q -b score-reports FETCH_HEAD || git checkout -q --orphan score-reports
-          mkdir -p "census/$NET/history"
-          stamp=$(jq -r .run_at ../report/census-report.json | tr -d ':')
-          cp ../report/census-report.json "census/$NET/latest.json"
-          cp ../report/census-report.json "census/$NET/history/$stamp.json"
-          { cat ../report/census-summary.md; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID · code at commit $GITHUB_SHA · per-agent rows in latest.json"; } > "census/$NET/README.md"
-          git config user.name "census workflow"; git config user.email "actions@users.noreply.github.com"
-          git add -A && git commit -qm "census $NET $stamp" && git push -q origin HEAD:refs/heads/score-reports
+          stamp=$(jq -r .run_at report/census-report.json | tr -d ':')
+          # 另一個網路的 census 可能同時在推：重試幾次
+          for i in 1 2 3 4 5; do
+            rm -rf pub && git init -q pub && cd pub
+            git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git fetch -q --depth 1 origin score-reports && git checkout -q -b score-reports FETCH_HEAD || git checkout -q --orphan score-reports
+            mkdir -p "census/$NET/history"
+            cp ../report/census-report.json "census/$NET/latest.json"
+            cp ../report/census-report.json "census/$NET/history/$stamp.json"
+            { cat ../report/census-summary.md; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID · code at commit $GITHUB_SHA · per-agent rows in latest.json"; } > "census/$NET/README.md"
+            git config user.name "census workflow"; git config user.email "actions@users.noreply.github.com"
+            git add -A && git commit -qm "census $NET $stamp" && git push -q origin HEAD:refs/heads/score-reports && exit 0
+            cd .. && sleep $((i * 10))
+          done
+          exit 1

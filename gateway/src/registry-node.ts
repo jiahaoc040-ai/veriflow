@@ -22,6 +22,8 @@ export type AgentOnChain = {
   metadataHash: string | null;
   wallet: string | null;
   status: "Active" | "Revoked";
+  /** CIS-8004 external_reference：目前只定義一種（tag 0＝CIS-8），指向某個 CIS-8 合約裡的一把外部金鑰 */
+  externalRef?: { contract: string; namespace: string; keyType: string; publicKey: string } | null;
 };
 
 /** CIS-8004 的 token id：長度一個 byte（8），接著 u64 little-endian */
@@ -55,11 +57,20 @@ export function decodeAgentOf(buf: Buffer): AgentOnChain | null {
   const owner = account();
   const agentUri = opt("agent_uri") ? (() => { if (o + 4 > buf.length) throw new Error("agentOf: truncated"); const n = buf.readUInt32LE(o); o += 4; return bytes(n).toString("utf8"); })() : null;
   const metadataHash = opt("metadata_hash") ? bytes(32).toString("hex") : null;
-  if (opt("external_reference")) throw new Error("agentOf: external_reference is set; this reader does not decode it");
+  const str = () => { if (o + 4 > buf.length) throw new Error("agentOf: truncated"); const n = buf.readUInt32LE(o); o += 4; if (n > 4096) throw new Error("agentOf: field too long"); return bytes(n); };
+  // ExternalReference ::= contract_address (u64 index, u64 subindex) · kind (u8 tag; 0 = Cis8 + ExternalKeyId)
+  let externalRef: AgentOnChain["externalRef"] = null;
+  if (opt("external_reference")) {
+    const c = bytes(16);
+    const contract = `<${c.readBigUInt64LE(0)},${c.readBigUInt64LE(8)}>`;
+    const kind = u8();
+    if (kind !== 0) throw new Error(`agentOf: unknown external_reference kind ${kind}`);
+    externalRef = { contract, namespace: str().toString("utf8"), keyType: str().toString("utf8"), publicKey: str().toString("hex") };
+  }
   const wallet = opt("agent_wallet") ? account() : null;
   const tag = u8();
   if (tag > 1) throw new Error(`agentOf: unknown status tag ${tag}`);
-  return { tokenId, owner, agentUri, metadataHash, wallet, status: tag === 0 ? "Active" : "Revoked" };
+  return { tokenId, owner, agentUri, metadataHash, wallet, status: tag === 0 ? "Active" : "Revoked", ...(externalRef ? { externalRef } : {}) };
 }
 
 /** 讀一個 agent；沒有這個 agent 回傳 null，節點連不上就丟錯 */

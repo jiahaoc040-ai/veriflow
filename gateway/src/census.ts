@@ -19,12 +19,16 @@ import { createGrpc, isTransient } from "./grpc.js";
 import { readAgent, AGENT_REGISTRY_TEXT, type AgentOnChain } from "./registry-node.js";
 import { badgeTokenAddress, readCapped, MAX_CARD_BYTES } from "./counterparty.js";
 import { sameAccount } from "./contract-v2.js";
+import { ownerOfKey, CIS8_REGISTRY } from "./cis8.js";
 import { NET } from "./network.js";
 
 export type Row = {
   id: string;
   status: "Active" | "Revoked" | "unreadable";
-  extRef?: boolean; // external_reference 已設定（通常是連到 CIS-8 的外部金鑰）；這個讀取器不解析它
+  extRef?: boolean; // external_reference 已設定：agent 宣告了一把其他鏈的金鑰（CIS-8）
+  extNs?: string;
+  // 那把金鑰在 CIS-8 的實際狀態：綁在這個 agent 的擁有者底下／綁在別人底下／沒有登記／已撤銷／指向別的合約／讀取失敗
+  cis8?: "owner" | "other" | "none" | "revoked" | "other-contract" | "error";
   wallet?: boolean;
   walletIsOwner?: boolean;
   https?: boolean;
@@ -39,7 +43,7 @@ const GAP = Number(process.env.CENSUS_GAP ?? 300);
 const MAX_ID = Number(process.env.CENSUS_MAX_ID ?? 50_000);
 const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 24);
 // 時間預算：到了就停止往上讀，照樣寫出報告（標示 partial 與讀到的最高 id）
-const BUDGET_MS = Number(process.env.CENSUS_BUDGET_MIN ?? 40) * 60_000;
+const BUDGET_MS = Number(process.env.CENSUS_BUDGET_MIN ?? 150) * 60_000;
 const PROBES = Number(process.env.CENSUS_PROBES_PER_AGENT ?? 3);
 
 async function withRetry<T>(f: () => Promise<T>): Promise<T> {
@@ -89,8 +93,20 @@ async function probe(url: string, wallet: string | null): Promise<Row["x402"]> {
   };
 }
 
-async function inspect(id: string, a: AgentOnChain): Promise<Row> {
+async function cis8State(a: AgentOnChain, grpc: ReturnType<typeof createGrpc>): Promise<Row["cis8"]> {
+  const x = a.externalRef!;
+  if (x.contract !== `<${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>`) return "other-contract";
+  try {
+    const r = await withRetry(() => ownerOfKey({ namespace: x.namespace, keyType: x.keyType, publicKey: x.publicKey }, grpc));
+    if (!r) return "none";
+    if (r.status !== "Active") return "revoked";
+    return sameAcct(r.owner, a.owner) ? "owner" : "other";
+  } catch { return "error"; }
+}
+
+async function inspect(id: string, a: AgentOnChain, grpc: ReturnType<typeof createGrpc>): Promise<Row> {
   const row: Row = { id, status: a.status, wallet: !!a.wallet, walletIsOwner: !!a.wallet && sameAcct(a.wallet, a.owner) };
+  if (a.externalRef) Object.assign(row, { extRef: true, extNs: a.externalRef.namespace, cis8: await cis8State(a, grpc) });
   if (a.status !== "Active") return row;
   if (!a.agentUri) return { ...row, card: "none" };
   row.https = /^https:\/\//.test(a.agentUri);
@@ -131,6 +147,14 @@ export function summarize(rows: Row[]) {
     revoked: n((r) => r.status === "Revoked"),
     unreadable: n((r) => r.status === "unreadable"),
     with_external_reference: n((r) => !!r.extRef),
+    active_with_external_reference: n((r) => r.status === "Active" && !!r.extRef),
+    active_ext_bound_to_owner: n((r) => r.status === "Active" && r.cis8 === "owner"),
+    active_ext_bound_to_other: n((r) => r.status === "Active" && r.cis8 === "other"),
+    active_ext_not_registered: n((r) => r.status === "Active" && r.cis8 === "none"),
+    active_ext_revoked: n((r) => r.status === "Active" && r.cis8 === "revoked"),
+    active_ext_other_contract: n((r) => r.status === "Active" && r.cis8 === "other-contract"),
+    active_ext_read_error: n((r) => r.status === "Active" && r.cis8 === "error"),
+    ext_namespaces: Object.fromEntries(Object.entries(rows.filter((r) => r.status === "Active" && r.extNs).reduce((m, r) => ((m[r.extNs!] = (m[r.extNs!] ?? 0) + 1), m), {} as Record<string, number>)).sort((a, b) => b[1] - a[1]).slice(0, 8)),
     active_with_wallet: n((r) => r.status === "Active" && !!r.wallet),
     active_wallet_is_owner: n((r) => r.status === "Active" && !!r.walletIsOwner),
     active_card_ok: cardOk.length,
@@ -165,14 +189,14 @@ async function main() {
         a = await withRetry(() => readAgent(String(id), grpc));
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        // 這個讀取器不解析 external_reference：記下來，算「有連外部金鑰」，狀態未知
-        rows.push({ id: String(id), status: "unreadable", extRef: /external_reference/.test(m) });
+        console.error(`agent #${id} unreadable: ${m}`);
+        rows.push({ id: String(id), status: "unreadable" });
         lastFound = Math.max(lastFound, id);
         continue;
       }
       if (!a) continue;
       lastFound = Math.max(lastFound, id);
-      rows.push(await inspect(String(id), a).catch(() => ({ id: String(id), status: a!.status }) as Row));
+      rows.push(await inspect(String(id), a, grpc).catch(() => ({ id: String(id), status: a!.status }) as Row));
       if (rows.length % 100 === 0) console.error(`… ${rows.length} agents read (id ${id})`);
     }
   };
@@ -194,7 +218,7 @@ async function main() {
     line("Agents read", s.agents),
     line("Active", s.active, s.agents),
     line("Revoked", s.revoked, s.agents),
-    line("Not decoded (external_reference set; status unknown)", s.unreadable, s.agents),
+    line("Could not be decoded", s.unreadable, s.agents),
     line("Active with an on-chain agentWallet", s.active_with_wallet, s.active),
     line("… of which the wallet is the owner account itself", s.active_wallet_is_owner, s.active),
     line("Active whose https card loads", s.active_card_ok, s.active),
@@ -203,12 +227,21 @@ async function main() {
     line("Active whose card matches the on-chain hash", s.active_hash_match, s.active),
     line("Active whose card does NOT match the on-chain hash", s.active_hash_mismatch, s.active),
     line("Active declaring a Verified by Concordium badge in the card", s.active_badge_declared, s.active),
+    line("Active linking an external (other-chain) key via external_reference", s.active_with_external_reference, s.active),
+    line("… key bound in CIS-8 to the agent's owner (read from a node)", s.active_ext_bound_to_owner, s.active_with_external_reference),
+    line("… key bound in CIS-8 to a different account", s.active_ext_bound_to_other, s.active_with_external_reference),
+    line("… key not registered in CIS-8", s.active_ext_not_registered, s.active_with_external_reference),
+    line("… CIS-8 binding revoked", s.active_ext_revoked, s.active_with_external_reference),
+    line("… points at another contract", s.active_ext_other_contract, s.active_with_external_reference),
+    line("… CIS-8 read failed", s.active_ext_read_error, s.active_with_external_reference),
     line("Active whose card mentions x402", s.active_mentions_x402, s.active),
     line("… with a live x402 402 found at a URL in the card", s.x402_endpoints_found),
     line("… … Concordium payTo = on-chain agentWallet", s.x402_ccd_payto_matches_wallet),
     line("… … Concordium payTo ≠ on-chain agentWallet", s.x402_ccd_payto_not_wallet),
     line("… … offering an EVM payTo", s.x402_evm_payto),
     line("… … EVM offer naming a CIS-8 key in `extra`", s.x402_evm_with_cis8_key),
+    "",
+    `External key namespaces (Active): ${Object.entries(s.ext_namespaces).map(([k, v]) => `\`${k}\` ${v}`).join(", ") || "none"}.`,
     "",
     "Not checked here: the official badge check (a hosted service), CIS-8 bindings (the registry has no listing by account), endpoints not named in the card or not answering GET.",
   ].join("\n");

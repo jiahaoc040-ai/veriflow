@@ -36,3 +36,30 @@ test("402 parsing: v1 JSON body, garbage, empty", () => {
   assert.deepEqual(acceptsOf402("not-base64", "nope"), []);
   assert.deepEqual(acceptsOf402(null, "{}"), []);
 });
+
+import { decodeAgentOf } from "../src/registry-node.ts";
+import { AccountAddress } from "@concordium/web-sdk";
+
+test("agentOf decodes a CIS-8 external_reference and the fields after it", () => {
+  const owner = "4dNMXmNKa2i5hvABfbRJ6NebGopaWSPNmMrbvroSzgJF5wjUNt";
+  const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
+  const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
+  const s = (x: string) => Buffer.concat([u32(Buffer.byteLength(x)), Buffer.from(x)]);
+  const pk = Buffer.from("03" + "ab".repeat(32), "hex");
+  const acct = Buffer.from(AccountAddress.fromBase58(owner).decodedAddress);
+  const buf = Buffer.concat([
+    Buffer.from([1, 8]), u64(5120n), acct,
+    Buffer.from([0]), Buffer.from([0]), // no uri, no hash
+    Buffer.from([1]), u64(10081n), u64(0n), Buffer.from([0]), s("eip155:8453"), s("secp256k1-compressed"), u32(pk.length), pk,
+    Buffer.from([1]), acct, // wallet
+    Buffer.from([0]), u64(0n), Buffer.from([0]), Buffer.from([0]),
+  ]);
+  const a = decodeAgentOf(buf)!;
+  assert.equal(a.tokenId, "5120");
+  assert.equal(a.status, "Active");
+  assert.equal(a.wallet, owner);
+  assert.deepEqual(a.externalRef, { contract: "<10081,0>", namespace: "eip155:8453", keyType: "secp256k1-compressed", publicKey: pk.toString("hex") });
+  // 未定義的 kind：拒絕
+  const bad = Buffer.from(buf); bad[2 + 8 + 32 + 2 + 1 + 16] = 7;
+  assert.throws(() => decodeAgentOf(bad), /unknown external_reference kind/);
+});
