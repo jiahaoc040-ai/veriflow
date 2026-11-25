@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 
-concurrency: census
+concurrency: census-${{ inputs.network || 'mainnet' }}
 
 jobs:
   census:

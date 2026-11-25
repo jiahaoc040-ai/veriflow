@@ -37,7 +37,9 @@ export type Row = {
 
 const GAP = Number(process.env.CENSUS_GAP ?? 300);
 const MAX_ID = Number(process.env.CENSUS_MAX_ID ?? 50_000);
-const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 8);
+const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 24);
+// 時間預算：到了就停止往上讀，照樣寫出報告（標示 partial 與讀到的最高 id）
+const BUDGET_MS = Number(process.env.CENSUS_BUDGET_MIN ?? 40) * 60_000;
 const PROBES = Number(process.env.CENSUS_PROBES_PER_AGENT ?? 3);
 
 async function withRetry<T>(f: () => Promise<T>): Promise<T> {
@@ -95,7 +97,7 @@ async function inspect(id: string, a: AgentOnChain): Promise<Row> {
   if (!row.https) return { ...row, card: "none" };
   let raw: Buffer;
   try {
-    const r = await fetch(a.agentUri, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+    const r = await fetch(a.agentUri, { redirect: "error", signal: AbortSignal.timeout(6_000) });
     if (!r.ok) { await r.body?.cancel(); return { ...row, card: "unreachable" }; }
     raw = await readCapped(r, MAX_CARD_BYTES);
   } catch { return { ...row, card: "unreachable" }; }
@@ -151,11 +153,13 @@ export function summarize(rows: Row[]) {
 async function main() {
   const grpc = createGrpc();
   const rows: Row[] = [];
-  let next = 1, lastFound = 0, done = false;
+  let next = 1, lastFound = 0, done = false, partial = false;
+  const started = Date.now();
   const worker = async () => {
     while (!done) {
       const id = next++;
       if (id > MAX_ID || id - lastFound > GAP) { done = true; return; }
+      if (Date.now() - started > BUDGET_MS) { done = partial = true; return; }
       let a: AgentOnChain | null;
       try {
         a = await withRetry(() => readAgent(String(id), grpc));
@@ -169,19 +173,20 @@ async function main() {
       if (!a) continue;
       lastFound = Math.max(lastFound, id);
       rows.push(await inspect(String(id), a).catch(() => ({ id: String(id), status: a!.status }) as Row));
-      if (rows.length % 250 === 0) console.error(`… ${rows.length} agents read (id ${id})`);
+      if (rows.length % 100 === 0) console.error(`… ${rows.length} agents read (id ${id})`);
     }
   };
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   rows.sort((a, b) => Number(a.id) - Number(b.id));
   const s = summarize(rows);
-  const report = { network: NET.name, registry: AGENT_REGISTRY_TEXT, run_at: new Date().toISOString(), highest_id: lastFound, gap_stop: GAP, summary: s, rows };
+  const report = { network: NET.name, registry: AGENT_REGISTRY_TEXT, run_at: new Date().toISOString(), highest_id: lastFound, gap_stop: GAP, partial, minutes: Math.round((Date.now() - started) / 6000) / 10, summary: s, rows };
   writeFileSync("census-report.json", JSON.stringify(report, null, 1));
   const line = (k: string, v: number, of?: number) => `| ${k} | ${v}${of ? ` (${Math.round((1000 * v) / of) / 10}%)` : ""} |`;
   const md = [
     `## Agent Registry census — ${NET.name} ${AGENT_REGISTRY_TEXT}`,
     "",
-    `Run ${report.run_at}. Read-only: every agent read from a Concordium node (token ids 1–${lastFound}, stopping after ${GAP} empty ids), Agent Cards fetched and hashed, x402 endpoints named in cards probed once with GET. No transactions, no payments.`,
+    ...(partial ? [`**Partial:** stopped at the ${BUDGET_MS / 60_000}-minute budget; agents above id ${lastFound} were not read.`, ""] : []),
+    `Run ${report.run_at}. Read-only: every agent read from a Concordium node (token ids 1–${lastFound}${partial ? "" : `, stopping after ${GAP} empty ids`}), Agent Cards fetched and hashed, x402 endpoints named in cards probed once with GET. No transactions, no payments.`,
     "",
     `**${s.payable_safely} of ${s.active} Active agents (${s.payable_safely_pct_of_active}%) pass the on-chain checks a buyer can make before paying:** a bound \`agentWallet\`, and an https Agent Card whose SHA-256 equals the on-chain hash.`,
     "",
