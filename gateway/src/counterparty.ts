@@ -152,7 +152,7 @@ export async function verifySeller(opts: {
     checks.push({
       name: "official badge check passes (identity-verified owner)",
       ok: b?.badge_valid === true,
-      detail: b?.badge_valid ? `${Object.keys(b.checks ?? {}).length} checks passed` : `failed: ${[...failed, ...(b?.issues ?? [])].join(", ") || "badge not valid"}`,
+      detail: b?.badge_valid ? `${Object.keys(b.checks ?? {}).length} checks passed` : `failed: ${[...failed, ...((b?.issues ?? []) as unknown[]).map((i) => (typeof i === "string" ? i : (i as { field?: string; message?: string })?.message ? `${(i as { field?: string }).field ?? ""}: ${(i as { message: string }).message}` : JSON.stringify(i)))].join(", ") || "badge not valid"}`,
     });
   } catch (e) {
     checks.push({ name: "official badge check passes (identity-verified owner)", ok: false, detail: `registry unreachable: ${err(e)}` });
