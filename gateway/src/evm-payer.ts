@@ -6,7 +6,9 @@
  * 合約在鏈上驗過），這筆付款就「屬於」那個 Concordium 帳號。賣方據此套用同一套資格與買方 agent 檢查。
  * 不需要買方另外送任何標頭：證據就是付款簽名本身。
  *
- * 只接受 EIP-3009（USDC 用的方式）與一般 EOA 簽名；Permit2、智慧合約錢包的簽名還原不出公鑰，一律拒絕。
+ * 只接受 EIP-3009（USDC 用的方式）與一般 EOA 簽名。智慧合約錢包（ERC-1271 / ERC-6492）的地址不是某把金鑰的地址，綁不進 CIS-8，拒絕。
+ * Permit2 對 EOA 其實也能還原公鑰，但它是另一種 EIP-712 結構，這裡沒有實作，所以一律拒絕（涵蓋範圍的限制，不是做不到）。
+ * 另外自己檢查授權的收款人與金額就是這次的 payTo 與價格（facilitator 也會檢查，這裡是第二道）。
  */
 import { getAddress, hashTypedData, recoverPublicKey, type Hex } from "viem";
 import { checkEvmBinding, type Cis8Registration, type ExternalKey } from "./cis8.js";
@@ -33,6 +35,12 @@ export async function evmPayerOf(payload: unknown, req: Req): Promise<EvmPayer> 
   if (p?.permit2Authorization) return { ok: false, code: "evm_unsupported", reason: "only EIP-3009 (USDC transferWithAuthorization) payments are accepted, not Permit2" };
   const a = p?.authorization;
   if (!a || !p?.signature || !/^0x[0-9a-fA-F]{130}$/.test(p.signature)) return { ok: false, code: "evm_unsupported", reason: "the payment is not a 65-byte EOA signature over an EIP-3009 authorization" };
+  try {
+    if (getAddress(a.to) !== getAddress(req.payTo)) return { ok: false, code: "evm_wrong_payee", reason: `the authorization pays ${a.to}, not ${req.payTo}` };
+    if (BigInt(a.value) !== BigInt(req.amount)) return { ok: false, code: "evm_wrong_amount", reason: `the authorization is for ${a.value}, not ${req.amount}` };
+  } catch {
+    return { ok: false, code: "evm_unsupported", reason: "malformed authorization (to / value)" };
+  }
   const name = req.extra?.name, version = req.extra?.version;
   if (typeof name !== "string" || typeof version !== "string") return { ok: false, code: "evm_unsupported", reason: "the payment requirements have no EIP-712 domain" };
   let publicKey: string;

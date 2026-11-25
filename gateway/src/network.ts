@@ -13,8 +13,8 @@ export type NetworkName = "testnet" | "mainnet";
 
 export const NETWORKS = {
   // evm：跨鏈收 USDC 的 EVM 網路（testnet＝Base Sepolia、mainnet＝Base）。agentRegistry：CIS-8004 合約；cis8Registry：CIS-8 外部金鑰登記（把其他鏈的公鑰綁到 Concordium 帳號）。testnet 由官方 badge 檢查回傳；mainnet 見 docs.concordium.com 的 Agent Registry 頁（10082,0）
-  testnet: { name: "testnet", did: "Testnet", caip2: CONCORDIUM_TESTNET_CAIP2, explorer: "https://ccdexplorer.io/testnet", agentRegistry: { index: 12802n, subindex: 0n }, cis8Registry: { index: 12801n, subindex: 0n }, evm: { network: "eip155:84532", explorer: "https://sepolia.basescan.org" } },
-  mainnet: { name: "mainnet", did: "Mainnet", caip2: CONCORDIUM_MAINNET_CAIP2, explorer: "https://ccdexplorer.io/mainnet", agentRegistry: { index: 10082n, subindex: 0n }, cis8Registry: { index: 10081n, subindex: 0n }, evm: { network: "eip155:8453", explorer: "https://basescan.org" } },
+  testnet: { name: "testnet", did: "Testnet", caip2: CONCORDIUM_TESTNET_CAIP2, explorer: "https://ccdexplorer.io/testnet", agentRegistry: { index: 12802n, subindex: 0n }, cis8Registry: { index: 12801n, subindex: 0n }, evm: { network: "eip155:84532", explorer: "https://sepolia.basescan.org", rpc: "https://sepolia.base.org" } },
+  mainnet: { name: "mainnet", did: "Mainnet", caip2: CONCORDIUM_MAINNET_CAIP2, explorer: "https://ccdexplorer.io/mainnet", agentRegistry: { index: 10082n, subindex: 0n }, cis8Registry: { index: 10081n, subindex: 0n }, evm: { network: "eip155:8453", explorer: "https://basescan.org", rpc: "https://mainnet.base.org" } },
 } as const;
 
 export function selectNetwork(v = process.env.CONCORDIUM_NETWORK ?? "testnet") {

@@ -67,6 +67,16 @@ test("unbound, revoked, or foreign-signed payments are refused", async () => {
   assert.match(!r.ok ? r.reason : "", /not 0x/i);
 });
 
+test("an authorization for another payee or amount is refused before any CIS-8 read", async () => {
+  const { payload } = await pay();
+  let read = 0;
+  const r1 = await concordiumAccountOfEvmPayment(payload, { ...req, payTo: "0x0000000000000000000000000000000000000002" }, async () => (read++, null));
+  assert.equal(!r1.ok && r1.code, "evm_wrong_payee");
+  const r2 = await concordiumAccountOfEvmPayment(payload, { ...req, amount: "20000" }, async () => (read++, null));
+  assert.equal(!r2.ok && r2.code, "evm_wrong_amount");
+  assert.equal(read, 0);
+});
+
 test("Permit2 and malformed payloads are refused", async () => {
   assert.equal((await evmPayerOf({ signature: "0x00", permit2Authorization: {} }, req)).ok, false);
   assert.equal((await evmPayerOf({ authorization: {} }, req)).ok, false);

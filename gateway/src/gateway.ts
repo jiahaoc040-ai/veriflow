@@ -33,7 +33,7 @@ import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
-import { paidOnChain } from "./settle-recovery.js";
+import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
@@ -160,10 +160,14 @@ resourceServer
   // facilitator 回報結算失敗時：先記錄原因；若它給了交易雜湊，就自己從節點確認錢是否真的付了，付了就照常交貨
   .onSettleFailure(async ({ error, paymentPayload, requirements }) => {
     const e = error as Error & { errorReason?: string; errorMessage?: string; transaction?: string };
-    const payer = isEvmNetwork(requirements.network) ? undefined : payerOf(paymentPayload.payload);
+    const evm = isEvmNetwork(requirements.network);
+    const payer = evm ? (paymentPayload.payload as { authorization?: { from?: string } }).authorization?.from : payerOf(paymentPayload.payload);
     console.warn(`settlement reported failure: ${e.errorReason ?? e.message}${e.errorMessage && e.errorMessage !== e.errorReason ? ` (${e.errorMessage})` : ""} tx=${e.transaction || "-"} payer=${payer ?? "-"}`);
     if (!e.transaction || !payer) return;
-    const paid = await paidOnChain(e.transaction, payer, requirements.payTo, requirements.amount, requirements.asset);
+    // Base USDC：讀收據（這筆付款在 onBeforeVerify 已經對回綁定的 Concordium 帳號，這裡只確認錢真的到了）
+    const paid = evm
+      ? await paidOnEvm(e.transaction, { from: payer, payTo: requirements.payTo, amount: requirements.amount, asset: requirements.asset })
+      : await paidOnChain(e.transaction, payer, requirements.payTo, requirements.amount, requirements.asset);
     if (!paid.ok) {
       console.warn(`not recovered: ${paid.why}`);
       return;

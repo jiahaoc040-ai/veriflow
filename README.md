@@ -28,7 +28,7 @@ What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RIS
 3. The seller recovered the payer's public key from the EIP-3009 signature itself (no extra header), read CIS-8 from a node, and mapped the payment to Concordium account `4Vf4…`. It then ran the Verify & Access re-check and the #1478 buyer-agent check on that account, and re-read the binding before settlement.
 4. Paid 0.01 USDC `0xAc02…` → `0xdd31…`: [`0xe48c3357…`](https://sepolia.basescan.org/tx/0xe48c3357d84601a51ab4caf6db73274b1d57ef797c21c9f54f80f02c875cbc44), settled by the public x402 facilitator. Received the BTC 2026-11-24 call, committed before the sale in [`af3fc90c…`](https://ccdexplorer.io/testnet/transaction/af3fc90c65a4deaa9153431018d0ff083a15705f50181626855fa084ffe14ed8).
 
-An EVM key that is not bound, a revoked binding, a Permit2 or smart-wallet signature, or an authorization signed by someone other than its `from` is refused before settlement. Code: `gateway/src/cis8.ts`, `gateway/src/evm-payer.ts`.
+An EVM key that is not bound, a revoked binding, an authorization for another payee or amount, a Permit2 payment (not implemented) or a smart-wallet signature (its address is not a key's address, so it cannot be a CIS-8 subject), or an authorization signed by someone other than its `from` is refused before settlement. If the facilitator reports a failure for a transfer that did go through, the gateway reads the Base receipt and delivers only on the exact USDC Transfer. The testnet registry stores keys registered as `secp256k1-uncompressed` in compressed form; the read-back compares both forms. Code: `gateway/src/cis8.ts`, `gateway/src/evm-payer.ts`, `gateway/src/settle-recovery.ts`.
 
 ## Trust in both directions
 
@@ -48,7 +48,7 @@ VeriFlow binds its x402 `payTo` to agent #1313 on-chain with `npm run registry -
 
 ## Agent guardrails
 
-The demo buyer agent only pays in testnet CCD and refuses any single payment above `MAX_PAY_MICROCCD` (default 2 CCD), using x402 client spend controls. A seller that raises its price or switches asset cannot drain the buyer. Before signing, it verifies the seller as above (`REQUIRE_SELLER_BADGE=true`).
+The demo buyer agent pays in one asset only, chosen by its own configuration, and refuses any single payment above its cap, using x402 client spend controls: testnet CCD up to `MAX_PAY_MICROCCD` (default 2 CCD) by default; a PLT via `BUYER_PAY_ASSET` up to `BUYER_MAX_PAY`; or, with `BUYER_PAY_NETWORK=evm`, USDC on Base Sepolia up to `BUYER_MAX_PAY` (default 20000 = 0.02 USDC). A seller that raises its price or switches asset cannot drain the buyer. Before signing, it verifies the seller as above (`REQUIRE_SELLER_BADGE=true`).
 
 ## x402 payment gateway (`gateway/`)
 
