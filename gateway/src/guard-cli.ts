@@ -1,0 +1,91 @@
+/**
+ * Run the seller guard against any x402 seller
+ * --------------------------------------------
+ *   npm run guard -- check <url> [--method POST] [--json '<body>']   no wallet: read the 402 and check the seller, pay nothing
+ *   npm run guard -- buy   <url> [--method POST] [--json '<body>']   pay with BUYER_KEY_FILE (testnet CCD, at most MAX_PAY_MICROCCD),
+ *                                                                    only if every check passes
+ * Options: --reputation off|advisory|block-no|require-go (default block-no) · --json-file <path> instead of --json
+ *          --pay-network <caip2> (check mode: which payment option to check; default this Concordium network, else the first)
+ * Mainnet: CONCORDIUM_NETWORK=mainnet npm run guard -- check <url> (read-only)
+ *
+ * The seller does not need to be VeriFlow's. Everything except the badge pointer is read from Concordium.
+ */
+import { readFileSync } from "node:fs";
+import { x402Client, decodePaymentResponseHeader } from "@x402/fetch";
+import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
+import { decodePaymentRequiredHeader } from "@x402/core/http";
+import { getExplorerTxUrl } from "@x402/concordium";
+import { NETWORK, env, loadAccount } from "./config.js";
+import { checkSellerFor, protect, summarize, type GuardPolicy, type GuardVerdict, type ReputationMode, type Requirement } from "./guard.js";
+import { guardDeps } from "./guard-deps.js";
+
+const USAGE = "usage: npm run guard -- check|buy <url> [--method POST] [--json '<body>' | --json-file <path>] [--reputation off|advisory|block-no|require-go]";
+const [mode, url, ...rest] = process.argv.slice(2);
+if ((mode !== "check" && mode !== "buy") || !url || !/^https?:\/\//.test(url)) {
+  console.error(USAGE);
+  process.exit(2);
+}
+const opt = (name: string) => {
+  const i = rest.indexOf(`--${name}`);
+  return i >= 0 ? rest[i + 1] : undefined;
+};
+const body = opt("json") ?? (opt("json-file") ? readFileSync(opt("json-file")!, "utf8") : undefined);
+const method = (opt("method") ?? (body ? "POST" : "GET")).toUpperCase();
+const reputation = (opt("reputation") ?? "block-no") as ReputationMode;
+if (!["off", "advisory", "block-no", "require-go"].includes(reputation)) {
+  console.error(USAGE);
+  process.exit(2);
+}
+const init: RequestInit = { method, ...(body ? { body, headers: { "content-type": "application/json" } } : {}) };
+const policy: GuardPolicy = { reputation };
+const deps = guardDeps();
+
+function show(v: GuardVerdict) {
+  console.log(`\nSeller behind ${v.origin}${v.tokenId ? `: agent #${v.tokenId}` : ""}`);
+  v.checks.forEach((c, i) => console.log(`  ${c.ok ? "✓" : "✗"} ${i + 1}. ${c.name}\n       ${c.detail}`));
+  console.log(`\n${v.ok ? "✅" : "⛔"} ${summarize(v)}`);
+}
+
+if (mode === "check") {
+  const res = await fetch(url, init);
+  const header = res.headers.get("PAYMENT-REQUIRED");
+  if (res.status !== 402 || !header) {
+    console.error(`expected HTTP 402 with a PAYMENT-REQUIRED header from ${url}, got HTTP ${res.status}`);
+    process.exit(1);
+  }
+  const pr = decodePaymentRequiredHeader(header);
+  const options = (pr.accepts ?? []) as Requirement[];
+  console.log(`${url} asks for payment (x402 v${pr.x402Version}): ${options.map((a) => `${a.amount} ${a.asset} on ${a.network} to ${a.payTo}`).join(" | ")}`);
+  const want = opt("pay-network");
+  const pick = want ? options.find((a) => a.network === want) : options.find((a) => a.network === NETWORK) ?? options[0];
+  if (!pick) {
+    console.error(`no payment option${want ? ` on ${want}` : ""}`);
+    process.exit(1);
+  }
+  console.log(`checking the option on ${pick.network}`);
+  const v = await checkSellerFor({ origin: new URL(url).origin, req: pick, paymentRequired: pr }, deps, policy);
+  show(v);
+  process.exit(v.ok ? 0 : 1);
+}
+
+// buy
+const buyer = loadAccount(env("BUYER_KEY_FILE"));
+const maxPay = env("MAX_PAY_MICROCCD", "2000000");
+const client = x402Client.fromConfig({
+  schemes: [{ network: NETWORK, client: new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }) }],
+  spendControls: { allowedAssets: [{ network: NETWORK, asset: "CCD", maxAmountPerPayment: maxPay }] },
+});
+console.log(`buyer ${buyer.address} · pays testnet CCD only, at most ${Number(maxPay) / 1e6} CCD per payment`);
+const guarded = protect(client, deps, policy, show);
+const { response, verdict, error } = await guarded.fetch(url, init);
+if (!response) {
+  if (verdict && !verdict.ok) console.log("\nNothing was signed and nothing was paid.");
+  else console.error(`\nrequest failed: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
+const ph = response.headers.get("PAYMENT-RESPONSE") ?? response.headers.get("X-PAYMENT-RESPONSE");
+const paid = ph ? decodePaymentResponseHeader(ph) : undefined;
+const text = await response.text();
+console.log(`\nHTTP ${response.status}${paid?.transaction ? ` · paid: ${getExplorerTxUrl(NETWORK, paid.transaction)}` : ""}`);
+console.log(text.length > 1500 ? `${text.slice(0, 1500)}… (${text.length} bytes)` : text);
+process.exit(response.ok ? 0 : 1);

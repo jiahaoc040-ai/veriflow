@@ -107,6 +107,8 @@ before(async () => {
       REGISTRY_MCP_URL: `${gateway}/mcp`,
       // Fake node record, consistent with the fake hosted service (in production it is read straight from a Concordium node)
       VERIFLOW_TEST_AGENT_RECORD: JSON.stringify({ tokenId: "1313", owner: "4dNM", agentUri: `${gateway}/card.json`, metadataHash: createHash("sha256").update(CARD).digest("hex"), wallet: SELLER_WALLET, status: "Active" }),
+      // No third-party delivery record in tests (no network access); guard.test.ts covers it with a fake service
+      BUYER_REPUTATION: "off",
     }, // the SDK adds only HOME, PATH and a few other variables, like Claude Desktop
     cwd: "/", // Claude Desktop does not start us inside the project folder
     stderr: "pipe",

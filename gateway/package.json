@@ -24,11 +24,13 @@
     "watch": "tsx src/watch.ts",
     "census": "tsx src/census.ts",
     "impostor": "tsx src/demo-impostor.ts",
-    "check-call": "tsx src/check-call.ts"
+    "check-call": "tsx src/check-call.ts",
+    "guard": "tsx src/guard-cli.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@noble/curves": "^1.9.7",
     "@types/pg": "^8.23.1",
     "@x402/concordium": "^2.31.0",
     "@x402/core": "^2.31.0",

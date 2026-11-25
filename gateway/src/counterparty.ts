@@ -80,7 +80,7 @@ export async function verifySeller(opts: {
   expectTokenId?: string;
   expectBadge?: string;
   /** When payTo is not on Concordium (e.g. USDC on Base), this replaces the payTo = agentWallet check; it receives the owner and wallet read from the node */
-  payToCheck?: (agent: { owner?: string; wallet?: string }) => Promise<Check>;
+  payToCheck?: (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] }) => Promise<Check>;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
   const network = opts.network ?? NET.name;
@@ -107,6 +107,7 @@ export async function verifySeller(opts: {
 
   // 2. The Registry record
   let rec: { token_id?: string; owner_account?: string; agent_uri?: string; metadata_hash_hex?: string; agent_wallet?: string; status?: string };
+  let externalRef: AgentOnChain["externalRef"] = null;
   try {
     rec = await opts.registry("agent_by_token_address", { network, token_address: tokenAddress });
   } catch (e) {
@@ -130,6 +131,7 @@ export async function verifySeller(opts: {
         if ((rec.agent_wallet ?? null) !== node.wallet) problems.push("hosted service and node disagree on agentWallet");
         if ((rec.metadata_hash_hex?.toLowerCase() ?? null) !== node.metadataHash) problems.push("hosted service and node disagree on the card hash");
         if ((rec.agent_uri ?? null) !== node.agentUri) problems.push("hosted service and node disagree on agent_uri");
+        externalRef = node.externalRef ?? null;
         rec = { token_id: node.tokenId, owner_account: node.owner, agent_uri: node.agentUri ?? undefined, metadata_hash_hex: node.metadataHash ?? undefined, agent_wallet: node.wallet ?? undefined, status: node.status };
       }
     } catch (e) {
@@ -179,7 +181,7 @@ export async function verifySeller(opts: {
   // 5. Payout address binding
   if (opts.payToCheck) {
     try {
-      checks.push(await opts.payToCheck({ owner: rec.owner_account, wallet: rec.agent_wallet }));
+      checks.push(await opts.payToCheck({ owner: rec.owner_account, wallet: rec.agent_wallet, externalRef }));
     } catch (e) {
       checks.push({ name: "payTo is bound to the agent on-chain", ok: false, detail: err(e) });
     }

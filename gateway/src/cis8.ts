@@ -145,14 +145,14 @@ export type BindingCheck = { ok: true; owner: string } | { ok: false; reason: st
  * Is an EVM address bound to a Concordium account through CIS-8:
  * the address derived from the public key must be this address, the registration Active with ethereum-personal-sign, and the owner (if given) must match
  */
-export async function checkEvmBinding(o: { address: string; publicKey: string; namespace: string; expectOwner?: string; read?: (k: ExternalKey) => Promise<Cis8Registration | null> }, sameAccount?: (a: string, b: string) => boolean): Promise<BindingCheck> {
+export async function checkEvmBinding(o: { address: string; publicKey: string; namespace: string; expectOwner?: string; keyType?: string; read?: (k: ExternalKey) => Promise<Cis8Registration | null> }, sameAccount?: (a: string, b: string) => boolean): Promise<BindingCheck> {
   let derived: string;
   try { derived = evmAddressOf(o.publicKey); } catch (e) { return { ok: false, reason: e instanceof Error ? e.message : String(e) }; }
   if (derived.toLowerCase() !== o.address.toLowerCase()) return { ok: false, reason: `public key belongs to ${derived}, not ${o.address}` };
   let reg: Cis8Registration | null;
   try {
     // Public nodes sometimes answer a single call with a 502 or a reset: retry twice before giving up (still fail closed after that)
-    const key = { namespace: o.namespace, keyType: EVM_KEY_TYPE, publicKey: o.publicKey };
+    const key = { namespace: o.namespace, keyType: o.keyType ?? EVM_KEY_TYPE, publicKey: o.publicKey };
     const read = o.read ?? ownerOfKey;
     for (let i = 0; ; i++) {
       try { reg = await read(key); break; } catch (e) {

@@ -6,23 +6,19 @@
  * Verifies the seller before paying (counterparty.ts): badge, Registry status, Agent Card hash, payTo = on-chain agentWallet;
  * if any check fails, nothing is signed (REQUIRE_SELLER_BADGE=false turns this off for local development).
  */
-import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
-import { AGENT_EXTENSION } from "./counterparty.js";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 import { readFileSync } from "node:fs";
 import { NET } from "./network.js";
-import { checkEvmBinding, EVM_KEY_TYPE, CIS8_REGISTRY } from "./cis8.js";
-import { isEvmNetwork } from "./evm-payer.js";
-import { sameAccount } from "./contract-v2.js";
 import { getExplorerTxUrl } from "@x402/concordium";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { NETWORK, env, loadAccount } from "./config.js";
 import { PUBLIC_GATEWAY } from "./mcp-launch.js";
-import { summarize, verifySeller, type SellerVerdict } from "./counterparty.js";
-import { REGISTRY_NETWORK, registryTool } from "./registry.js";
+import type { SellerVerdict } from "./counterparty.js";
+import { checkSellerFor, summarize, type GuardPolicy, type GuardVerdict, type PaymentRequiredLike, type ReputationMode, type Requirement } from "./guard.js";
+import { guardDeps } from "./guard-deps.js";
 
 export function createBuyerAgent() {
   const buyer = loadAccount(env("BUYER_KEY_FILE"));
@@ -50,61 +46,19 @@ export function createBuyerAgent() {
   const buyerAgentId = (process.env.BUYER_AGENT_TOKEN_ID ?? "").trim();
   if (buyerAgentId && !/^\d{1,20}$/.test(buyerAgentId)) throw new Error("BUYER_AGENT_TOKEN_ID must be a CIS-8004 token id (digits)");
   const agentHeaders: Record<string, string> = buyerAgentId ? { "X-Concordium-Agent": buyerAgentId } : {};
-  let lastSellerCheck: SellerVerdict | undefined;
-  /** The 402's concordium-agent extension only names the agent (registry, token id); the wallet is always read from the chain. A wrong network or registry counts as not named */
-  // The named agent always lives on Concordium: when paying on EVM compare against the Concordium network, otherwise against the chosen payment network
-  const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, payNet: string) => {
-    const network = isEvmNetwork(payNet) ? NETWORK : payNet;
-    const info = (pr?.extensions?.[AGENT_EXTENSION] as { info?: { network?: string; registry?: string; tokenId?: string; badge?: string } } | undefined)?.info;
-    // This buyer pays only sellers that name themselves: no name, no payment (the protocol allows it, this buyer's policy does not)
-    if (!info) return "unnamed";
-    if (info.network !== network || info.registry !== `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}` || !/^\d+$/.test(info.tokenId ?? ""))
-      return "mismatch";
-    return `${info.tokenId}|${info.badge ?? ""}`;
-  };
-  /**
-   * EVM payTo: the 402's extra.cis8 gives the seller's public key. The buyer reads CIS-8 from a Concordium node itself and requires
-   * the address derived from the key to equal payTo, the binding to be Active, and the owner to be this agent's owner (or its agentWallet)
-   */
-  const cis8PayTo = (req: { network: string; payTo: string; extra?: Record<string, unknown> }) => async (agent: { owner?: string; wallet?: string }) => {
-    const name = "payTo is bound to the agent in CIS-8 (read from a Concordium node)";
-    const c = req.extra?.cis8 as { registry?: string; namespace?: string; keyType?: string; publicKey?: string } | undefined;
-    if (!c?.publicKey) return { name, ok: false, detail: "the 402 offers an EVM payTo without a cis8 public key" };
-    if (c.registry !== `${CIS8_REGISTRY.index}.${CIS8_REGISTRY.subindex}` || c.namespace !== req.network || c.keyType !== EVM_KEY_TYPE)
-      return { name, ok: false, detail: `unexpected cis8 registry/namespace/key type: ${c.registry} ${c.namespace} ${c.keyType}` };
-    const read = (expectOwner: string) => checkEvmBinding({ address: req.payTo, publicKey: c.publicKey!, namespace: req.network, expectOwner }, sameAccount);
-    let r = agent.owner ? await read(agent.owner) : { ok: false as const, reason: "agent has no owner on-chain" };
-    if (!r.ok && agent.wallet && /is bound to/.test(r.reason)) r = await read(agent.wallet);
-    return { name, ok: r.ok, detail: r.ok ? `${req.payTo} is bound to ${r.owner} in CIS-8 <${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>` : r.reason };
-  };
-  const checkSeller = async (payTo: string, named?: string, req?: { network: string; payTo: string; extra?: Record<string, unknown> }) =>
-    named === "mismatch" || named === "unnamed"
-      ? {
-          ok: false,
-          checks: [
-            {
-              name: "402 names an agent on this network's registry",
-              ok: false,
-              detail: named === "unnamed" ? "the 402 has no concordium-agent extension: the seller does not name itself" : "concordium-agent extension names another network or registry",
-            },
-          ],
-          payTo,
-        }
-      : verifySeller({
-          gateway,
-          payTo,
-          registry: registryTool,
-          network: REGISTRY_NETWORK,
-          readAgent: (id) => readAgent(id),
-          expectTokenId: named?.split("|")[0],
-          expectBadge: named?.split("|")[1] || undefined,
-          payToCheck: req && isEvmNetwork(req.network) ? cis8PayTo(req) : undefined,
-        });
+  let lastSellerCheck: GuardVerdict | undefined;
+  // Seller checks are the guard's (guard.ts): the same code any x402 client can wrap around its own payments.
+  // This buyer's own policy: pay only sellers that name their agent in the 402; a third party's proven non-delivery also blocks
+  const deps = guardDeps();
+  const reputation = env("BUYER_REPUTATION", "block-no") as ReputationMode;
+  if (!["off", "advisory", "block-no", "require-go"].includes(reputation)) throw new Error("BUYER_REPUTATION must be off, advisory, block-no or require-go");
+  const policy: GuardPolicy = { requireNamedAgent: true, reputation };
+  const checkSeller = (req: Requirement, pr?: PaymentRequiredLike) => checkSellerFor({ origin: gateway, req, paymentRequired: pr }, deps, policy);
 
   // The last gate before signing: if the seller fails verification, stop here and the wallet is never called
   client.onBeforePaymentCreation(async ({ selectedRequirements, paymentRequired }) => {
     if (!requireSeller) return;
-    lastSellerCheck = await checkSeller(selectedRequirements.payTo, namedAgent(paymentRequired, selectedRequirements.network), selectedRequirements as { network: string; payTo: string; extra?: Record<string, unknown> });
+    lastSellerCheck = await checkSeller(selectedRequirements as Requirement, paymentRequired);
     if (!lastSellerCheck.ok) return { abort: true as const, reason: summarize(lastSellerCheck) };
   });
   const fetchWithPay = wrapFetchWithPayment(fetch, client);
@@ -127,7 +81,7 @@ export function createBuyerAgent() {
       // Look at payTo for the payment option we would use
       const pick = pr.accepts?.find((a) => a.network === payNetwork) ?? pr.accepts?.[0];
       if (!pick?.payTo) throw new Error("402 response has no payTo");
-      return checkSeller(pick.payTo, namedAgent(pr, pick.network), pick as { network: string; payTo: string; extra?: Record<string, unknown> });
+      return checkSeller(pick as Requirement, pr);
     },
 
     /** Buy one signal. Returns the HTTP status, body, payment transaction (if paid) and the seller check made before paying */
