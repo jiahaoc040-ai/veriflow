@@ -41,14 +41,20 @@ export type Row = {
 
 const GAP = Number(process.env.CENSUS_GAP ?? 300);
 const MAX_ID = Number(process.env.CENSUS_MAX_ID ?? 50_000);
-const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 24);
+const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 4);
 // 時間預算：到了就停止往上讀，照樣寫出報告（標示 partial 與讀到的最高 id）
 const BUDGET_MS = Number(process.env.CENSUS_BUDGET_MIN ?? 150) * 60_000;
 const PROBES = Number(process.env.CENSUS_PROBES_PER_AGENT ?? 3);
 
+// 公開節點會限流（HTTP 429）：退避後重試，最多約 2 分鐘
+const rateLimited = (e: unknown) => /\b429\b|RESOURCE_EXHAUSTED|Too Many Requests/i.test(e instanceof Error ? e.message : String(e));
 async function withRetry<T>(f: () => Promise<T>): Promise<T> {
   for (let i = 0; ; i++) {
-    try { return await f(); } catch (e) { if (i >= 2 || !isTransient(e)) throw e; await new Promise((r) => setTimeout(r, 1000 * (i + 1))); }
+    try { return await f(); } catch (e) {
+      const limited = rateLimited(e);
+      if (i >= (limited ? 8 : 2) || !(limited || isTransient(e))) throw e;
+      await new Promise((r) => setTimeout(r, limited ? Math.min(30_000, 1000 * 2 ** i) + Math.random() * 1000 : 1000 * (i + 1)));
+    }
   }
 }
 
@@ -191,7 +197,8 @@ async function main() {
         const m = e instanceof Error ? e.message : String(e);
         console.error(`agent #${id} unreadable: ${m}`);
         rows.push({ id: String(id), status: "unreadable" });
-        lastFound = Math.max(lastFound, id);
+        // 解碼錯誤代表這個 id 存在；節點錯誤（例如限流）不能證明存在，不延長搜尋範圍
+        if (!rateLimited(e) && !isTransient(e)) lastFound = Math.max(lastFound, id);
         continue;
       }
       if (!a) continue;
