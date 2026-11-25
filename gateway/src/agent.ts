@@ -141,6 +141,9 @@ export function createBuyerAgent() {
         const sc = lastSellerCheck as SellerVerdict | undefined; // 在 hook 裡被設定
         if (sc && !sc.ok)
           return { status: 0, body: undefined, payment: undefined, paymentExplorer: undefined, needsVerification: false, verifyUrl: "", sellerCheck: sc, refused: true };
+        // 賣方沒有提供我們能付的方式（例如還沒開 USDC）：講清楚，不丟一大段原始錯誤
+        if (/No network\/scheme registered/.test(String(e)))
+          throw new Error(`the seller does not offer ${payAsset} on ${payNetwork}; nothing was signed or paid`);
         throw e;
       }
       const text = await res.text();
