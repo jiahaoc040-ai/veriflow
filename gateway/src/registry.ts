@@ -181,6 +181,14 @@ async function main() {
     const bytes = Buffer.from(await res.arrayBuffer());
     const sha = createHash("sha256").update(bytes).digest("hex");
     console.log(`card ${cardUrl}  sha256=${sha}`);
+    // 防呆：card 自己宣告的 agent id 必須就是要釘的這個（避免 .env 的 AGENT_CARD_URL 還指著別的 agent 的 card）
+    try {
+      const ids = ((JSON.parse(bytes.toString("utf8")) as { registrations?: { agentId?: unknown }[] }).registrations ?? []).map((r) => String(r.agentId));
+      if (ids.length && !ids.includes(arg)) throw new Error(`this card declares agent ${ids.join(", ")}, not ${arg}; set AGENT_CARD_URL to agent ${arg}'s card`);
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new Error(`${cardUrl} is not JSON`);
+      throw e;
+    }
     const built = await registryTool("build_set_agent_uri", {
       network: REGISTRY_NETWORK,
       token_id: arg,
