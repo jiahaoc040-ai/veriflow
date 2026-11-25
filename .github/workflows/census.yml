@@ -1,0 +1,74 @@
+name: census
+
+# Read-only census of the Concordium Agent Registry: can a buyer agent safely pay each registered agent?
+# Reads every agent from a Concordium node, fetches and hashes Agent Cards, probes x402 endpoints named
+# in cards once with GET. No keys, no transactions, no payments.
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "mainnet or testnet"
+        default: mainnet
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency: census
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: npm ci
+      - run: npm run census
+        env:
+          CONCORDIUM_NETWORK: ${{ inputs.network || 'mainnet' }}
+      - if: always()
+        run: '[ -f census-summary.md ] && cat census-summary.md >> "$GITHUB_STEP_SUMMARY" || echo "No report." >> "$GITHUB_STEP_SUMMARY"'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: census-report
+          path: |
+            gateway/census-report.json
+            gateway/census-summary.md
+
+  # The write token lives in a separate job that only downloads the report and pushes the score-reports branch.
+  publish:
+    needs: census
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: census-report
+          path: report
+      - name: Publish (branch score-reports, folder census)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NET: ${{ inputs.network || 'mainnet' }}
+        run: |
+          [ -f report/census-report.json ] || { echo "no report"; exit 0; }
+          git init -q pub && cd pub
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q --depth 1 origin score-reports && git checkout -q -b score-reports FETCH_HEAD || git checkout -q --orphan score-reports
+          mkdir -p "census/$NET/history"
+          stamp=$(jq -r .run_at ../report/census-report.json | tr -d ':')
+          cp ../report/census-report.json "census/$NET/latest.json"
+          cp ../report/census-report.json "census/$NET/history/$stamp.json"
+          { cat ../report/census-summary.md; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID · code at commit $GITHUB_SHA · per-agent rows in latest.json"; } > "census/$NET/README.md"
+          git config user.name "census workflow"; git config user.email "actions@users.noreply.github.com"
+          git add -A && git commit -qm "census $NET $stamp" && git push -q origin HEAD:refs/heads/score-reports

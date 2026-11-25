@@ -21,7 +21,8 @@
     "contract2": "tsx src/contract-v2.ts",
     "daily2": "tsx src/daily-v2.ts",
     "score2": "tsx src/score-v2.ts",
-    "watch": "tsx src/watch.ts"
+    "watch": "tsx src/watch.ts",
+    "census": "tsx src/census.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",
