@@ -16,7 +16,7 @@ Everything below is live on Concordium testnet at <https://veriflow-yrhp.onrende
 - Identities come from testnet identity providers.
 - Since 2026-11-24, payments settle through Concordium's hosted testnet x402 facilitator (API key issued to the team), which also pays buyers' fees ([`f0ec0ca6…`](https://ccdexplorer.io/testnet/transaction/f0ec0ca61ce29add3166f10a35e8814108d9da5e730c4256c3f7e6d635d4ed14), sponsor 19003). On testnet it reports `finalization_failed: transaction not found` for transfers that do finalize, so the gateway reads the reported transaction from a node and delivers only if it is finalized, sent by the payer, and pays exactly the price to `payTo` (`gateway/src/settle-recovery.ts`). Without the key, the gateway falls back to its own facilitator.
 - Eligibility is cached in our database after the proof; settlement re-checks the stored proof and its on-chain anchors, but buyers still rely on our server to run that check.
-- The only buyer so far is us.
+- One buyer outside the team so far (a friend of the developer, own testnet identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1)); every other purchase was ours.
 
 ## What changes for mainnet
 

@@ -23,7 +23,8 @@
     "score2": "tsx src/score-v2.ts",
     "watch": "tsx src/watch.ts",
     "census": "tsx src/census.ts",
-    "impostor": "tsx src/demo-impostor.ts"
+    "impostor": "tsx src/demo-impostor.ts",
+    "check-call": "tsx src/check-call.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",

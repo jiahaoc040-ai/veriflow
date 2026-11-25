@@ -118,11 +118,13 @@
       log("3/4 Checking the zero-knowledge proof against Concordium and anchoring the audit record (~10 s)…");
       setResult("Verifying…");
       const r = await post("/eligibility/verify", { id, presentation: JSON.stringify(vp) });
-      log(`4/4 identity provider #${r.issuer}, credential ${r.credId.slice(0, 16)}…`);
+      log(`4/4 verified by identity provider #${r.issuer}`);
       setResult(`✅ Eligible. ${account.slice(0, 8)}… can now buy signals (until ${r.expiresAt.slice(0, 10)}).`, "ok");
       $("links").innerHTML = txLink("Request anchor (VRA)", r.requestAnchorTx) + "<br>" + txLink("Audit anchor (VAA)", r.auditAnchorTx);
     } catch (e) {
       setResult("❌ Not eligible: " + (e.message || e), "bad");
+      // The server is the source of truth: if the proof was in fact accepted, show that instead of a front-end error
+      await refreshStatus().catch(() => {});
     } finally {
       $("prove").disabled = false;
     }

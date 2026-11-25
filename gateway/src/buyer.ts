@@ -28,8 +28,13 @@ if (r.status === 200 && body && typeof body === "object") {
   console.log("canonical (hash exactly this string):", body.canonical);
   console.log("commitment:", body.commitment);
   console.log("commit tx: ", body.anchor_tx ? `${NET.explorer}/transaction/${body.anchor_tx}` : "(none)");
+  console.log("check it yourself: npm run check-call   (then paste the canonical string above)");
 } else console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
 if (r.paymentExplorer) console.log("payment tx:", r.paymentExplorer);
+// The transaction expiry is set from this computer's clock; if it runs fast the facilitator refuses it (nothing is charged)
+if (/expiry_too_far_in_future/.test(JSON.stringify(r.body ?? ""))) {
+  console.log("\nhint: your computer's clock is probably ahead of real time. Sync it (Windows: Settings → Time & language → Date & time → Sync now; macOS: System Settings → General → Date & Time → set automatically) and run again. Nothing was charged.");
+}
 const pr = r.payment as { success?: boolean; errorReason?: string; errorMessage?: string } | undefined;
 if (pr && pr.success === false) console.log(`settlement reported: ${pr.errorReason ?? "failed"}${pr.errorMessage && pr.errorMessage !== pr.errorReason ? ` — ${pr.errorMessage}` : ""}`);
 if (r.buyerAgentRefused) console.log(`\nThe seller refused our agent identity (nothing was charged). Check BUYER_AGENT_TOKEN_ID and that agent's on-chain agentWallet is ${agent.address}.`);

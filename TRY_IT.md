@@ -2,7 +2,7 @@
 
 Each step says what to run, what you should see, and what that shows.
 
-- **Path A: about 10 minutes, no wallet.** Check a call that was really bought, against the chain and Binance. You need a terminal with `shasum`, `curl`, `python3` and `git`, and a browser. The commands use `shasum -a 256`; on Linux without `shasum`, replace it with `sha256sum`.
+- **Path A: about 10 minutes, no wallet.** Check a call that was really bought, against the chain and Binance. You need a terminal with `shasum`, `curl`, `python3` and `git`, and a browser. The commands use `shasum -a 256`; on Linux without `shasum`, replace it with `sha256sum`. **On Windows**, run them in Git Bash (installed with Git for Windows), not PowerShell; or skip steps 1–3 with the one-command check below, which works in any shell.
 - **Path B: about 30 minutes.** Buy a call yourself on Concordium testnet with your own testnet identity.
 
 Path A trusts this page for one thing only: the call string. Everything else is checked against the chain and Binance. Path B removes that trust, because you receive the string yourself.
@@ -16,6 +16,8 @@ On 2026-11-22 a buyer agent paid 1 testnet CCD ([payment `935bc182…`](https://
 ```
 {"as_of":"2026-11-21","asset":"BTC","momentum_e6":-260395,"nonce":"7294f91f41330af85ea8f6af86dc2f9c","signal":"RISK_OFF"}
 ```
+
+**One command, any OS (steps 1–3 at once):** `git clone https://github.com/jiahaoc040-ai/veriflow`, then in `veriflow/gateway` run `npm ci` and `npm run check-call`, and paste the string above when asked. It prints the commitment, reads the slot from contract `<13115,0>` on a public node, recomputes `momentum_e6` from Binance, and shows every value it used. The steps below do the same by hand.
 
 ### 1. Hash it
 
@@ -126,7 +128,7 @@ GitHub hides run summaries and logs from visitors who are not signed in, so ever
 |---|---|---|
 | `4dNMXmNK…JF5wjUNt` | 19527 | Owner of agent #1313 in the CIS-8004 Agent Registry `<12802,0>` (`agentOf(1313)`), and owner of contract `<13115,0>` (its creator on CCDScan). Kept offline. |
 | `3WSAJwTZ…5NGavf8` | 19394 | Agent #1313's `agentWallet` in the registry. Every purchase pays here. |
-| `4HgaCRwX…VwT3nmCj` | 19719 | Committer of contract `<13115,0>`, appointed by the owner in `set_committer`. It also sponsors buyers' transaction fees. |
+| `4HgaCRwX…VwT3nmCj` | 19719 | Committer of contract `<13115,0>`, appointed by the owner in `set_committer`. Until 2026-11-24 it also sponsored buyers' transaction fees; since then Concordium's hosted facilitator does (account 19003). |
 | `4Vf4qUg5…QFF52FgkjMQ16r` | 19528 | A test buyer. |
 
 To check the first two rows yourself:
@@ -163,16 +165,18 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
 
 1. **Wallet and identity.**
    - Use the **browser** wallet; the mobile wallet over WalletConnect fails with "Unsupported method" for these signatures.
-   - Install the [Concordium Browser Wallet](https://chromewebstore.google.com/search/concordium%20wallet) in Chrome and switch it to **Testnet**.
-   - Create an identity with one of the test identity providers the wallet lists, then create an account under it.
+   - Install the [Concordium Wallet](https://chromewebstore.google.com/search/concordium%20wallet) extension in Chrome (the store calls it "Concordium Wallet"). Its first screen sets a passcode.
+   - It starts on **Mainnet**. Switch to **Testnet** with the small network label at the top right of the "Create or Restore Account" screen.
+   - Create an identity with **Concordium testnet IP**. Keep the form's defaults (born 1970-01-01, resident in DK) and do **not** tick "Fail identity"; those defaults pass the eligibility check in step 3. Then create an account under it.
    - If the identity step fails, search the Concordium developer documentation for "browser wallet" setup.
-2. **Test CCD.** Request testnet CCD for that account in the wallet; the testnet build offers a faucet. 2 CCD is enough.
+2. **Test CCD.** In the wallet, *Activity → Request CCD* gives 20,000 test CCD, once per account. The wallet shows a euro value next to it; it is still testnet CCD. You need about 2.
 3. **Prove eligibility once.**
-   - Open `https://veriflow-yrhp.onrender.com/verify?account=<your account address>` and press **Prove eligibility**.
+   - Open `https://veriflow-yrhp.onrender.com/verify`, press **Use wallet's account** (or paste your full address: the wallet shows it shortened, the full one is under *Receive*), and press **Prove eligibility**.
    - In the wallet, select **that same account** and approve.
    - You prove age ≥ 18 and residence not in CU, IR, KP, SY or US, without revealing either.
    - **You should see** "✅ Eligible … can now buy signals (until …)", with links to the request (VRA) and audit (VAA) transactions.
    - If your residence is on the list, the proof cannot be made and you cannot buy. That is the point of the check.
+   - If the page shows "Not eligible" right after you approved, reload it: the status line comes from the server. (A page bug did this until 2026-11-25; fixed.)
 4. **Set up the buyer.**
    ```bash
    git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway
@@ -180,11 +184,19 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    cp .env.example .env        # BUYER_KEY_FILE=keys/buyer.export and GATEWAY_URL (the live testnet gateway) are already set
    mkdir -p keys
    ```
-   The buyer needs nothing else from `.env`. Leave `SELLER_ADDRESS`, `GATEWAY_SECRET` and the other seller settings empty; they are for running your own gateway. The comments in `.env.example` are in Chinese; the variable names are what matter.
-   In the wallet, use *Accounts → your account → Private key → Export*. It downloads `<account address>.export`. Move it into place:
+   Windows PowerShell (no `&&` in PowerShell 5.1):
+   ```powershell
+   git clone https://github.com/jiahaoc040-ai/veriflow; cd veriflow\gateway
+   npm ci
+   Copy-Item .env.example .env
+   New-Item -ItemType Directory -Force keys
+   ```
+   The buyer needs nothing else from `.env`. Leave `SELLER_ADDRESS`, `GATEWAY_SECRET` and the other seller settings empty; they are for running your own gateway.
+   In the wallet, use *Accounts → your account → Private key → Export*. It downloads `<account address>.export`; find it first (`ls ~/Downloads/*.export`, or `Get-ChildItem $HOME\Downloads\*.export` in PowerShell), then move it into place:
    ```bash
    mv ~/Downloads/<account address>.export keys/buyer.export
    ```
+   (PowerShell: `Move-Item $HOME\Downloads\<account address>.export keys\buyer.export`.) The key file stays on your machine; never send it to anyone.
 5. **Buy.** Run `npm run buyer -- BTC` (or `-- ETH`).
 
    **You should see** three things:
@@ -197,6 +209,8 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **The result**: `status: 200`, the `canonical` string, the `commitment`, the `commit tx` link and the `payment tx` link.
    - **On a failed seller check**, it prints ✗ and stops before anything is signed.
 
+   If it answers `status: 402` with `expiry_too_far_in_future`, your computer's clock runs fast: the payment's expiry is set from it. Sync the clock (Windows: *Settings → Time & language → Date & time → Sync now*) and run again; nothing was charged. Since 2026-11-25 the seller allows about a minute of skew.
+
    It answers **503 (nothing charged)** until today's call is committed. That call is for yesterday's close. The `daily-v2` job is scheduled hourly from 00:17, but GitHub delays scheduled runs: the commit time varies from day to day (see the [`daily-v2` runs](https://github.com/jiahaoc040-ai/veriflow/actions/workflows/daily-v2.yml)). If you get 503, try again later; the contract accepts the commit until 24:00 UTC.
    **Optional: buy as a registered agent, and watch the seller check you back.**
    If your account owns an agent in the Agent Registry (`npm run registry -- register`, then `set-uri` and `set-wallet` with `REGISTRY_OWNER_KEY_FILE` and `SELLER_KEY_FILE` set to your key file and `SELLER_ADDRESS` empty), run `BUYER_AGENT_TOKEN_ID=<your id> npm run buyer -- BTC`.
@@ -204,13 +218,13 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **To see an impersonation refused**, name someone else's agent: `BUYER_AGENT_TOKEN_ID=1313 npm run buyer -- BTC`. You get `status: 402`, `buyer_agent_check_failed:wallet_mismatch`, and nothing is charged, because #1313's on-chain `agentWallet` is not your account.
    - Our own run of both, on 2026-11-24: buyer agent #1478 was accepted and paid in [`515226b5…`](https://ccdexplorer.io/testnet/transaction/515226b587ccb056f3e1c406fe1a85e12382a6a19c61345ef41c821395289b88); the same account claiming #1313 was refused before its payment was submitted, so nothing was charged.
 
-6. **Verify what you bought.** Repeat Path A steps 1–3 with your own values:
+6. **Verify what you bought.** Run `npm run check-call` and paste your `canonical` string: it does Path A steps 1–3 for your call. Your `as_of` is the UTC day before the day you bought (the latest close). Or repeat Path A steps 1–3 by hand with your own values:
    - hash the `canonical` string exactly as printed;
    - open your `commit tx` link and check that its Parameter shows your asset, your `as_of` and your commitment;
-   - for step 3, change the two candle times to your `as_of` and 30 days earlier, and the symbol for ETH.
+   - for step 3, change the two candle times to your `as_of` and 30 days earlier (milliseconds since 1970 at 00:00 UTC: `python3 -c "import datetime as d;t=d.datetime(2026,11,24,tzinfo=d.timezone.utc);print(int(t.timestamp()*1000), int((t-d.timedelta(days=30)).timestamp()*1000))"`), and the symbol for ETH.
 
    **Or use Claude Desktop as the buyer:**
    - Run `npm run mcp:config -- --install`. It adds a `veriflow` entry to Claude Desktop's `claude_desktop_config.json` and prints the file's path.
-   - Quit Claude Desktop with ⌘Q and reopen it.
+   - Quit Claude Desktop completely (macOS: ⌘Q; Windows: right-click the tray icon → Quit) and reopen it.
    - In a normal chat (not a Cowork task), ask: "Use VeriFlow to buy a BTC signal and verify it."
    - **Done** looks like: seller check 5/5, a payment link, and `verify_signal` 5/5. The fifth check reads "committed under this signal's own day on contract <13115,0>".

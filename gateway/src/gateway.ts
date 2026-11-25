@@ -227,6 +227,7 @@ const limitVerify = rateLimit([{ limiter: new RateLimiter(10, 10 * MIN), key: ip
 const limitRead = rateLimit([{ limiter: new RateLimiter(120, MIN), key: ip, what: "per IP" }]);
 
 // Tell buyer agents before they pay that they must prove eligibility first (format follows the buyerProof proposal in x402 issue #4182)
+const PAYMENT_TIMEOUT_S = Number(process.env.PAYMENT_TIMEOUT_S ?? 240);
 const buyerExtra = {
   buyerProof: ["adult", "region"],
   buyerProofPolicy: eligibility.describe(),
@@ -247,6 +248,9 @@ app.use(
           scheme: "exact",
           network: NETWORK,
           payTo: PAY_TO,
+          // The buyer sets the transaction expiry from its own clock (now + maxTimeoutSeconds) and the facilitator accepts at most 300 s ahead,
+          // so 240 leaves a minute for buyers whose clock runs fast (a real buyer hit this with a 2-minute skew at 300)
+          maxTimeoutSeconds: PAYMENT_TIMEOUT_S,
           price: { amount: p.amount, asset: p.asset, extra: buyerExtra },
         })).concat(
           // USDC on Base Sepolia: payTo is the EVM address bound in CIS-8 under this agent's owner; the cis8 field tells the buyer where to check
@@ -255,6 +259,7 @@ app.use(
                 scheme: "exact",
                 network: EVM.network,
                 payTo: EVM.payTo,
+                maxTimeoutSeconds: PAYMENT_TIMEOUT_S,
                 price: EVM.price as unknown as { amount: string; asset: string; extra: typeof buyerExtra },
                 extra: {
                   ...buyerExtra,
