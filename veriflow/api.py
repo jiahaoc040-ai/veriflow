@@ -208,7 +208,10 @@ def track_record():
 
 @app.get("/commitments")
 def commitments():
-    df = ledger.all()[["commitment", "asset", "as_of", "issued_at", "anchor_tx"]]
+    all_ = ledger.all()
+    df = all_[["commitment", "asset", "as_of", "issued_at", "anchor_tx"]].copy()
+    # v2（合約 <13115,0>，每個資產每天最多一筆）的訊號帶 momentum_e6；其餘是已退役的 v1
+    df["contract"] = all_["canonical"].str.contains('"momentum_e6":', regex=False).map({True: "v2", False: "v1"}) if len(all_) else []
     # 還沒上鏈的訊號 anchor_tx 是空值；pandas 會變成 NaN，JSON 不接受，要轉成 None
     return df.astype(object).where(df.notna(), None).to_dict("records")
 

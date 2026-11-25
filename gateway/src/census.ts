@@ -25,6 +25,7 @@ import { NET } from "./network.js";
 export type Row = {
   id: string;
   status: "Active" | "Revoked" | "unreadable";
+  reason?: string; // 讀不到的原因（例如節點限流 HTTP 429）
   extRef?: boolean; // external_reference 已設定：agent 宣告了一把其他鏈的金鑰（CIS-8）
   extNs?: string;
   // 那把金鑰在 CIS-8 的實際狀態：綁在這個 agent 的擁有者底下／綁在別人底下／沒有登記／已撤銷／指向別的合約／讀取失敗
@@ -205,7 +206,7 @@ async function main() {
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         console.error(`agent #${id} unreadable: ${m}`);
-        rows.push({ id: String(id), status: "unreadable" });
+        rows.push({ id: String(id), status: "unreadable", reason: m.slice(0, 200) });
         // 解碼錯誤代表這個 id 存在；節點錯誤（例如限流）不能證明存在，不延長搜尋範圍
         if (!rateLimited(e) && !isTransient(e)) lastFound = Math.max(lastFound, id);
         continue;

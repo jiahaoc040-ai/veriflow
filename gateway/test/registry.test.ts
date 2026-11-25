@@ -19,7 +19,7 @@ test("agent-card.json still matches the hash pinned on-chain for agent #1313", a
   const sha = createHash("sha256").update(bytes).digest("hex");
   assert.equal(
     sha,
-    "a9f6616c58a1e8ee4f0b37a54b9824445d19afa66b7ee46247f8d8406a699143",
+    "bfbe4573465a8118706db384d4d636f62aaa32cf2ea33952ba8a21c2d723fd6f",
     "agent-card.json changed: re-pin it with `npm run registry -- set-uri 1313`, then update this hash",
   );
 });

@@ -2,14 +2,14 @@
 
 Each step says what to run, what you should see, and what that shows.
 
-- **Path A: about 2 minutes, no wallet.** Check a call that was really bought, against the chain and Binance. You need a terminal with `shasum` (on Linux, `sha256sum`), `curl`, `python3` and `git`, and a browser.
+- **Path A: about 10 minutes, no wallet.** Check a call that was really bought, against the chain and Binance. You need a terminal with `shasum`, `curl`, `python3` and `git`, and a browser. The commands use `shasum -a 256`; on Linux without `shasum`, replace it with `sha256sum`.
 - **Path B: about 30 minutes.** Buy a call yourself on Concordium testnet with your own testnet identity.
 
 Path A trusts this page for one thing only: the call string. Everything else is checked against the chain and Binance. Path B removes that trust, because you receive the string yourself.
 
 All times are UTC. CCDExplorer shows UTC without a label; CCDScan shows your local time. A **close** is the end of a Binance daily candle: the 2026-11-21 close is at 2026-11-22 00:00.
 
-## Path A: check a bought call (2 minutes)
+## Path A: check a bought call (about 10 minutes)
 
 On 2026-11-22 a buyer agent paid 1 testnet CCD ([payment `935bc182…`](https://ccdexplorer.io/testnet/transaction/935bc182245754dfef95661c7006beed4fd8635e8c40605c96a2ad571f7c1879)) for the BTC call for the 2026-11-21 close. It received this exact string. These are the bytes to hash, with no spaces or newlines:
 
@@ -50,7 +50,7 @@ print('tag',h[0],'asset',a,'as_of',d,'commitment',c,'committed_at_ms',t)"
 # tag 0 asset BTC as_of 2026-11-21 commitment 10cb3dc2…8eda committed_at_ms 1795334610623
 ```
 
-**Contract v2 holds only one commit for BTC, 2026-11-21.** It rejects a second one. (The service's `/commitments` list also shows an older BTC 2026-11-21 entry, `ba9b801e…`, from the retired v1 system, which did not enforce one call per asset and day; that is why v2 replaced it.) To see this:
+**Contract v2 holds only one commit for BTC, 2026-11-21.** Its code rejects a second commit for the same asset and day (`contract-v2/src/lib.rs`, covered by `contract-v2/tests`); no one has tried one on-chain, so the explorer shows no rejected transaction. (The service's `/commitments` list also shows an older BTC 2026-11-21 entry, `ba9b801e…`, from the retired v1 system, which did not enforce one call per asset and day; that is why v2 replaced it.) To see this:
 - open [CCDScan testnet](https://testnet.ccdscan.io/) and type `13115` in the search box (searching `<13115,0>` finds nothing);
 - the suggestions show two rows: a block `6b645d @ 13115` ("Age over 4 years"), and the contract `<13115,0>` created by `4dNMXm`. Click the **contract** row (pressing Enter does not open it). Its page names it `veriflow_registry_v2`. CCDScan shortens the module to `08e3b4`; hover over it for the full hash, or open [the contract on CCDExplorer](https://ccdexplorer.io/testnet/contract/13115/0);
 - under **Events**, each day has exactly one `commit` per asset. CCDScan says "No embedded event schema"; the readable fields are under **Message**. The BTC 2026-11-21 message carries commitment `10cb3dc2…8eda`. Times there are in your local time zone.
@@ -85,7 +85,7 @@ EOF
 
 If Binance answers HTTP 451 where you are, read the two daily closes from any BTCUSDT chart. They are 60215.77 for the candle opening 2026-11-21 and 81416.09 for the candle opening 2026-10-22. Compute `(60215.77 / 81416.09 − 1) × 1,000,000 = −260394.72…` and round half away from zero to get −260395.
 
-The contract enforces the second half of the rule itself. When this call is revealed, it rejects any text whose `signal` contradicts its `momentum_e6`. The first half, whether `momentum_e6` equals Binance, is what you just checked. The scoring rule also checks it every day.
+The contract enforces the second half of the rule itself. When this call is revealed, it rejects any text whose `signal` contradicts its `momentum_e6`. The first half, whether `momentum_e6` equals Binance, is what you just checked. The scoring workflow checks it for each call once the call is revealed, 7 days after its close; until then its report shows `0 / 0` reveals.
 
 ### 4. Check that the scoring rule was fixed before the first call
 
@@ -136,7 +136,7 @@ To check the first two rows yourself:
 
 The payment page for `935bc182…` shows 1 CCD from 19528 to 19394, with fees paid by 19719. It does not name the call it paid for; the buyer receives the string in the HTTP response, which is why Path A has to trust this page for it, and Path B does not.
 
-The README's "latest purchase" is a different, later purchase (an ETH call). Either works; this page uses the BTC one.
+The README's "latest purchase" sections describe later purchases (BTC calls for the 2026-11-23 and 2026-11-24 closes). Any of them works; this page uses the earliest.
 
 ### What Path A shows, and what it does not
 

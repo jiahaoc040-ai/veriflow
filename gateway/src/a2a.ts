@@ -64,9 +64,9 @@ export function mountA2A(app: Express, opts: { selfUrl: string; publicUrl: strin
     const r = route(msg);
     switch (r.skill) {
       case "track_record": {
-        const t = (await ops.trackRecord()) as { matured?: number; signal_days?: number; duplicate_asset_days?: number; scoring_rule?: string };
+        const t = (await ops.trackRecord()) as { matured?: number; signal_days?: number; duplicate_asset_days?: number; duplicate_asset_days_by_contract?: { v1?: number; v2?: number }; scoring_rule?: string };
         return {
-          text: `Track record: ${t.signal_days ?? 0} asset-days committed, ${t.duplicate_asset_days ?? 0} with more than one commit, ${t.matured ?? 0} past the horizon. No hit rate is published; the score comes from the chain-only rule: ${t.scoring_rule ?? "docs/SCORING.md"}.`,
+          text: `Track record: ${t.signal_days ?? 0} asset-days committed, ${t.duplicate_asset_days_by_contract?.v2 ?? t.duplicate_asset_days ?? 0} with more than one commit on contract v2, ${t.matured ?? 0} past the horizon. No hit rate is published; the score comes from the chain-only rule: ${t.scoring_rule ?? "docs/SCORING-v2.md"}.`,
           data: t,
         };
       }

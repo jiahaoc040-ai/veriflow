@@ -141,8 +141,9 @@ export function registerPublicTools(
     {
       title: "VeriFlow track record",
       description:
-        "Hit rate of anchored signals whose 7-day horizon has passed, each asset-day counted once. Every scored signal was " +
-        "committed on-chain before its outcome. Free.",
+        "Counts from VeriFlow's public record: calls issued, asset-days committed, asset-days with more than one commit (per contract), " +
+        "and calls past the 7-day horizon. No hit rate is published: the score comes only from the chain and Binance, by the scoring rule " +
+        "registered on-chain before the first contract-v2 call (link in the result). Free.",
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: true },
     },

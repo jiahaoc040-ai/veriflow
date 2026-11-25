@@ -50,15 +50,15 @@
   <div class="grid">
     <div class="card metric"><div class="n" id="issued">–</div><div class="l">signals issued</div></div>
     <div class="card metric"><div class="n" id="scored">–</div><div class="l" id="scoredLabel">past the 7-day horizon</div></div>
-    <div class="card metric"><div class="n" id="dups">–</div><div class="l">asset-days with more than one commit</div></div>
+    <div class="card metric"><div class="n" id="dups">–</div><div class="l" id="dupsLabel">asset-days with more than one commit on contract v2</div></div>
   </div>
 
   <div class="card">
     <h2>On-chain commitments</h2>
-    <p class="muted lead">Each signal's SHA-256 is written to Concordium before the outcome: one per asset every daily close, whether or not anyone buys, plus every sale. No hit rate is shown: the score is computed only from the chain and Binance by the <a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/docs/SCORING.md">published scoring rule</a>, which counts duplicates and unrevealed calls as failures. This page recomputes hashes in your browser but reads transactions through this server; for a check that does not, compare the hash with the transaction on CCDExplorer.</p>
+    <p class="muted lead">Since 2026-11-22 every call is committed to <a href="https://ccdexplorer.io/testnet/contract/13115/0" target="_blank" rel="noopener">contract v2 <code>&lt;13115,0&gt;</code></a>: at most one per asset and day, accepted only in the day after that close, before any sale and long before the 7-day outcome it is scored on. Rows marked <em>v1</em> come from the retired system (<code>&lt;13094,0&gt;</code>), which allowed more than one commit per day; that is why v2 replaced it. No hit rate is shown: the score is computed only from the chain and Binance by the <a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/docs/SCORING-v2.md">scoring rule registered on-chain before the first v2 call</a>. This page recomputes hashes in your browser but reads transactions through this server; for a check that does not, open the transaction on CCDExplorer.</p>
     <div class="scroll"><table>
-      <thead><tr><th>Date</th><th>Asset</th><th>Commitment</th><th>Anchor</th><th></th></tr></thead>
-      <tbody id="rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      <thead><tr><th>Date</th><th>Asset</th><th>Contract</th><th>Commitment</th><th>Anchor</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
     </table></div>
   </div>
 
@@ -87,10 +87,17 @@
   // Same three checks as veriflow/verify.py and the MCP verify_signal tool
   async function check(commitment, onchain, canonical) {
     const st = onchain && onchain.status;
+    // 讀回的資料統一成 "veriflow:v1:<hash>"（v1 時代的格式名稱）；v2 另外帶合約、資產、日期
+    const onHash = onchain && onchain.data_text && onchain.data_text.startsWith("veriflow:v1:") ? onchain.data_text.slice(12) : null;
+    const where = onchain && onchain.contract ? `contract ${onchain.contract} · ${onchain.asset} ${onchain.as_of} · ` : "";
     const out = [
       { ok: st === "finalized" || st === "committed", name: "transaction confirmed on Concordium", detail: st || "not found" },
-      { ok: onchain && onchain.data_text === "veriflow:v1:" + commitment, name: "on-chain data equals the commitment", detail: (onchain && onchain.data_text) || "no data" },
+      { ok: onHash === commitment, name: "the transaction commits exactly this hash", detail: onHash ? where + onHash : "no commitment found" },
     ];
+    if (onchain && onchain.contract && canonical) {
+      let c; try { c = JSON.parse(canonical); } catch (e) { c = {}; }
+      out.push({ ok: c.asset === onchain.asset && c.as_of === onchain.as_of, name: "stored under the call's own asset and day (contract v2)", detail: `${onchain.asset} ${onchain.as_of}` });
+    }
     if (canonical !== undefined && canonical !== null) {
       const h = await sha256(canonical);
       out.push({ ok: h === commitment, name: "content hashes to the commitment", detail: h });
@@ -118,20 +125,22 @@
         $("issued").textContent = tr.issued;
         $("scored").textContent = tr.matured;
         $("scoredLabel").textContent = `past the ${tr.horizon_days}-day horizon`;
-        $("dups").textContent = tr.duplicate_asset_days;
+        const byC = tr.duplicate_asset_days_by_contract || {};
+        $("dups").textContent = byC.v2 ?? tr.duplicate_asset_days;
+        if (byC.v1) $("dupsLabel").textContent = `asset-days with more than one commit on contract v2 (retired v1: ${byC.v1})`;
       }).catch(() => { $("dups").textContent = "?"; });
       const cs = await get("/commitments");
       commitments = cs;
       $("issued").textContent = cs.length;
       const rows = [...cs].sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at)));
       $("rows").innerHTML = rows.length ? rows.map((c, i) => `
-        <tr><td>${esc(c.as_of)}</td><td>${esc(c.asset)}</td><td class="mono">${esc(c.commitment.slice(0, 16))}…</td>
+        <tr><td>${esc(c.as_of)}</td><td>${esc(c.asset)}</td><td>${c.contract === "v1" ? '<span class="muted">v1 (retired)</span>' : "v2"}</td><td class="mono">${esc(c.commitment.slice(0, 16))}…</td>
         <td>${c.anchor_tx ? `<a class="mono" href="${EXPLORER}${esc(c.anchor_tx)}" target="_blank" rel="noopener">${esc(c.anchor_tx.slice(0, 10))}…</a>` : '<span class="muted">pending</span>'}</td>
         <td>${c.anchor_tx ? `<button data-i="${i}">Verify</button>` : ""}</td></tr>
-        <tr id="out-${i}" hidden><td colspan="5"></td></tr>`).join("") : '<tr><td colspan="5" class="muted">No signals yet.</td></tr>';
+        <tr id="out-${i}" hidden><td colspan="6"></td></tr>`).join("") : '<tr><td colspan="6" class="muted">No signals yet.</td></tr>';
       $("rows").querySelectorAll("button[data-i]").forEach((b) => (b.onclick = () => verifyRow(rows[b.dataset.i], b.dataset.i)));
     } catch (e) {
-      $("rows").innerHTML = `<tr><td colspan="5" class="bad">${esc(e.message)}</td></tr>`;
+      $("rows").innerHTML = `<tr><td colspan="6" class="bad">${esc(e.message)}</td></tr>`;
     }
   }
 
