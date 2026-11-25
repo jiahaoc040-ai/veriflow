@@ -21,9 +21,20 @@ seller check: FAILED — nothing was signed or paid
 ✅ refused before signing: the impostor got nothing
 ```
 
-(The card hash shown is the card pinned at that time; it was re-pinned the same day as `bfbe4573…`, [`9dbb6204…`](https://ccdexplorer.io/testnet/transaction/9dbb620469b2cd5a1cd337451a606f9683c1ada629ecd4a1bea9e9d32b877722).)
+(The card hash shown is the card pinned at that time; it was re-pinned the same day, most recently as `ee656d25…` in [`300332b5…`](https://ccdexplorer.io/testnet/transaction/300332b588e3c825af7b09c713185fcf101e6921a88571ea3c35f982f5fe4f33).)
 
-## 2. USDC on Base Sepolia, both sides bound in CIS-8 (2026-11-25)
+## 2. Contract v2 rejects rule-breaking commits (2026-11-25)
+
+The committer deliberately sent two commits that break the contract's rules; both are on-chain as rejected transactions.
+
+```
+$ COMMITTER_KEY_FILE=keys/committer.export npm run contract2 -- prove-rejection
+
+✓ rejected by the chain — a second call for a day that already has one (BTC 2026-11-24): https://ccdexplorer.io/testnet/transaction/29ef60c50e0a1b1a8103c427c218f3f589b9f9b078982008b983b4a9c1e1c5f2
+✓ rejected by the chain — a late call, three days after its close (BTC 2026-11-22): https://ccdexplorer.io/testnet/transaction/ce0623322833d6d0d6d5a2891ff7f65ca46b18b45f491483850f4419136047c6
+```
+
+## 2b. USDC on Base Sepolia, both sides bound in CIS-8 (2026-11-25)
 
 ```
 $ BUYER_PAY_NETWORK=evm BUYER_AGENT_TOKEN_ID=1478 BUYER_KEY_FILE=keys/buyer.export npm run buyer -- BTC
