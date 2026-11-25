@@ -21,6 +21,16 @@ Agents will pay other agents per call. Today an x402 client pays whatever `payTo
 
 Payments use x402 v2 (`@x402/concordium`), settled by Concordium's hosted testnet facilitator; Base payments by the public x402 facilitator.
 
+## The same checks across mainnet
+
+We ran the buyer's pre-payment checks, read-only, over the whole **mainnet** Agent Registry `<10082,0>` (agents 1–5403, read from a Concordium node on 2026-11-25; [report](https://github.com/jiahaoc040-ai/veriflow/tree/score-reports/census/mainnet), [code](gateway/src/census.ts)):
+
+- **1 in 4 Active agents cannot be paid safely by a careful buyer.** 4,124 of 5,393 (76.5%) have an on-chain `agentWallet` and an https Agent Card whose SHA-256 equals the on-chain hash. 1,114 have no wallet bound, 665 cards do not load, 56 cards changed after they were pinned.
+- **Cross-chain identity is already common.** 2,600 Active agents (48%) link a key on another chain (Ethereum, NEAR, Solana, Fetch.ai, …) through `external_reference`; every one we could read is Active in CIS-8 under the agent's own owner.
+- **Paid endpoints are rare.** 322 cards mention x402; one live x402 endpoint is reachable from a card URL (x402 Doctor, #5120, paid on EVM chains, its Base key bound in CIS-8).
+
+What it does not check: the hosted badge service, endpoints not linked from the card. One agent (#839) could not be read because the public node rate-limited the request. Testnet: [same report](https://github.com/jiahaoc040-ai/veriflow/tree/score-reports/census/testnet).
+
 ## Check it yourself
 
 - **2 minutes, no wallet:** [TRY_IT.md, Path A](TRY_IT.md#path-a-check-a-bought-call-2-minutes). Hash a bought call, find it on-chain, recompute it from Binance, confirm the scoring rule predates it.
