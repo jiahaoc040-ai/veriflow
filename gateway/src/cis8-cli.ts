@@ -13,7 +13,7 @@ import { recoverMessageAddress } from "viem";
 import { createGrpc } from "./grpc.js";
 import { env, loadAccount } from "./config.js";
 import { registryTool, submit, REGISTRY_NETWORK } from "./registry.js";
-import { canonicalBytes, checkEvmBinding, EVM_KEY_TYPE, EVM_PROOF_SCHEME, ownerOfKey } from "./cis8.js";
+import { canonicalBytes, checkEvmBinding, encodeExternalKey, EVM_KEY_TYPE, EVM_PROOF_SCHEME, ownerOfKey, ownerOfKeyRaw } from "./cis8.js";
 
 type EvmKey = { address: `0x${string}`; publicKey: `0x${string}`; privateKey: `0x${string}` };
 const NS = env("EVM_NAMESPACE", "eip155:84532");
@@ -22,7 +22,7 @@ const loadKey = (name: string): EvmKey => JSON.parse(readFileSync(keyPath(name),
 
 async function main() {
   const [cmd, name] = process.argv.slice(2);
-  if (!cmd || !name) throw new Error("usage: npm run cis8 -- keygen|bind|show <name>");
+  if (!cmd || !name) throw new Error("usage: npm run cis8 -- keygen|bind|show|raw <name>");
 
   if (cmd === "keygen") {
     const p = keyPath(name);
@@ -37,6 +37,17 @@ async function main() {
 
   const key = loadKey(name);
   const ext = { namespace: NS, keyType: EVM_KEY_TYPE, publicKey: key.publicKey };
+
+  // 除錯：印出節點回傳的原始位元組，和官方服務的 owner_of_key 結果
+  if (cmd === "raw") {
+    console.log("query  :", encodeExternalKey(ext).toString("hex"));
+    try { console.log("node   :", await ownerOfKeyRaw(ext)); } catch (e) { console.log("node   : error", e instanceof Error ? e.message : e); }
+    try {
+      const r = await registryTool("owner_of_key", { network: REGISTRY_NETWORK, external_key: { namespace: NS, key_type: EVM_KEY_TYPE, public_key_hex: key.publicKey.replace(/^0x/, "") } });
+      console.log("service:", JSON.stringify(r));
+    } catch (e) { console.log("service: error", e instanceof Error ? e.message : e); }
+    return;
+  }
 
   if (cmd === "show") {
     const reg = await ownerOfKey(ext);

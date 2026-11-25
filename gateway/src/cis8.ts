@@ -90,6 +90,17 @@ async function ownerOfKeyName(grpc: ReturnType<typeof createGrpc>): Promise<stri
   return (receiveName = `${contract}.ownerOfKey`);
 }
 
+/** ownerOfKey 的原始回傳值（hex），除錯用 */
+export async function ownerOfKeyRaw(k: ExternalKey, grpc = createGrpc()): Promise<string> {
+  const res = await grpc.invokeContract({
+    contract: CIS8_REGISTRY,
+    method: ReceiveName.fromString(await ownerOfKeyName(grpc)),
+    parameter: Parameter.fromBuffer(new Uint8Array(encodeExternalKey(k)).buffer as ArrayBuffer),
+  });
+  if (res.tag !== "success" || !res.returnValue) throw new Error(`CIS-8 ownerOfKey failed (${res.tag})`);
+  return ReturnValue.toHexString(res.returnValue);
+}
+
 /** 從 Concordium 節點讀 CIS-8：這把外部金鑰登記在哪個帳號底下（沒有就 null） */
 export async function ownerOfKey(k: ExternalKey, grpc = createGrpc()): Promise<Cis8Registration | null> {
   const res = await grpc.invokeContract({
@@ -101,7 +112,7 @@ export async function ownerOfKey(k: ExternalKey, grpc = createGrpc()): Promise<C
   const r = decodeOwnerOfKey(Buffer.from(ReturnValue.toHexString(res.returnValue), "hex"));
   // 回傳的金鑰必須就是查詢的那一把
   if (r && (r.key.publicKey !== normalizePublicKey(k.publicKey).toString("hex") || r.key.namespace !== k.namespace || r.key.keyType !== k.keyType))
-    throw new Error("CIS-8 returned a registration for a different key");
+    throw new Error(`CIS-8 returned a registration for a different key (${r.key.namespace} ${r.key.keyType} ${r.key.publicKey.slice(0, 16)}…)`);
   return r;
 }
 
