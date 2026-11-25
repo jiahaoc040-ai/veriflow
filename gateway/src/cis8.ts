@@ -37,6 +37,22 @@ export function normalizePublicKey(hex: string): Buffer {
   return b;
 }
 
+/** 65 bytes 未壓縮 → 33 bytes 壓縮（02＝y 為偶數，03＝奇數） */
+export function compressPublicKey(hex: string): Buffer {
+  const b = normalizePublicKey(hex);
+  return Buffer.concat([Buffer.from([b[64] & 1 ? 0x03 : 0x02]), b.subarray(1, 33)]);
+}
+
+/** 同一把 secp256k1 金鑰：命名空間相同，且（換成壓縮格式後）公鑰相同 */
+export function sameExternalKey(got: ExternalKey, asked: ExternalKey): boolean {
+  if (got.namespace !== asked.namespace) return false;
+  const g = got.publicKey.replace(/^0x/i, "").toLowerCase();
+  const want = asked.keyType === "secp256k1-uncompressed" ? compressPublicKey(asked.publicKey).toString("hex") : asked.publicKey.replace(/^0x/i, "").toLowerCase();
+  if (got.keyType === "secp256k1-compressed") return g === want;
+  if (got.keyType === "secp256k1-uncompressed") return compressPublicKey(g).toString("hex") === want;
+  return false;
+}
+
 export function encodeExternalKey(k: ExternalKey): Buffer {
   return Buffer.concat([str(k.namespace), str(k.keyType), bstr(normalizePublicKey(k.publicKey))]);
 }
@@ -110,8 +126,8 @@ export async function ownerOfKey(k: ExternalKey, grpc = createGrpc()): Promise<C
   });
   if (res.tag !== "success" || !res.returnValue) throw new Error(`CIS-8 ownerOfKey failed (${res.tag})`);
   const r = decodeOwnerOfKey(Buffer.from(ReturnValue.toHexString(res.returnValue), "hex"));
-  // 回傳的金鑰必須就是查詢的那一把
-  if (r && (r.key.publicKey !== normalizePublicKey(k.publicKey).toString("hex") || r.key.namespace !== k.namespace || r.key.keyType !== k.keyType))
+  // 回傳的金鑰必須就是查詢的那一把。合約把 secp256k1 金鑰一律存成壓縮格式（33 bytes，02/03 開頭），所以兩種寫法都要認
+  if (r && !sameExternalKey(r.key, k))
     throw new Error(`CIS-8 returned a registration for a different key (${r.key.namespace} ${r.key.keyType} ${r.key.publicKey.slice(0, 16)}…)`);
   return r;
 }
