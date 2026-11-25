@@ -1,16 +1,16 @@
 /**
- * CIS-8 外部金鑰登記：證明「這個其他鏈上的地址，屬於這個 Concordium 帳號」
+ * CIS-8 External Key Registry: proves that an address on another chain belongs to a Concordium account
  * ----------------------------------------------------------------------
- * 一筆登記把一把外部公鑰（例如 Base Sepolia 上的 EVM 金鑰）綁到一個 Concordium 帳號。
- * 外部金鑰要對規範化的位元組簽名（ethereum-personal-sign），合約在鏈上驗簽才記錄，所以不能冒綁別人的金鑰。
+ * A registration binds an external public key (e.g. an EVM key on Base Sepolia) to a Concordium account.
+ * The external key must sign canonical bytes (ethereum-personal-sign) and the contract verifies that signature on-chain, so nobody can bind someone else's key.
  *
- * VeriFlow 用它做跨鏈付款：
- *  - 賣方：#1313 的擁有者把收款用的 EVM 金鑰綁上去。買方付 USDC 之前，從節點讀 CIS-8，確認 payTo 的金鑰屬於 #1313 的擁有者。
- *  - 買方：把付款用的 EVM 金鑰綁到自己的 Concordium 帳號。賣方據此把 EVM 付款人對回 Concordium 帳號，
- *    再套用同一套 Verify & Access 資格與 CIS-8004 買方 agent 檢查。
+ * VeriFlow uses it for cross-chain payment:
+ *  - Seller: #1313's owner binds the EVM payout key. Before paying USDC, the buyer reads CIS-8 from a node and confirms payTo's key belongs to #1313's owner.
+ *  - Buyer: binds its paying EVM key to its own Concordium account. The seller uses that to map the EVM payer back to a Concordium account
+ *    and applies the same Verify & Access eligibility and CIS-8004 buyer-agent checks.
  *
- * 編碼（CIS-8 規格）：String / Bytestring = u32 LE 長度 + 內容；ExternalKeyId = namespace String · key_type String · public_key Bytestring
- * ownerOfKey 回傳：0（沒有）或 1 + Registration（owner 32 bytes · ExternalKeyId · proof_scheme String · u32 筆 metadata（key String, value String）· status u8 · last_updated u64）
+ * Encoding (CIS-8 spec): String / Bytestring = u32 LE length + content; ExternalKeyId = namespace String · key_type String · public_key Bytestring
+ * ownerOfKey returns: 0 (none) or 1 + Registration (owner 32 bytes · ExternalKeyId · proof_scheme String · u32 metadata count (key String, value String) · status u8 · last_updated u64)
  */
 import "./env-file.js";
 import { AccountAddress, ContractAddress, Parameter, ReceiveName, ReturnValue } from "@concordium/web-sdk";
@@ -37,30 +37,30 @@ export function normalizePublicKey(hex: string): Buffer {
   return b;
 }
 
-/** 65 bytes 未壓縮 → 33 bytes 壓縮（02＝y 為偶數，03＝奇數） */
+/** 65-byte uncompressed → 33-byte compressed (02 = even y, 03 = odd) */
 export function compressPublicKey(hex: string): Buffer {
   const b = normalizePublicKey(hex);
   return Buffer.concat([Buffer.from([b[64] & 1 ? 0x03 : 0x02]), b.subarray(1, 33)]);
 }
 
-/** 同一把 secp256k1 金鑰：命名空間相同，且（換成壓縮格式後）公鑰相同 */
+/** Same secp256k1 key: same namespace and the same public key once compressed */
 export function sameExternalKey(got: ExternalKey, asked: ExternalKey): boolean {
   if (got.namespace !== asked.namespace) return false;
   const g = got.publicKey.replace(/^0x/i, "").toLowerCase();
   const want = asked.keyType === "secp256k1-uncompressed" ? compressPublicKey(asked.publicKey).toString("hex") : asked.publicKey.replace(/^0x/i, "").toLowerCase();
   if (got.keyType === "secp256k1-compressed") return g === want;
   if (got.keyType === "secp256k1-uncompressed") return compressPublicKey(g).toString("hex") === want;
-  // 其他金鑰類型（例如 ed25519）：類型與位元組都要完全一樣
+  // Other key types (e.g. ed25519): type and bytes must be exactly equal
   return got.keyType === asked.keyType && g === asked.publicKey.replace(/^0x/i, "").toLowerCase();
 }
 
 export function encodeExternalKey(k: ExternalKey): Buffer {
-  // 未壓縮的 secp256k1 先檢查格式；其他類型照原樣編碼
+  // Uncompressed secp256k1 is format-checked first; other types are encoded as given
   const pk = k.keyType === "secp256k1-uncompressed" ? normalizePublicKey(k.publicKey) : Buffer.from(k.publicKey.replace(/^0x/i, ""), "hex");
   return Buffer.concat([str(k.namespace), str(k.keyType), bstr(pk)]);
 }
 
-/** 外部金鑰要簽的位元組（不含 EIP-191 前綴；personal_sign 會自己加） */
+/** The bytes the external key signs (without the EIP-191 prefix; personal_sign adds it) */
 export function canonicalBytes(o: { account: string; contract?: ContractAddress.Type; genesisHash: string; externalNamespace: string; key: ExternalKey; proofScheme: string }): Buffer {
   const c = o.contract ?? CIS8_REGISTRY;
   const acct = Buffer.from(AccountAddress.fromBase58(o.account).decodedAddress);
@@ -109,7 +109,7 @@ async function ownerOfKeyName(grpc: ReturnType<typeof createGrpc>): Promise<stri
   return (receiveName = `${contract}.ownerOfKey`);
 }
 
-/** ownerOfKey 的原始回傳值（hex），除錯用 */
+/** Raw ownerOfKey return value (hex), for debugging */
 export async function ownerOfKeyRaw(k: ExternalKey, grpc = createGrpc()): Promise<string> {
   const res = await grpc.invokeContract({
     contract: CIS8_REGISTRY,
@@ -120,7 +120,7 @@ export async function ownerOfKeyRaw(k: ExternalKey, grpc = createGrpc()): Promis
   return ReturnValue.toHexString(res.returnValue);
 }
 
-/** 從 Concordium 節點讀 CIS-8：這把外部金鑰登記在哪個帳號底下（沒有就 null） */
+/** Read CIS-8 from a Concordium node: which account this external key is registered under (null if none) */
 export async function ownerOfKey(k: ExternalKey, grpc = createGrpc()): Promise<Cis8Registration | null> {
   const res = await grpc.invokeContract({
     contract: CIS8_REGISTRY,
@@ -129,7 +129,7 @@ export async function ownerOfKey(k: ExternalKey, grpc = createGrpc()): Promise<C
   });
   if (res.tag !== "success" || !res.returnValue) throw new Error(`CIS-8 ownerOfKey failed (${res.tag})`);
   const r = decodeOwnerOfKey(Buffer.from(ReturnValue.toHexString(res.returnValue), "hex"));
-  // 回傳的金鑰必須就是查詢的那一把。合約把 secp256k1 金鑰一律存成壓縮格式（33 bytes，02/03 開頭），所以兩種寫法都要認
+  // The returned key must be the one queried. The contract stores every secp256k1 key compressed (33 bytes, 02/03 prefix), so accept either form
   if (r && !sameExternalKey(r.key, k))
     throw new Error(`CIS-8 returned a registration for a different key (${r.key.namespace} ${r.key.keyType} ${r.key.publicKey.slice(0, 16)}…)`);
   return r;
@@ -142,8 +142,8 @@ export function evmAddressOf(publicKeyHex: string): string {
 export type BindingCheck = { ok: true; owner: string } | { ok: false; reason: string };
 
 /**
- * EVM 地址是否透過 CIS-8 綁在某個 Concordium 帳號底下：
- * 公鑰推出的地址必須是這個地址，登記必須是 Active、用 ethereum-personal-sign，擁有者（若有指定）必須相符
+ * Is an EVM address bound to a Concordium account through CIS-8:
+ * the address derived from the public key must be this address, the registration Active with ethereum-personal-sign, and the owner (if given) must match
  */
 export async function checkEvmBinding(o: { address: string; publicKey: string; namespace: string; expectOwner?: string; read?: (k: ExternalKey) => Promise<Cis8Registration | null> }, sameAccount?: (a: string, b: string) => boolean): Promise<BindingCheck> {
   let derived: string;

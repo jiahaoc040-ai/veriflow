@@ -1,14 +1,14 @@
 /**
- * VeriFlow 合約 v2（contract-v2/）的鏈下工具
+ * Off-chain tools for VeriFlow contract v2 (contract-v2/)
  * ------------------------------------------
- * 合約規則：每個 (資產, as_of) 只能一筆、只在 as_of 收盤後一天內能 commit、BTC/ETH 與 7 天寫死、
- * 冷擁有者指定一個上鏈帳號（不能是自己）、公開時合約檢查格式、鍵與規則。
+ * Contract rules: one commit per (asset, as_of), only within the day after the as_of close, BTC/ETH and 7 days hard-coded,
+ * a cold owner appoints one committer (never itself), and on reveal the contract checks the format, key and rules.
  *
- * 用法（在 gateway/，擁有者金鑰 REGISTRY_OWNER_KEY_FILE＝4dNM，只在你自己的電腦上跑）：
- *   npm run contract2 -- deploy                 部署 CI 編好的 v2 模組並建立合約，印出合約編號、模組編號、init 交易
- *   npm run contract2 -- set-committer <帳號>    指定上鏈帳號（會取代舊的）
- *   npm run contract2 -- revoke-committer       撤銷上鏈帳號（出事時用）
- *   npm run contract2 -- status                 合約摘要（REGISTRY_V2_CONTRACT）
+ * Usage (in gateway/, owner key REGISTRY_OWNER_KEY_FILE = 4dNM, run only on your own machine):
+ *   npm run contract2 -- deploy                 deploy the CI-built v2 module and create the contract; prints contract, module and init tx
+ *   npm run contract2 -- set-committer <account> appoint the committer (replaces the previous one)
+ *   npm run contract2 -- revoke-committer       revoke the committer (for emergencies)
+ *   npm run contract2 -- status                 contract summary (REGISTRY_V2_CONTRACT)
  *   npm run contract2 -- slot <BTC|ETH> <YYYY-MM-DD>
  */
 import { NET, txLink } from "./network.js";
@@ -36,12 +36,12 @@ import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 
 export const CONTRACT_V2_NAME = "veriflow_registry_v2";
 export const MODULE_V2_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/registry-module-v2/module.wasm.v1";
-/** 審查通過的 v2 模組（CI 從 commit 5e699ad 編出，38,414 bytes） */
+/** The reviewed v2 module (built by CI from commit 5e699ad, 38,414 bytes) */
 export const EXPECTED_MODULE_V2 = "08e3b49e4e6d0a11f1d2af4c6754537d695cfe19945b9b6d7fb5b8722f4df6cc";
 export const DAY_MS = 86_400_000;
 export const HORIZON_MS = 7 * DAY_MS;
 
-// ── 編碼 ──
+// ── Encoding ──
 const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
 const str = (s: string) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32(b.length), b]); };
 const hash32 = (hex: string) => {
@@ -53,7 +53,7 @@ export const encodeSlotV2 = (asset: string, asOf: string) => Buffer.concat([str(
 export const encodeRevealV2 = (canonical: string) => str(canonical);
 export const encodeAccount = (addr: string) => Buffer.from(AccountAddress.fromBase58(addr).decodedAddress);
 
-// ── 解碼 ──
+// ── Decoding ──
 class Reader {
   o = 0;
   constructor(private b: Buffer) {}
@@ -95,7 +95,7 @@ export function decodeSummaryV2(buf: Buffer): SummaryV2 {
   return out;
 }
 
-/** 測試網上部署的 v2 合約（init dba400c2…，模組 08e3b49e…） */
+/** The v2 contract deployed on testnet (init dba400c2…, module 08e3b49e…) */
 export const TESTNET_REGISTRY_V2_INDEX = 13115n;
 
 export function v2Address(): ContractAddress.Type | undefined {
@@ -103,7 +103,7 @@ export function v2Address(): ContractAddress.Type | undefined {
   return idx ? ContractAddress.create(BigInt(idx), 0n) : undefined;
 }
 
-/** v2 的 Committed 事件（tag 0）：asset、as_of、commitment、committed_at；其他事件回傳 null */
+/** v2 Committed event (tag 0): asset, as_of, commitment, committed_at; other events return null */
 export function decodeCommittedEventV2(hex: string): { asset: string; as_of: string; commitment: string; committed_at: string } | null {
   try {
     const r = new Reader(Buffer.from(hex, "hex"));
@@ -122,7 +122,7 @@ export function decodeCommittedEventV2(hex: string): { asset: string; as_of: str
 const ab = (b: Buffer) => new Uint8Array(b).buffer as ArrayBuffer;
 const method = (entry: string) => ReceiveName.create(ContractName.fromString(CONTRACT_V2_NAME), EntrypointName.fromString(entry));
 
-/** 唯讀查詢（不需要金鑰） */
+/** Read-only queries (no key needed) */
 export function createV2Reader(contract: ContractAddress.Type, grpc = createGrpc()) {
   const view = async (entry: string, param: Buffer) => {
     const res = await grpc.invokeContract({ contract, method: method(entry), parameter: Parameter.fromBuffer(ab(param)) });
@@ -136,19 +136,19 @@ export function createV2Reader(contract: ContractAddress.Type, grpc = createGrpc
   };
 }
 
-/** 鏈上明確拒絕（不是網路或等待逾時） */
+/** An explicit rejection by the chain (not a network error or a wait timeout) */
 export class RejectedError extends Error {}
 
-/** 同一個帳號：Concordium 的別名帳號前 29 個位元組相同 */
+/** Same account: Concordium account aliases share the first 29 bytes */
 export const sameAccount = (a: string, b: string) =>
   Buffer.from(AccountAddress.fromBase58(a).decodedAddress).subarray(0, 29).equals(Buffer.from(AccountAddress.fromBase58(b).decodedAddress).subarray(0, 29));
 
-/** 寫入（上鏈帳號 commit／任何人 reveal／擁有者設定）：同帳號排隊、等最終確認，失敗就丟錯 */
+/** Writes (committer commit / anyone reveal / owner settings): queued per account, wait for finalization, throw on failure */
 export function createV2Writer(keyFile: string, contract: ContractAddress.Type) {
   const acct = loadAccount(keyFile);
   const reader = createV2Reader(contract);
   const grpc = reader.grpc;
-  /** 只留拒絕原因的種類與錯誤碼：參數（例如還沒公開的 canonical）不能進 log */
+  /** Keep only the kind of rejection and its code: parameters (e.g. a canonical not yet revealed) must never reach the logs */
   const reason = (s: any) => {
     const r = s?.rejectReason ?? {};
     const code = r.rejectReason !== undefined ? ` code ${String(r.rejectReason)}` : "";
@@ -172,7 +172,7 @@ export function createV2Writer(keyFile: string, contract: ContractAddress.Type) 
         throw e;
       }
       const txHex = TransactionHash.toHexString(hash);
-      if (onSent) await onSent(txHex); // 先記下交易，再等確認：等待失敗時下一輪仍知道這筆交易
+      if (onSent) await onSent(txHex); // record the transaction before waiting, so the next run knows about it even if the wait fails
       const out = await grpc.waitForTransactionFinalization(hash, 180_000);
       const s = out.summary as any;
       if (s.transactionType === "failed" || s.rejectReason) throw new RejectedError(`${entry} rejected (${txHex}): ${reason(s)}`);
@@ -195,7 +195,7 @@ async function deploy() {
   const source = process.env.CONTRACT_MODULE ? readFileSync(process.env.CONTRACT_MODULE) : Buffer.from(await (await fetch(MODULE_V2_URL)).arrayBuffer());
   const refHex = createHash("sha256").update(source).digest("hex");
   console.log(`owner  ${owner.address}\nmodule ${refHex} (${source.length} bytes)`);
-  // 只部署審查過的那個模組（CI 從 5e699ad 編出）；不一樣就停下，什麼都不送
+  // Deploy only the reviewed module (built by CI from 5e699ad); anything else stops here and nothing is sent
   if (refHex !== EXPECTED_MODULE_V2) throw new Error(`module ${refHex} is not the reviewed module ${EXPECTED_MODULE_V2}; nothing was sent`);
   const submit = async (tx: any) => {
     const { nonce } = await grpc.getNextAccountNonce(owner.accountAddress);
@@ -225,7 +225,7 @@ async function deploy() {
 async function main() {
   const [cmd, a, b] = process.argv.slice(2);
   if (cmd === "deploy") return deploy();
-  // 沒設定就用測試網上已部署的 <13115,0>
+  // Without configuration, use the contract deployed on testnet, <13115,0>
   const address = v2Address() ?? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n);
   const show = (x: unknown) => console.log(JSON.stringify(x, null, 2));
   if (cmd === "status") return show(await createV2Reader(address).summary());
@@ -238,7 +238,7 @@ async function main() {
     return console.log(`set_committer ${a}: ${NET.explorer}/transaction/${await w.setCommitter(a)}`);
   }
   if (cmd === "prove-rejection") {
-    // 示範：用上鏈帳號故意送兩筆不合規則的 commit，讓鏈上留下「被合約拒絕」的交易（每筆只花一點手續費）
+    // Demo: the committer deliberately sends two commits that break the rules, leaving transactions the contract rejected on-chain (each costs only a small fee)
     const w = createV2Writer(env("COMMITTER_KEY_FILE"), address);
     const day = (n: number) => new Date(Date.now() - n * DAY_MS).toISOString().slice(0, 10);
     const randomHash = () => createHash("sha256").update(String(Math.random())).digest("hex");
@@ -246,7 +246,7 @@ async function main() {
       ["a second call for a day that already has one", "BTC", day(1)],
       ["a late call, three days after its close", "BTC", day(3)],
     ];
-    // 安全閥：只在昨天的 BTC 已經有真的 commit 時才送「重複」那筆；否則這筆隨機雜湊會變成當天唯一的 commit
+    // Safety valve: send the duplicate only if yesterday's BTC already has a real commit; otherwise this random hash would become that day's only commit
     const reader = createV2Reader(address);
     if (!(await reader.slot("BTC", day(1)))) throw new Error(`BTC ${day(1)} has no commit yet; wait for the daily job (after ~00:20 UTC) so the duplicate cannot become the real call`);
     for (const [what, asset, asOf] of attempts) {

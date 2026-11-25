@@ -1,27 +1,27 @@
 /**
- * 買方資格驗證（Concordium Verify & Access，官方 V1 協定）
+ * Buyer eligibility (Concordium Verify & Access, official V1 protocol)
  * -------------------------------------------------------
- * 交易訊號在很多地方屬於受管制的投資資訊，所以 VeriFlow 只賣給：
- *   1. 年滿 18 歲
- *   2. 居住國不在限制名單（RESTRICTED_COUNTRIES，預設 US,KP,IR,CU,SY）
- * 的買方。買方用 Concordium 錢包產生零知識證明，VeriFlow 看不到生日、國家、姓名。
+ * Trading signals are regulated investment information in many places, so VeriFlow sells only to buyers who are:
+ *   1. 18 or older
+ *   2. not resident in a restricted country (RESTRICTED_COUNTRIES, default US,KP,IR,CU,SY)
+ * The buyer creates a zero-knowledge proof in a Concordium wallet; VeriFlow never sees a birth date, country or name.
  *
- * 官方 V1 流程（每次驗證在鏈上留下兩筆紀錄）：
+ * Official V1 flow (each verification leaves two records on-chain):
  *   POST /eligibility/challenge {account}
- *       → 建立驗證請求（年齡、國家條件 + 一次性 nonce + 綁定買方帳號的說明）
- *       → 請求的雜湊寫上鏈（VRA，Verification Request Anchor），等最終確認
- *   錢包 requestVerifiablePresentationV1(request) → 對「鏈上的那個請求」產生證明
+ *       → build a verification request (age and country conditions + a one-time nonce + a note binding the buyer account)
+ *       → anchor the request's hash on-chain (VRA, Verification Request Anchor) and wait for finalization
+ *   wallet requestVerifiablePresentationV1(request) → proves against the request that is on-chain
  *   POST /eligibility/verify {id, presentation}
- *       ① id 是我們發的、沒過期、只能用一次
- *       ② 只有一個 credential，而且是帳號 credential（才能對應到付款帳號）
- *       ③ 證明的條件至少跟要求一樣嚴格；簽發者是鏈上登記的身份提供者
- *       ④ credential 屬於這個買方帳號（鏈上查 credential → 帳號）
- *       ⑤ 官方檢查（SDK createChecked）：context 對得上請求、零知識證明成立、
- *          credential 有效、請求確實已上鏈、證明的條件符合請求
- *       ⑥ 全部通過 → 稽核紀錄的雜湊寫上鏈（VAA，Verification Audit Anchor）
- *   → 帳號列入白名單（預設 30 天），附上 VRA 與 VAA 兩筆交易
+ *       ① the id is ours, not expired, and single-use
+ *       ② exactly one credential, and it is an account credential (so it maps to the paying account)
+ *       ③ the proven conditions are at least as strict as requested; the issuer is an identity provider registered on-chain
+ *       ④ the credential belongs to this buyer account (credential → account, read from the chain)
+ *       ⑤ official check (SDK createChecked): context matches the request, the zero-knowledge proof holds,
+ *          the credential is valid, the request is really on-chain, and the proven conditions match the request
+ *       ⑥ all pass → anchor the audit record's hash on-chain (VAA, Verification Audit Anchor)
+ *   → the account is allow-listed (30 days by default), with the VRA and VAA transactions attached
  *
- * 付款時（x402 onBeforeVerify）：付款交易的 sender 不在白名單 → 拒絕，買方的錢不會被扣。
+ * At payment (x402 onBeforeVerify): if the payment's sender is not allow-listed, refuse; the buyer is not charged.
  */
 import { NET } from "./network.js";
 import { createHash, randomBytes } from "node:crypto";
@@ -42,16 +42,16 @@ import { loadAccount } from "./config.js";
 import { serialize, waitForNode } from "./txqueue.js";
 
 export const MIN_AGE = 18;
-export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 分鐘內要完成證明
-export const ELIGIBILITY_TTL_MS = 30 * 24 * 3600 * 1000; // 驗證一次有效 30 天
-export const CHAIN_TIMEOUT_MS = 180_000; // 上鏈要等最終確認；測試網有時要一兩分鐘，給寬一點
+export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // the proof must be completed within 10 minutes
+export const ELIGIBILITY_TTL_MS = 30 * 24 * 3600 * 1000; // one verification is valid for 30 days
+export const CHAIN_TIMEOUT_MS = 180_000; // anchoring waits for finalization; testnet sometimes takes a minute or two
 
 export type Policy = { minAge: number; restrictedCountries: string[] };
 
 /**
- * x402 Concordium 付款裡的付款人帳號。
+ * The payer account of an x402 Concordium payment.
  * payload = { signedTransaction: { header: { sender }, signatures: { sender: … } } }
- * sender 由買方的金鑰簽名，facilitator 會驗簽，所以不能冒用別人的地址。
+ * The sender is signed by the buyer's key and the facilitator verifies the signature, so another address cannot be claimed.
  */
 export function payerOf(payload: unknown): string | undefined {
   const p = payload as { signedTransaction?: { header?: { sender?: unknown } } } | undefined;
@@ -62,7 +62,7 @@ export function payerOf(payload: unknown): string | undefined {
 function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
   return Promise.race([
     p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${what} 逾時（${CHAIN_TIMEOUT_MS / 1000} 秒），請再試一次`)), CHAIN_TIMEOUT_MS)),
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${what} timed out (${CHAIN_TIMEOUT_MS / 1000} s); please try again`)), CHAIN_TIMEOUT_MS)),
   ]);
 }
 
@@ -74,12 +74,12 @@ export function parseCountries(s: string | undefined): string[] {
     .sort();
 }
 
-/** 政策指紋：改了限制名單或年齡，舊的驗證自動失效 */
+/** Policy fingerprint: changing the restricted list or the age invalidates earlier verifications */
 export function policyId(p: Policy): string {
   return createHash("sha256").update(JSON.stringify({ v: 1, a: p.minAge, r: [...p.restrictedCountries].sort() })).digest("hex").slice(0, 16);
 }
 
-/** 要求的條件：帳號 credential（才能對應付款帳號），只接受鏈上登記的身份提供者 */
+/** Requested conditions: an account credential (so it maps to the paying account), only from identity providers registered on-chain */
 export function buildClaims(p: Policy, identityProviders: number[]): VerificationRequestV1.SubjectClaims[] {
   return VerificationRequestV1.claimsBuilder()
     .addAccountClaims(
@@ -92,41 +92,41 @@ export function buildClaims(p: Policy, identityProviders: number[]): Verificatio
 /** did:ccd:testnet:cred:<hex> → <hex> */
 export function credIdFromDid(did: string): string {
   const m = /^did:ccd:(testnet|mainnet):cred:([0-9a-f]+)$/.exec(did);
-  if (!m) throw new Error(`不是帳號 credential：${did}`);
+  if (!m) throw new Error(`not an account credential: ${did}`);
   return m[2];
 }
 
 /** did:ccd:testnet:idp:<n> → n */
 export function idpFromDid(did: string): number {
   const m = /^did:ccd:(testnet|mainnet):idp:(\d+)$/.exec(did);
-  if (!m) throw new Error(`不是身份提供者：${did}`);
+  if (!m) throw new Error(`not an identity provider: ${did}`);
   return Number(m[2]);
 }
 
 export type Atomic = { type: string; attributeTag: string; lower?: unknown; upper?: unknown; set?: unknown[] };
 
 /**
- * 檢查「已證明的條件」至少跟「要求的條件」一樣嚴格。回傳 null = 通過，否則回傳缺什麼。
- * - 年齡：dob 落在 [lower, upper)；證明的 upper 不能比要求的晚（晚 = 可能更年輕）
- * - 地區：證明的「不在名單」集合要包含所有限制國家
- * （SDK 的官方檢查也會比對條件；這裡再檢查一次，錯誤訊息比較清楚）
+ * Check that the proven conditions are at least as strict as the requested ones. Returns null if they are, otherwise what is missing.
+ * - Age: dob in [lower, upper); the proven upper bound may not be later than requested (later = possibly younger)
+ * - Region: the proven "not in" set must contain every restricted country
+ * (The SDK's official check also compares conditions; checking again here gives clearer error messages.)
  */
 export function statementGap(want: Atomic[], got: Atomic[]): string | null {
   for (const w of want) {
     const g = got.find((s) => s.type === w.type && s.attributeTag === w.attributeTag);
-    if (!g) return `缺少 ${w.type}(${w.attributeTag})`;
+    if (!g) return `missing ${w.type}(${w.attributeTag})`;
     if (w.type === "AttributeInRange" && (g.upper === undefined || w.upper === undefined || String(g.upper) > String(w.upper)))
-      return `${w.attributeTag} 範圍太寬（${String(g.upper)} > ${String(w.upper)}）`;
+      return `${w.attributeTag} range too wide (${String(g.upper)} > ${String(w.upper)})`;
     if (w.type === "AttributeNotInSet") {
       const have = (g.set ?? []).map(String);
       const missing = (w.set ?? []).map(String).filter((x) => !have.includes(x));
-      if (missing.length) return `${w.attributeTag} 沒排除 ${missing.join(",")}`;
+      if (missing.length) return `${w.attributeTag} does not exclude ${missing.join(",")}`;
     }
   }
   return null;
 }
 
-/** 從證明裡取出我們要檢查的部分（真實版本由 Chain 解析 SDK 物件） */
+/** Extract the parts of a proof we check (the real implementation parses SDK objects in Chain) */
 export type ParsedPresentation = {
   presentation: unknown;
   credentials: { kind: "account" | "identity"; id: string; issuer: string; statement: Atomic[] }[];
@@ -142,7 +142,7 @@ export type Eligible = {
   policy: string;
   requestAnchorTx: string; // VRA
   auditAnchorTx: string; // VAA
-  /** 付款時重新檢查用：請求 id、請求本身、買方的證明（證明不含出生日期與國家） */
+  /** For the re-check at payment: request id, the request itself, the buyer's proof (the proof holds no birth date or country) */
   challengeId?: string;
   requestJson?: unknown;
   presentationJson?: string;
@@ -150,13 +150,13 @@ export type Eligible = {
   expiresAt: string;
 };
 
-/** 白名單存在哪裡：本機 JSON 檔，或部署時的 Postgres（DATABASE_URL） */
+/** Where the allow-list lives: a local JSON file, or Postgres when deployed (DATABASE_URL) */
 export type Persistence = {
   load(): Promise<Record<string, Eligible>>;
   save(rec: Eligible): Promise<void>;
 };
 
-/** 讀 JSON 檔；檔案不存在就當空的（直接讀、處理 ENOENT，不先檢查再讀，避免檢查與使用之間被換掉） */
+/** Read the JSON file; a missing file counts as empty (read and handle ENOENT instead of check-then-read, so it cannot be swapped in between) */
 function readJsonOrEmpty(file: string): Record<string, Eligible> {
   try {
     return JSON.parse(readFileSync(file, "utf8"));
@@ -181,7 +181,7 @@ export function filePersistence(file: string): Persistence {
 }
 
 export function postgresPersistence(url: string): Persistence {
-  // 動態載入，本機不用 Postgres 時不需要連線
+  // Loaded lazily, so local runs without Postgres need no connection
   let pool: import("pg").Pool | undefined;
   const db = async () => {
     if (!pool) {
@@ -205,16 +205,16 @@ export function postgresPersistence(url: string): Persistence {
   };
 }
 
-/** 白名單 + 未使用的請求（白名單寫入 Persistence，重開不會掉；未完成的請求只放記憶體） */
+/** Allow-list + unused requests (the allow-list is written to Persistence and survives restarts; pending requests stay in memory) */
 export class EligibilityStore {
   private challenges = new Map<string, Challenge>();
   private busy = new Set<string>();
-  // 沒有原型鏈的物件：帳號字串當 key，排除 "__proto__" 之類的原型污染
+  // Object without a prototype: account strings are keys, so "__proto__" and similar cannot pollute it
   private eligible: Record<string, Eligible> = Object.create(null);
 
   constructor(private persistence?: Persistence, private now: () => number = Date.now) {}
 
-  /** 啟動時從儲存載入白名單 */
+  /** Load the allow-list from storage at startup */
   async init() {
     if (this.persistence) this.eligible = Object.assign(Object.create(null), await this.persistence.load());
     return this;
@@ -224,7 +224,7 @@ export class EligibilityStore {
     this.challenges.set(id, { ...c, expires: this.now() + CHALLENGE_TTL_MS });
   }
 
-  /** 取出並作廢（只能用一次） */
+  /** Take and invalidate (single use) */
   take(id: string): Challenge {
     const c = this.claim(id);
     this.finish(id);
@@ -232,18 +232,18 @@ export class EligibilityStore {
   }
 
   /**
-   * 開始驗證：鎖住這個請求（同時只能有一個驗證在跑），但先不刪。
-   * 驗證失敗（證明不符、節點逾時）就 release，使用者可以在期限內重試，不用重新上鏈一個請求；
-   * 成功才 finish 刪掉，所以同一個請求不會被用兩次。
+   * Start verifying: lock this request (one verification at a time) but do not delete it yet.
+   * If verification fails (proof mismatch, node timeout), release it so the user can retry within the window without anchoring a new request;
+   * only success deletes it via finish, so one request can never be used twice.
    */
   claim(id: string): Challenge {
     const c = this.challenges.get(id);
-    if (!c) throw new Error("驗證請求不存在或已經用過");
+    if (!c) throw new Error("verification request not found or already used");
     if (c.expires < this.now()) {
       this.challenges.delete(id);
-      throw new Error("驗證請求已過期，請重新開始");
+      throw new Error("verification request expired; please start again");
     }
-    if (this.busy.has(id)) throw new Error("這個驗證請求正在處理中，請稍候");
+    if (this.busy.has(id)) throw new Error("this verification request is being processed; please wait");
     this.busy.add(id);
     return c;
   }
@@ -258,7 +258,7 @@ export class EligibilityStore {
   async grant(e: Omit<Eligible, "verifiedAt" | "expiresAt">): Promise<Eligible> {
     const t = this.now();
     const rec = { ...e, verifiedAt: new Date(t).toISOString(), expiresAt: new Date(t + ELIGIBILITY_TTL_MS).toISOString() };
-    await this.persistence?.save(rec); // 先寫進儲存，成功才算數
+    await this.persistence?.save(rec); // write to storage first; it only counts if that succeeds
     this.eligible[e.account] = rec;
     return rec;
   }
@@ -266,24 +266,24 @@ export class EligibilityStore {
   status(account: string, policy: string): Eligible | null {
     const e = this.eligible[account];
     if (!e || e.policy !== policy || Date.parse(e.expiresAt) < this.now()) return null;
-    // 舊紀錄沒有存證明，付款時無法重新檢查：當作沒驗證過，請買方再驗一次
+    // Old records stored no proof, so they cannot be re-checked at payment: treat as unverified and ask the buyer to verify again
     if (!e.presentationJson || !e.requestJson || !e.challengeId) return null;
     return e;
   }
 }
 
-/** 鏈上依賴（測試時換成假的） */
+/** On-chain dependencies (replaced by fakes in tests) */
 export type Chain = {
   identityProviders(): Promise<number[]>;
-  /** 建立驗證請求並把雜湊寫上鏈（VRA），等到最終確認 */
+  /** Build a verification request and anchor its hash on-chain (VRA), waiting for finalization */
   anchorRequest(nonce: Uint8Array, id: string, resource: string, note: string, claims: VerificationRequestV1.SubjectClaims[]): Promise<AnchoredRequest>;
   parsePresentation(json: string): ParsedPresentation;
-  /** 官方完整檢查，通過才把稽核紀錄寫上鏈（VAA）；不通過丟錯 */
+  /** Full official check; only if it passes, anchor the audit record (VAA). Throws otherwise */
   auditAndAnchor(id: string, request: AnchoredRequest, presentation: ParsedPresentation): Promise<string>;
   accountOfCredential(credId: string): Promise<string>;
   /**
-   * 付款時重新檢查（每一筆付款都做，不快取）：用存下的請求與證明重跑官方檢查（零知識證明、條件、
-   * credential 仍有效、請求仍在鏈上），確認稽核紀錄（VAA）上鏈的就是這份紀錄。不通過就丟錯。
+   * Re-check at payment (every payment, never cached): re-run the official check on the stored request and proof (zero-knowledge proof, conditions,
+   * credential still valid, request still on-chain), and confirm the anchored audit record (VAA) is this record. Throws otherwise.
    */
   recheckAudit(challengeId: string, requestJson: unknown, presentationJson: string, auditAnchorTx: string): Promise<void>;
 };
@@ -298,22 +298,22 @@ export function concordiumChain(anchorKeyFile: string): Chain {
 
   return {
     async identityProviders() {
-      // 只快取非空的名單，而且一小時更新一次：節點暫時回空的，不會讓之後所有驗證都被拒絕
+      // Cache only a non-empty list, refreshed hourly: a node that briefly returns nothing cannot make every later verification fail
       if (!ips || Date.now() - ipsAt > 3_600_000) {
         const fresh: number[] = [];
         for await (const ip of grpc.getIdentityProviders()) fresh.push(ip.ipIdentity);
         if (fresh.length) {
           ips = fresh;
           ipsAt = Date.now();
-        } else if (!ips) throw new Error("節點沒有回傳身分提供者名單，請稍後再試");
+        } else if (!ips) throw new Error("the node returned no identity provider list; please try again later");
       }
       return ips;
     },
 
     async anchorRequest(nonce, id, resource, note, claims) {
       const context = VerificationRequestV1.createSimpleContext(nonce, id, resource, note);
-      // SDK 自己取序號：整段排隊，並等到最終確認才放行，下一筆拿到的序號才不會重複（見 txqueue.ts）
-      // 錢包也只接受「已最終確認」的請求
+      // The SDK picks its own nonce: queue the whole step and wait for finalization before the next one, so nonces never collide (see txqueue.ts)
+      // The wallet also accepts only finalized requests
       const request = await serialize(anchor.address, async () => {
         await waitForNode(anchor.address, nodeNonce);
         const r = await VerificationRequestV1.createAndAnchor(grpc, metadata(), context, claims, { service: "veriflow" });
@@ -350,7 +350,7 @@ export function concordiumChain(anchorKeyFile: string): Chain {
         if (out.type !== "failed") await grpc.waitForTransactionFinalization(out.result.anchorTransactionRef);
         return out;
       });
-      if (r.type === "failed") throw new Error(`官方驗證未通過：${r.error.message}`);
+      if (r.type === "failed") throw new Error(`official verification failed: ${r.error.message}`);
       return TransactionHash.toHexString(r.result.anchorTransactionRef);
     },
 
@@ -359,9 +359,9 @@ export function concordiumChain(anchorKeyFile: string): Chain {
       const presentation = VerifiablePresentationV1.fromJSON(JSON.parse(presentationJson));
       const r = await VerificationAuditRecordV1.createChecked(challengeId, request, presentation, grpc, NET.did);
       if (r.type === "failed") throw new Error(`proof no longer passes the official check: ${r.error.message}`);
-      // SDK 的 verifyAnchor 算雜湊時不帶 info；我們上鏈時帶了 { service: "veriflow" }，所以自己比對整個 anchor
+      // The SDK's verifyAnchor hashes without info; we anchor with { service: "veriflow" }, so compare the whole anchor ourselves
       const expected = Buffer.from(VerificationAuditRecordV1.createAnchor(r.result, { service: "veriflow" })).toString("hex");
-      // 請求（VRA）與稽核紀錄（VAA）都必須是「我們的上鏈帳號」送的：別人自己上鏈的請求與紀錄不算
+      // Both the request (VRA) and the audit record (VAA) must be sent by our anchoring account: anchors someone else made do not count
       const sentByUs = async (tx: string, what: string) => {
         const st = await grpc.getBlockItemStatus(TransactionHash.fromHexString(tx));
         if (st.status !== "finalized") throw new Error(`${what} transaction is not finalized`);
@@ -394,14 +394,14 @@ export class EligibilityService {
     this.policyId = policyId(policy);
   }
 
-  /** 建立並上鏈一個綁定此帳號的驗證請求 */
+  /** Build and anchor a verification request bound to this account */
   async challenge(account: string) {
-    AccountAddress.fromBase58(account); // 格式錯誤會丟錯
+    AccountAddress.fromBase58(account); // throws on a malformed address
     const claims = buildClaims(this.policy, await this.chain.identityProviders());
     const nonce = randomBytes(32);
     const id = nonce.toString("hex");
     const note = `VeriFlow buyer eligibility for ${account}`;
-    const request = await withTimeout(this.chain.anchorRequest(nonce, id, this.resource, note, claims), "驗證請求上鏈");
+    const request = await withTimeout(this.chain.anchorRequest(nonce, id, this.resource, note, claims), "anchoring the verification request");
     this.store.put(id, { account, request, wanted: claims[0].statements as Atomic[], policy: this.policyId });
     return { id, request: request.json, requestAnchorTx: request.txHash, policy: this.describe() };
   }
@@ -419,25 +419,25 @@ export class EligibilityService {
   }
 
   private async verifyClaimed(id: string, c: Challenge, presentationJson: string): Promise<Eligible> {
-    if (c.policy !== this.policyId) throw new Error("政策已更新，請重新開始");
+    if (c.policy !== this.policyId) throw new Error("the policy has changed; please start again");
 
     const parsed = this.chain.parsePresentation(presentationJson);
-    if (parsed.credentials.length !== 1) throw new Error("只接受一個 credential 的證明");
+    if (parsed.credentials.length !== 1) throw new Error("only proofs with exactly one credential are accepted");
     const vc = parsed.credentials[0];
-    if (vc.kind !== "account") throw new Error("需要帳號 credential（才能確認是付款帳號本人）");
+    if (vc.kind !== "account") throw new Error("an account credential is required (to confirm it is the paying account)");
 
     const problem = statementGap(c.wanted, vc.statement);
-    if (problem) throw new Error(`證明的條件不足：${problem}`);
+    if (problem) throw new Error(`the proven conditions are not enough: ${problem}`);
 
     const issuer = idpFromDid(vc.issuer);
-    if (!(await this.chain.identityProviders()).includes(issuer)) throw new Error(`身份提供者 ${issuer} 不在鏈上名單`);
+    if (!(await this.chain.identityProviders()).includes(issuer)) throw new Error(`identity provider ${issuer} is not on the on-chain list`);
 
     const credId = credIdFromDid(vc.id);
-    const owner = await withTimeout(this.chain.accountOfCredential(credId), "查詢 credential 所屬帳號");
-    if (owner !== c.account) throw new Error(`這個證明屬於帳號 ${owner}，不是 ${c.account}`);
+    const owner = await withTimeout(this.chain.accountOfCredential(credId), "looking up the credential's account");
+    if (owner !== c.account) throw new Error(`this proof belongs to account ${owner}, not ${c.account}`);
 
-    // 最後才做官方檢查 + 稽核上鏈（要花手續費，前面便宜的檢查先擋掉）
-    const auditAnchorTx = await withTimeout(this.chain.auditAndAnchor(id, c.request, parsed), "官方驗證與稽核上鏈");
+    // The official check and audit anchor come last (they cost a fee); the cheap checks above filter first
+    const auditAnchorTx = await withTimeout(this.chain.auditAndAnchor(id, c.request, parsed), "official verification and audit anchoring");
 
     return await this.store.grant({
       account: c.account,
@@ -453,10 +453,10 @@ export class EligibilityService {
   }
 
   /**
-   * 付款時的資格檢查（每一筆都做，不快取，任何錯誤都拒絕）：
-   * 1. 有存下證明的有效紀錄（舊紀錄沒有證明 → 要求重新驗證）
-   * 2. 官方檢查重跑一次：證明仍成立、credential 仍有效、請求仍在鏈上，而且 VAA 上鏈的就是這份紀錄
-   * 3. 證明裡的帳號 credential 現在仍屬於這筆付款的發送帳號
+   * Eligibility check at payment (every payment, never cached, any error refuses):
+   * 1. a valid record with a stored proof (old records without a proof → verify again)
+   * 2. the official check re-run: the proof still holds, the credential is still valid, the request is still on-chain, and the VAA anchors this record
+   * 3. the proof's account credential still belongs to this payment's sender
    */
   async recheck(sender: string): Promise<Eligible> {
     const rec = this.status(sender);
@@ -464,13 +464,13 @@ export class EligibilityService {
     const parsed = this.chain.parsePresentation(rec.presentationJson!);
     const vc = parsed.credentials[0];
     if (parsed.credentials.length !== 1 || vc.kind !== "account") throw new Error("stored proof is not one account credential");
-    // 存下的證明必須滿足「現在的」政策與身分提供者名單（不只看存下的政策字串）
+    // The stored proof must satisfy the current policy and identity provider list (not just the stored policy string)
     const ips = await this.chain.identityProviders();
     const gap = statementGap(buildClaims(this.policy, ips)[0].statements as Atomic[], vc.statement);
     if (gap) throw new Error(`stored proof does not meet the current policy: ${gap}`);
     if (!ips.includes(idpFromDid(vc.issuer))) throw new Error("stored proof's identity provider is not on the chain's list");
-    await withTimeout(this.chain.recheckAudit(rec.challengeId!, rec.requestJson, rec.presentationJson!, rec.auditAnchorTx), "付款時重新檢查");
-    const owner = await withTimeout(this.chain.accountOfCredential(credIdFromDid(vc.id)), "查詢 credential 所屬帳號");
+    await withTimeout(this.chain.recheckAudit(rec.challengeId!, rec.requestJson, rec.presentationJson!, rec.auditAnchorTx), "re-check at payment");
+    const owner = await withTimeout(this.chain.accountOfCredential(credIdFromDid(vc.id)), "looking up the credential's account");
     if (owner !== sender) throw new Error(`the proof's credential belongs to ${owner}, not the paying account`);
     return rec;
   }

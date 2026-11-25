@@ -1,14 +1,14 @@
 /**
- * 每日訊號 v2（在 GitHub Actions 上跑，不在 Render）
+ * Daily signals v2 (run on GitHub Actions, not on Render)
  * ------------------------------------------------
- * Render 的 IP 連不到 Binance，所以 v2 的訊號在 GitHub 的機器上產生並上鏈：
- *   1. 公開到期的承諾：資料庫裡 v2 的訊號，滿 7 天、鏈上還沒公開的，用 canonical 送 reveal
- *   2. 昨天收盤（as_of）的訊號：鏈上這一格還空著才做。資料庫有同一天的 v2 訊號就沿用（不換 nonce），
- *      沒有才用 Binance 日 K 算 momentum、產生新的 canonical，先寫進資料庫再 commit，確認後記下交易
- * 上鏈帳號是低餘額、可撤銷的 committer（COMMITTER_KEY_FILE），不是擁有者 4dNM。
- * Render 上的付費 API 只賣資料庫裡「已上鏈」的 v2 訊號。
+ * Render's IPs cannot reach Binance, so v2 signals are computed and committed on GitHub's machines:
+ *   1. Reveal what is due: v2 signals in the database that are 7+ days old and not yet revealed on-chain are revealed with their canonical text
+ *   2. Yesterday's close (as_of): only if that slot is still empty on-chain. If the database already has a v2 signal for the day, reuse it (same nonce);
+ *      otherwise compute momentum from Binance daily candles, create a new canonical, write it to the database, then commit, and record the transaction once confirmed
+ * The committing account is the low-balance, revocable committer (COMMITTER_KEY_FILE), not the owner 4dNM.
+ * The paid API on Render sells only v2 signals from the database that are already on-chain.
  *
- *   npm run daily2      （需要 REGISTRY_V2_CONTRACT、COMMITTER_KEY_FILE、DATABASE_URL）
+ *   npm run daily2      (needs REGISTRY_V2_CONTRACT, COMMITTER_KEY_FILE, DATABASE_URL)
  */
 import { createHash } from "node:crypto";
 import { env } from "./config.js";
@@ -30,11 +30,11 @@ export type DailyV2Deps = {
     v2Rows: () => Promise<Row[]>;
     forDay: (asset: string, asOf: string) => Promise<Row[]>;
     insert: (r: { commitment: string; asset: string; as_of: string; signal: string; close: number; canonical: string; issued_at: string }) => Promise<void>;
-    /** 成功確認後寫入（覆蓋） */
+    /** Written after confirmation (overwrites) */
     setAnchor: (commitment: string, tx: string) => Promise<void>;
-    /** 送出當下：只有還沒記錄任何交易時才寫（另一個同時跑的排程先送出的那筆優先） */
+    /** At send time: written only if no transaction is recorded yet (a concurrently running job's earlier send wins) */
     setAnchorIfNull: (commitment: string, tx: string) => Promise<void>;
-    /** 鏈上拒絕：只有記錄的正好是這筆被拒絕的交易時才清掉 */
+    /** Rejected on-chain: cleared only if the recorded transaction is exactly the rejected one */
     clearAnchorIf: (commitment: string, tx: string) => Promise<void>;
   };
   nonce?: () => string;
@@ -47,7 +47,7 @@ export async function runDailyV2(d: DailyV2Deps) {
   const log = d.log ?? (() => {});
   const out: { reveals: string[]; commits: string[]; skipped: string[]; errors: string[] } = { reveals: [], commits: [], skipped: [], errors: [] };
 
-  // 1. 到期公開
+  // 1. Reveal what is due
   for (const r of await d.db.v2Rows()) {
     if (!r.anchor_tx) continue;
     try {
@@ -62,7 +62,7 @@ export async function runDailyV2(d: DailyV2Deps) {
     }
   }
 
-  // 2. 昨天收盤的訊號（合約只在 as_of 之後那一天接受）
+  // 2. Yesterday's close (the contract accepts it only on the day after as_of)
   const asOf = dayOf(d.now - DAY);
   for (const asset of d.assets) {
     try {
@@ -82,7 +82,7 @@ export async function runDailyV2(d: DailyV2Deps) {
         const canonical = canonicalV2(asset, asOf, m, (d.nonce ?? newNonce)());
         const close = candles.find((k) => k.openTime === dayMs(asOf))!.close;
         await d.db.insert({ commitment: sha(canonical), asset, as_of: asOf, signal: ruleV2(m), close, canonical, issued_at: new Date(d.now).toISOString() });
-        // 資料庫對 (asset, as_of) 的 v2 訊號有唯一索引：同時跑兩個排程時只有一筆寫得進去，用寫進去的那筆
+        // The database has a unique index on (asset, as_of) for v2: if two jobs run at once only one row is written; use that one
         row = (await d.db.forDay(asset, asOf)).find((r) => isV2(r.canonical));
         if (!row) throw new Error("row was not stored");
       }
@@ -96,7 +96,7 @@ export async function runDailyV2(d: DailyV2Deps) {
             await d.db.setAnchorIfNull(c, sent);
           });
         } catch (e) {
-          // 被拒絕的是這一次送出的交易；如果記錄的是別次（例如前一輪還在等確認、後來成功的那筆），不動它
+          // The rejected transaction is the one sent now; if a different one is recorded (e.g. an earlier round's that later succeeded), leave it
           if (e instanceof RejectedError && sentTx) await d.db.clearAnchorIf(c, sentTx);
           throw e;
         }
@@ -116,7 +116,7 @@ async function main() {
   if (!address) throw new Error("REGISTRY_V2_CONTRACT is not set");
   const url = env("DATABASE_URL");
   const keyFile = env("COMMITTER_KEY_FILE");
-  // 只接受檔案路徑：如果有人把金鑰 JSON 直接放進這個變數，讀檔錯誤訊息會把它印進 log
+  // Accept only a file path: if someone puts the key JSON itself in this variable, a read error would print it into the log
   if (keyFile.trim().startsWith("{") || keyFile.length > 512) throw new Error("COMMITTER_KEY_FILE must be a path to the key file, not its contents");
   const { default: pg } = await import("pg");
   const pool = new pg.Pool({ connectionString: url, max: 2, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
@@ -124,7 +124,7 @@ async function main() {
   try {
     w = createV2Writer(keyFile, address);
   } catch (e) {
-    // 只印形狀，不印內容：大小、是不是 JSON、最上層欄位名稱、錯誤種類
+    // Print only the shape, never the content: size, whether it is JSON, top-level field names, error kind
     const { readFileSync, existsSync } = await import("node:fs");
     let shape = "file missing";
     if (existsSync(keyFile)) {

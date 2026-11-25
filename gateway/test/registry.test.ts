@@ -46,12 +46,12 @@ test("setAgentWallet authorization: only sign the exact message we mean to autho
   const want = { tokenId: "1313", owner: OWNER, wallet: WALLET, deadlineMs, contract: { index: 12802n, subindex: 0n }, genesis: TESTNET_GENESIS };
   assert.equal(msg().length, 162);
   assert.equal(checkSetWalletMessage(msg(), want).nonce, 0n);
-  // 官方服務回傳的前 40 個位元組（agent #1313）與我們的版面一致
+  // The first 40 bytes returned by the official service (agent #1313) match our layout
   assert.ok(msg().toString("hex").startsWith("4349532d383030342f76312f7365744167656e7457616c6c65742105000000000000ddaaaad8411e"));
   assert.throws(() => checkSetWalletMessage(msg({ token: 1252 }), want), /token id/);
-  assert.throws(() => checkSetWalletMessage(msg({ wallet: "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX" }), want), /新錢包/);
+  assert.throws(() => checkSetWalletMessage(msg({ wallet: "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX" }), want), /new wallet/);
   assert.throws(() => checkSetWalletMessage(msg({ genesis: "00".repeat(32) }), want), /genesis/);
-  assert.throws(() => checkSetWalletMessage(msg({ deadline: deadlineMs + 1 }), want), /期限/);
-  assert.throws(() => checkSetWalletMessage(msg({ index: 10082 }), want), /合約/);
+  assert.throws(() => checkSetWalletMessage(msg({ deadline: deadlineMs + 1 }), want), /deadline/);
+  assert.throws(() => checkSetWalletMessage(msg({ index: 10082 }), want), /contract/);
   assert.throws(() => checkSetWalletMessage(msg().subarray(0, 161), want), /162/);
 });

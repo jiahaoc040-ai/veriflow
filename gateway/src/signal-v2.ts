@@ -1,12 +1,12 @@
 /**
- * 訊號 v2：只用 Binance 現貨日 K（data-api.binance.vision）的 30 天動能
+ * Signal v2: 30-day momentum from Binance spot daily candles only (data-api.binance.vision)
  * -----------------------------------------------------------------
- *   momentum(D)   = close(D) / close(D − 30 個日曆日) − 1
- *   momentum_e6   = (close(D) − close(D−30)) × 1,000,000 / close(D−30)，0.5 往遠離 0 的方向進位到整數
- *                   全程用整數算：收盤價以 Binance 回傳的十進位字串精確轉成 1e-8 單位（BigInt），不經過浮點數
- *   signal        = RISK_ON 當且僅當 momentum_e6 > 0
- * 任何人都能用同一個網址重算，合約在公開時也檢查 signal 與 momentum_e6 一致。
- * canonical 欄位固定、依字母排序、沒有空白（合約 v2 的 parse_canonical 只接受這個格式）。
+ *   momentum(D)   = close(D) / close(D − 30 calendar days) − 1
+ *   momentum_e6   = (close(D) − close(D−30)) × 1,000,000 / close(D−30), rounded to an integer with .5 away from zero
+ *                   computed entirely in integers: closes are converted exactly from Binance's decimal strings to 1e-8 units (BigInt), never through floats
+ *   signal        = RISK_ON if and only if momentum_e6 > 0
+ * Anyone can recompute it from the same URL; on reveal the contract also checks that signal agrees with momentum_e6.
+ * canonical has fixed fields, sorted alphabetically, no whitespace (contract v2's parse_canonical accepts only this format).
  */
 import { randomBytes } from "node:crypto";
 
@@ -15,17 +15,17 @@ export const SYMBOLS: Record<string, string> = { BTC: "BTCUSDT", ETH: "ETHUSDT" 
 export const LOOKBACK_DAYS = 30;
 const DAY = 86_400_000;
 
-/** close：浮點數（只用來算報酬）；closeUnits：收盤價 × 1e8 的精確整數（用來算訊號） */
+/** close: float (only for returns); closeUnits: exact integer close × 1e8 (used for the signal) */
 export type Candle = { openTime: number; closeTime: number; close: number; closeUnits: bigint };
 
-/** Binance 的十進位字串（最多 8 位小數）→ 1e-8 單位的整數；格式不對就丟錯 */
+/** Binance decimal string (up to 8 decimals) → integer in 1e-8 units; throws on a bad format */
 export function toUnits(s: string): bigint {
   const m = /^(\d+)(?:\.(\d{1,8}))?$/.exec(s);
   if (!m) throw new Error(`price ${s} is not a plain decimal`);
   return BigInt(m[1]) * 100_000_000n + BigInt((m[2] ?? "").padEnd(8, "0"));
 }
 
-/** 整數除法，0.5 往遠離 0 的方向進位 */
+/** Integer division, .5 rounded away from zero */
 export function divHalfAway(n: bigint, d: bigint): bigint {
   if (d <= 0n) throw new Error("divisor must be positive");
   const a = n < 0n ? -n : n;
@@ -36,7 +36,7 @@ export function divHalfAway(n: bigint, d: bigint): bigint {
 export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 export const dayMs = (d: string) => Date.parse(`${d}T00:00:00Z`);
 
-/** 0.5 往遠離 0 的方向進位（Python 的 round 是銀行家進位，兩邊都用這個） */
+/** .5 rounded away from zero (Python's round is banker's rounding, so both sides use this) */
 export function roundHalfAway(x: number): number {
   return x < 0 ? -Math.floor(-x + 0.5) : Math.floor(x + 0.5);
 }
@@ -63,7 +63,7 @@ export function canonicalV2(asset: string, asOf: string, m: number, nonce: strin
 
 export const newNonce = () => randomBytes(16).toString("hex");
 
-/** 已收盤的日 K（closeTime < now） */
+/** Closed daily candles (closeTime < now) */
 export async function binanceDaily(asset: string, sinceDay: string, now = Date.now(), f: typeof fetch = fetch): Promise<Candle[]> {
   const url = `${BINANCE_KLINES}?symbol=${SYMBOLS[asset]}&interval=1d&startTime=${dayMs(sinceDay)}&limit=1000`;
   const r = await f(url);

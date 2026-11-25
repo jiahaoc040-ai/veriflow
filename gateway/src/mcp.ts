@@ -1,19 +1,19 @@
 /**
- * VeriFlow MCP server（本機版，stdio，會付款）
+ * VeriFlow MCP server (local, stdio, can pay)
  * -----------------------------------------
- * 讓任何 MCP agent（例如 Claude）直接：
- *   get_signal         付款（x402，testnet CCD）買一個 RISK_ON / RISK_OFF 訊號
- *   check_seller       付款前驗證賣方（badge、Registry、Agent Card 雜湊、收款地址＝鏈上 agentWallet）
- *   get_track_record   看命中率（公開）
- *   list_commitments   看所有鏈上承諾（公開）
- *   verify_signal      直接向 Concordium 節點讀回承諾並驗證（不經過賣方的伺服器）；可貼上訊號內容一起驗
- *   check_eligibility  買方帳號是否已通過零知識資格驗證
- * 免費的四個工具與公開版（mcp-http.ts，POST /mcp）共用 mcp-tools.ts。
+ * Lets any MCP agent (e.g. Claude) directly:
+ *   get_signal         pay (x402, testnet CCD) for a RISK_ON / RISK_OFF call
+ *   check_seller       verify the seller before paying (badge, Registry, Agent Card hash, payout address = on-chain agentWallet)
+ *   get_track_record   public counts of the record (no hit rate)
+ *   list_commitments   all on-chain commitments (public)
+ *   verify_signal      read a commitment straight from a Concordium node and verify it (not through the seller's server); optionally with the signal text
+ *   check_eligibility  whether a buyer account has passed the zero-knowledge eligibility check
+ * The four free tools are shared with the public version (mcp-http.ts, POST /mcp) through mcp-tools.ts.
  *
- * 付款用 BUYER_KEY_FILE 的帳號，花費護欄同示範 buyer（只付 CCD、單次上限 MAX_PAY_MICROCCD）。
- * 執行（stdio）：npm run mcp
+ * Pays from the BUYER_KEY_FILE account, with the demo buyer's spend controls (one asset, per-payment cap MAX_PAY_MICROCCD).
+ * Run (stdio): npm run mcp
  *
- * 注意：stdio 模式下 stdout 是 MCP 通訊管道，任何 console.log 都會弄壞協定，所以全部導到 stderr。
+ * Note: in stdio mode stdout is the MCP channel and any console.log would break the protocol, so all logging goes to stderr.
  */
 console.log = console.error;
 

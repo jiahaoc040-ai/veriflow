@@ -1,5 +1,5 @@
 /**
- * 賣方驗證買方 agent：假的鏈上紀錄，不需要連線
+ * The seller verifies the buyer's agent: fake on-chain records, no network
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

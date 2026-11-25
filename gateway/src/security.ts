@@ -1,23 +1,23 @@
 /**
- * 公開部署前的防護
+ * Protections for public deployment
  * ----------------
- * 1. 速率限制：/eligibility/challenge 每次都會送一筆上鏈交易（花上鏈帳號的 CCD），
- *    不限制的話任何人都能用迴圈把帳號的錢燒光。除了每個 IP、每個帳號的上限，
- *    還有一個「全站每小時上限」，換 IP 也繞不過去。
- * 2. 安全標頭：CSP（只允許頁面裡我們自己的 inline script，用 SHA-256 白名單）、
- *    nosniff、Referrer-Policy、只允許 Hugging Face 嵌入、HTTPS 時加 HSTS。
+ * 1. Rate limits: every /eligibility/challenge sends an on-chain transaction (paid in CCD by the anchoring account);
+ *    unlimited, anyone could drain that account in a loop. Besides per-IP and per-account limits
+ *    there is a site-wide hourly cap that switching IPs cannot get around.
+ * 2. Security headers: CSP (only our own inline scripts on the page, by SHA-256 allow-list),
+ *    nosniff, Referrer-Policy, framing only by Hugging Face, HSTS over HTTPS.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { NextFunction, Request, Response } from "express";
 
-/** 固定視窗計數器（記憶體內；單一容器部署夠用） */
+/** Fixed-window counter (in memory; enough for a single-container deployment) */
 export class RateLimiter {
   private hits = new Map<string, { count: number; resetAt: number }>();
 
   constructor(private limit: number, private windowMs: number, private now: () => number = Date.now) {}
 
-  /** 回傳 true = 放行；false = 超過上限 */
+  /** true = allow; false = over the limit */
   take(key: string): boolean {
     const t = this.now();
     const h = this.hits.get(key);
@@ -43,7 +43,7 @@ export class RateLimiter {
 
 type KeyFn = (req: Request) => string | undefined;
 
-/** 多個限制同時檢查（例如：每 IP、每帳號、全站） */
+/** Check several limits together (e.g. per IP, per account, site-wide) */
 export function rateLimit(rules: { limiter: RateLimiter; key: KeyFn; what: string }[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     for (const r of rules) {
@@ -58,7 +58,7 @@ export function rateLimit(rules: { limiter: RateLimiter; key: KeyFn; what: strin
   };
 }
 
-/** 頁面裡 inline <script>（或 <style>）的 CSP 雜湊（啟動時算一次） */
+/** CSP hashes of the page's inline <script> (or <style>) blocks (computed once at startup) */
 export function inlineScriptHashes(htmlFiles: string[], tag: "script" | "style" = "script"): string[] {
   const out = new Set<string>();
   const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "g");
@@ -72,22 +72,22 @@ export function inlineScriptHashes(htmlFiles: string[], tag: "script" | "style" 
 }
 
 /**
- * walletPaths：需要 Concordium 錢包的頁面（/verify）。錢包用 chrome.scripting.executeScript(world: "MAIN")
- * 把它的 API 注入到頁面裡，那段程式受頁面 CSP 管；它載入 Concordium SDK 時需要 eval 與 WebAssembly，
- * 所以只有這些頁面加上 'unsafe-eval' 'wasm-unsafe-eval'。script 來源仍然只限本站 + 雜湊白名單。
+ * walletPaths: pages that need the Concordium wallet (/verify). The wallet injects its API into the page with
+ * chrome.scripting.executeScript(world: "MAIN"), so that code is governed by the page's CSP; loading the Concordium SDK needs eval and WebAssembly,
+ * so only these pages get 'unsafe-eval' 'wasm-unsafe-eval'. Script sources are still limited to this site + the hash allow-list.
  */
 export function securityHeaders(scriptHashes: string[], walletPaths: string[] = [], styleHashes: string[] = []) {
   const build = (wallet: boolean) => [
     "default-src 'self'",
     `script-src 'self' ${scriptHashes.join(" ")}${wallet ? " 'unsafe-eval' 'wasm-unsafe-eval'" : ""}`,
-    // 樣式也只允許頁面裡我們自己的 <style>（雜湊白名單），不允許任意 inline 樣式
+    // Styles too: only our own <style> blocks on the page (hash allow-list), no arbitrary inline styles
     `style-src 'self' ${styleHashes.join(" ")}`.trim(),
     "img-src 'self' data:",
     "connect-src 'self'",
     "base-uri 'none'",
     "form-action 'self'",
     "object-src 'none'",
-    // Hugging Face 的 Space 頁面用 iframe 嵌入；其他網站不准嵌入（防點擊劫持）
+    // The Hugging Face Space page embeds us in an iframe; no other site may (clickjacking protection)
     "frame-ancestors 'self' https://huggingface.co",
   ].join("; ");
   const strict = build(false);
@@ -98,9 +98,9 @@ export function securityHeaders(scriptHashes: string[], walletPaths: string[] = 
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    // COEP 會限制跨來源資源；錢包頁不加，避免影響錢包的注入與彈出視窗
+    // COEP restricts cross-origin resources; not on wallet pages, so wallet injection and pop-ups keep working
     if (!walletPaths.includes(req.path)) res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-    // 全部都是動態內容（訊號、驗證狀態、鏈上資料），不讓瀏覽器或中間代理快取
+    // Everything is dynamic (signals, verification state, chain data), so browsers and proxies must not cache it
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");

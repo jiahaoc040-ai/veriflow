@@ -1,10 +1,10 @@
 /**
- * 買方 Agent 的付款工具（示範 buyer 與 MCP server 共用）
+ * Payment tools of the buyer agent (shared by the demo buyer and the MCP server)
  * ----------------------------------------------------
- * 花費護欄：只付 Concordium testnet 的 CCD，單次最多 MAX_PAY_MICROCCD（預設 2 CCD）。
- * 賣方要求更多錢或別種資產，Agent 會拒絕付款。
- * 付款前驗證賣方（counterparty.ts）：badge、Registry 狀態、Agent Card 雜湊、payTo＝鏈上 agentWallet，
- * 任一項不過就不簽名（REQUIRE_SELLER_BADGE=false 可在本機開發時關閉）。
+ * Spend controls: pays in one asset only (testnet CCD by default, at most MAX_PAY_MICROCCD per payment, default 2 CCD; or a PLT, or USDC on Base).
+ * If the seller asks for more, or for another asset, the agent refuses to pay.
+ * Verifies the seller before paying (counterparty.ts): badge, Registry status, Agent Card hash, payTo = on-chain agentWallet;
+ * if any check fails, nothing is signed (REQUIRE_SELLER_BADGE=false turns this off for local development).
  */
 import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
 import { AGENT_EXTENSION } from "./counterparty.js";
@@ -27,12 +27,12 @@ import { REGISTRY_NETWORK, registryTool } from "./registry.js";
 export function createBuyerAgent() {
   const buyer = loadAccount(env("BUYER_KEY_FILE"));
   const gateway = env("GATEWAY_URL", PUBLIC_GATEWAY);
-  // 用哪一種資產付款：預設 CCD；設 BUYER_PAY_ASSET=VFUSD 之類就用那個 Protocol-Level Token（上限 BUYER_MAX_PAY，最小單位）
-  // BUYER_PAY_NETWORK=evm：改用 Base（testnet＝Base Sepolia）上的 USDC 付款，EVM 金鑰在 BUYER_EVM_KEY_FILE（npm run cis8 -- keygen 產生）
+  // Which asset to pay in: CCD by default; BUYER_PAY_ASSET=VFUSD (etc.) pays in that Protocol-Level Token (cap BUYER_MAX_PAY, smallest unit)
+  // BUYER_PAY_NETWORK=evm: pay in USDC on Base (testnet = Base Sepolia); the EVM key is in BUYER_EVM_KEY_FILE (create with npm run cis8 -- keygen)
   const payEvm = (process.env.BUYER_PAY_NETWORK ?? "").trim().toLowerCase() === "evm";
   const payAsset = payEvm ? "USDC" : (process.env.BUYER_PAY_ASSET ?? "CCD").trim() || "CCD";
   if (!/^[A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]$/.test(payAsset)) throw new Error("BUYER_PAY_ASSET must be CCD or a PLT token id");
-  // 上限都是最小單位：CCD 是 microCCD；USDC 6 位小數（預設 20000＝0.02 USDC）
+  // Caps are in the smallest unit: microCCD for CCD; USDC has 6 decimals (default 20000 = 0.02 USDC)
   const maxPay = payEvm ? env("BUYER_MAX_PAY", "20000") : payAsset === "CCD" ? env("MAX_PAY_MICROCCD", "2000000") : env("BUYER_MAX_PAY", "2000000");
   const payNetwork = payEvm ? NET.evm.network : NETWORK;
   const evmKey = payEvm ? (JSON.parse(readFileSync(env("BUYER_EVM_KEY_FILE", "keys/evm-buyer.json"), "utf8")) as { privateKey: `0x${string}` }) : undefined;
@@ -46,25 +46,25 @@ export function createBuyerAgent() {
     spendControls: { allowedAssets: [{ network: payNetwork, asset: payAsset, maxAmountPerPayment: maxPay }] },
   });
   const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
-  // 買方自己在 CIS-8004 登記的 agent（選填）。賣方會從節點確認付款帳號就是它的 agentWallet
+  // The buyer's own CIS-8004 agent (optional). The seller checks from a node that the paying account is its agentWallet
   const buyerAgentId = (process.env.BUYER_AGENT_TOKEN_ID ?? "").trim();
   if (buyerAgentId && !/^\d{1,20}$/.test(buyerAgentId)) throw new Error("BUYER_AGENT_TOKEN_ID must be a CIS-8004 token id (digits)");
   const agentHeaders: Record<string, string> = buyerAgentId ? { "X-Concordium-Agent": buyerAgentId } : {};
   let lastSellerCheck: SellerVerdict | undefined;
-  /** 402 的 concordium-agent 擴充欄位：只是指名（registry、token id），錢包一律從鏈上讀；網路或 registry 不對就當作沒指名 */
-  // 指名的 agent 一定在 Concordium 上；用 EVM 付款時拿 Concordium 網路比對，否則比對所選付款方式的網路
+  /** The 402's concordium-agent extension only names the agent (registry, token id); the wallet is always read from the chain. A wrong network or registry counts as not named */
+  // The named agent always lives on Concordium: when paying on EVM compare against the Concordium network, otherwise against the chosen payment network
   const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, payNet: string) => {
     const network = isEvmNetwork(payNet) ? NETWORK : payNet;
     const info = (pr?.extensions?.[AGENT_EXTENSION] as { info?: { network?: string; registry?: string; tokenId?: string; badge?: string } } | undefined)?.info;
-    // 這個買方只付給「有指名自己」的賣方：沒有指名就拒絕（協定允許不指名，買方的政策不允許）
+    // This buyer pays only sellers that name themselves: no name, no payment (the protocol allows it, this buyer's policy does not)
     if (!info) return "unnamed";
     if (info.network !== network || info.registry !== `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}` || !/^\d+$/.test(info.tokenId ?? ""))
       return "mismatch";
     return `${info.tokenId}|${info.badge ?? ""}`;
   };
   /**
-   * EVM 收款地址：402 的 extra.cis8 給出賣方的公鑰。買方自己從 Concordium 節點讀 CIS-8，
-   * 要求公鑰推出的地址＝payTo、綁定是 Active，而且綁在這個 agent 的擁有者（或它的 agentWallet）底下
+   * EVM payTo: the 402's extra.cis8 gives the seller's public key. The buyer reads CIS-8 from a Concordium node itself and requires
+   * the address derived from the key to equal payTo, the binding to be Active, and the owner to be this agent's owner (or its agentWallet)
    */
   const cis8PayTo = (req: { network: string; payTo: string; extra?: Record<string, unknown> }) => async (agent: { owner?: string; wallet?: string }) => {
     const name = "payTo is bound to the agent in CIS-8 (read from a Concordium node)";
@@ -101,7 +101,7 @@ export function createBuyerAgent() {
           payToCheck: req && isEvmNetwork(req.network) ? cis8PayTo(req) : undefined,
         });
 
-  // 簽名之前的最後一道關卡：賣方驗證不過就中止，錢包根本不會被叫到
+  // The last gate before signing: if the seller fails verification, stop here and the wallet is never called
   client.onBeforePaymentCreation(async ({ selectedRequirements, paymentRequired }) => {
     if (!requireSeller) return;
     lastSellerCheck = await checkSeller(selectedRequirements.payTo, namedAgent(paymentRequired, selectedRequirements.network), selectedRequirements as { network: string; payTo: string; extra?: Record<string, unknown> });
@@ -118,37 +118,37 @@ export function createBuyerAgent() {
     gateway,
     maxPayMicroCcd: maxPay,
 
-    /** 不付款，只看賣方要我們付給誰，並驗證賣方 */
+    /** No payment: see whom the seller wants us to pay, and verify the seller */
     async checkSeller(asset = "BTC"): Promise<SellerVerdict> {
       const res = await fetch(`${gateway}/signal/${encodeURIComponent(asset.toUpperCase())}`);
       const header = res.headers.get("PAYMENT-REQUIRED");
       if (res.status !== 402 || !header) throw new Error(`expected an x402 402 response from ${gateway}, got HTTP ${res.status}`);
       const pr = decodePaymentRequiredHeader(header);
-      // 看「我會用的那一種付款方式」的 payTo
+      // Look at payTo for the payment option we would use
       const pick = pr.accepts?.find((a) => a.network === payNetwork) ?? pr.accepts?.[0];
       if (!pick?.payTo) throw new Error("402 response has no payTo");
       return checkSeller(pick.payTo, namedAgent(pr, pick.network), pick as { network: string; payTo: string; extra?: Record<string, unknown> });
     },
 
-    /** 付款買一個訊號。回傳 HTTP 狀態、內容、付款交易（如果有付），以及付款前的賣方驗證 */
+    /** Buy one signal. Returns the HTTP status, body, payment transaction (if paid) and the seller check made before paying */
     async buySignal(asset: string) {
       lastSellerCheck = undefined;
       let res: Response;
       try {
         res = await fetchWithPay(`${gateway}/signal/${encodeURIComponent(asset.toUpperCase())}`, { headers: agentHeaders });
       } catch (e) {
-        // 賣方驗證不過 → 沒有簽名、沒有付款
-        const sc = lastSellerCheck as SellerVerdict | undefined; // 在 hook 裡被設定
+        // Seller failed verification → nothing signed, nothing paid
+        const sc = lastSellerCheck as SellerVerdict | undefined; // set in the hook
         if (sc && !sc.ok)
           return { status: 0, body: undefined, payment: undefined, paymentExplorer: undefined, needsVerification: false, verifyUrl: "", sellerCheck: sc, refused: true };
-        // 賣方沒有提供我們能付的方式（例如還沒開 USDC）：講清楚，不丟一大段原始錯誤
+        // The seller offers no option we can pay with (e.g. no USDC yet): say so plainly instead of a long raw error
         if (/No network\/scheme registered/.test(String(e)))
           throw new Error(`the seller does not offer ${payAsset} on ${payNetwork}; nothing was signed or paid`);
         throw e;
       }
       const text = await res.text();
       let body: unknown = text;
-      try { body = JSON.parse(text); } catch { /* 非 JSON 就保留原文 */ }
+      try { body = JSON.parse(text); } catch { /* keep the raw text if it is not JSON */ }
       const header = res.headers.get("PAYMENT-RESPONSE") ?? res.headers.get("X-PAYMENT-RESPONSE");
       const payment = header ? decodePaymentResponseHeader(header) : undefined;
       return {
@@ -164,7 +164,7 @@ export function createBuyerAgent() {
       };
     },
 
-    /** 不付款的公開端點 */
+    /** Public endpoints that need no payment */
     async get(path: string) {
       const res = await fetch(`${gateway}${path}`);
       if (!res.ok) throw new Error(`${path} → HTTP ${res.status}: ${await res.text()}`);

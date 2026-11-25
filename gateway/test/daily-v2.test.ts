@@ -1,5 +1,5 @@
 /**
- * 訊號 v2 與每日 v2 排程：純函式與假的鏈／資料庫，不需要網路
+ * Signal v2 and the daily v2 job: pure functions and a fake chain/database, no network
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -110,7 +110,7 @@ function world(now: number) {
       db: {
         v2Rows: async () => rows.filter((r) => r.canonical.includes("momentum_e6")),
         forDay: async (a: string, d: string) => rows.filter((r) => r.asset === a && r.as_of === d),
-        // 模擬資料庫的唯一索引：同一資產同一天只能有一筆 v2 訊號
+        // Simulates the database's unique index: one v2 signal per asset and day
         insert: async (r: any) => void (rows.some((x) => x.asset === r.asset && x.as_of === r.as_of) || rows.push({ ...r, anchor_tx: null })),
         setAnchor: async (c: string, tx: string) => void (rows.find((r) => r.commitment === c)!.anchor_tx = tx),
         setAnchorIfNull: async (c: string, tx: string) => {

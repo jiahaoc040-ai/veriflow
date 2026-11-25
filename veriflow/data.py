@@ -1,11 +1,11 @@
 """
-資料來源（全部免費、不需要 API key）
+Data sources (all free, no API key)
 -----------------------------------
-- 穩定幣總供給：DefiLlama Stablecoins API（所有鏈，含 Tron 上的 USDT）
-- 價格：Binance 日 K（公開 /klines 端點）；主機 IP 被 Binance 封鎖時改用 OKX 現貨日 K
+- Total stablecoin supply: DefiLlama Stablecoins API (all chains, including USDT on Tron)
+- Prices: Binance daily candles (public /klines endpoint); OKX spot daily candles when Binance blocks the host IP
 
-為什麼不用 Dune：Dune 免費方案已改為「僅瀏覽」，不能用 API，
-而產品要能每天自動更新，所以改用免費、公開的 DefiLlama。
+Why not Dune: Dune's free plan is now view-only with no API access,
+and the product must update itself every day, so it uses the free, public DefiLlama instead.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ import httpx
 import pandas as pd
 from dotenv import load_dotenv
 
-load_dotenv()  # 自動讀取專案資料夾裡的 .env（之後放 Concordium 等設定）
+load_dotenv()  # reads .env in the project folder automatically
 
 LLAMA_STABLES = "https://stablecoins.llama.fi/stablecoincharts/all"
 SYMBOLS = {"BTC": "BTC/USDT", "ETH": "ETH/USDT"}
 
 
 def parse_llama(rows: list[dict]) -> pd.DataFrame:
-    """把 DefiLlama 回傳的每日資料轉成 DataFrame(supply_usd)，index = 日期"""
+    """Turn DefiLlama's daily data into a DataFrame(supply_usd) indexed by date"""
     out = []
     for r in rows:
         usd = r.get("totalCirculatingUSD") or {}
@@ -36,7 +36,7 @@ def parse_llama(rows: list[dict]) -> pd.DataFrame:
 
 
 def fetch_supply() -> pd.DataFrame:
-    """所有穩定幣的每日總流通量（美元計）"""
+    """Total daily circulating supply of all stablecoins (USD)"""
     r = httpx.get(LLAMA_STABLES, timeout=60)
     r.raise_for_status()
     return parse_llama(r.json())
@@ -46,20 +46,20 @@ BINANCE_API = "https://api.binance.com/api/v3"
 
 
 def parse_klines(rows: list[list]) -> pd.DataFrame:
-    """Binance /klines 回傳 [開盤時間, 開, 高, 低, 收, 量, ...]；只留尚未收盤以外的日收盤價"""
+    """Binance /klines returns [open time, open, high, low, close, volume, ...]; keep daily closes, excluding the candle still open"""
     df = pd.DataFrame({"ts": [r[0] for r in rows], "close": [float(r[4]) for r in rows]})
     df.index = pd.to_datetime(df["ts"], unit="ms")
-    # 今天（UTC）的日 K 還沒收盤，價格會一直變，不能拿來算訊號
+    # Today's (UTC) candle has not closed; its price keeps moving and must not be used for a signal
     today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
     return df.loc[df.index < today, ["close"]]
 
 
 def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
-    """Binance 日 K 收盤價（直接呼叫公開 /klines，不用 ccxt）
+    """Binance daily closes (calls the public /klines directly, no ccxt)
 
-    以前用 ccxt：它會先下載整個交易所的市場清單（數 MB 的 JSON），
-    在 512 MB 的免費主機上和其他請求同時發生時會被 OOM 砍掉。這裡只要一個端點。
-    雲端主機多在美國，api.binance.com 會擋美國 IP；可用 BINANCE_PUBLIC_API 改走官方鏡像 data-api.binance.vision。
+    ccxt used to download the whole exchange's market list (several MB of JSON) first,
+    which got OOM-killed on the 512 MB free host when it overlapped other requests. Only one endpoint is needed.
+    Cloud hosts are mostly in the US and api.binance.com blocks US IPs; BINANCE_PUBLIC_API can point at the official mirror data-api.binance.vision.
     """
     symbol = SYMBOLS[asset].replace("/", "")
     start = int(pd.Timestamp(since, tz="UTC").timestamp() * 1000)
@@ -67,10 +67,10 @@ def fetch_prices(asset: str, since: str = "2020-01-01") -> pd.DataFrame:
     for base in _binance_bases():
         try:
             return parse_klines(_fetch_klines(base, symbol, start))
-        except httpx.HTTPError as e:  # 418/451/403：該網域擋這個 IP，換下一個
+        except httpx.HTTPError as e:  # 418/451/403: this host blocks the IP, try the next
             errors.append(f"{base}: {str(e).splitlines()[0]}")
-    # Binance 會整個封鎖某些雲端主機的 IP（所有網域都回 418）。
-    # 備援：OKX 現貨 USDT 日 K（UTC 收盤，和 Binance 同一個時間邊界，收盤價差在萬分之一等級）
+    # Binance blocks some cloud hosts' IPs entirely (every host returns 418).
+    # Fallback: OKX spot USDT daily candles (UTC close, same time boundary as Binance; closes differ by about 0.01%)
     try:
         return parse_klines(_fetch_okx(SYMBOLS[asset].replace("/", "-"), start))
     except (httpx.HTTPError, ValueError) as e:
@@ -82,7 +82,7 @@ OKX_API = "https://www.okx.com/api/v5/market/history-candles"
 
 
 def _fetch_okx(inst: str, start: int) -> list[list]:
-    """OKX 日 K（bar=1Dutc），新到舊、每頁 100 根；轉成 Binance /klines 的欄位順序，只保留已收盤的"""
+    """OKX daily candles (bar=1Dutc), newest first, 100 per page; converted to Binance /klines column order, closed candles only"""
     rows: list[list] = []
     after = None
     with httpx.Client(timeout=30, headers=HEADERS) as c:
@@ -91,7 +91,7 @@ def _fetch_okx(inst: str, start: int) -> list[list]:
             if after:
                 params["after"] = after
             r = c.get(OKX_API, params=params)
-            for wait in (1, 2, 4):  # 429：等一下再試同一頁
+            for wait in (1, 2, 4):  # 429: wait and retry the same page
                 if r.status_code != 429:
                     break
                 time.sleep(wait)
@@ -110,13 +110,13 @@ def _fetch_okx(inst: str, start: int) -> list[list]:
             after = page[-1][0]
             if int(after) <= start or len(page) < 100:
                 break
-            time.sleep(0.12)  # history-candles 限速 20 次 / 2 秒
+            time.sleep(0.12)  # history-candles is limited to 20 requests / 2 s
     rows.sort(key=lambda r: r[0])
     return rows
 
 
 def _binance_bases() -> list[str]:
-    """先用設定的鏡像，再試官方的其他公開網域（各網域的 IP 限制不同）"""
+    """Try the configured mirror first, then the other official public hosts (each host has different IP limits)"""
     bases = [os.environ.get("BINANCE_PUBLIC_API"), "https://data-api.binance.vision/api/v3", BINANCE_API,
              "https://api-gcp.binance.com/api/v3", "https://api4.binance.com/api/v3"]
     return list(dict.fromkeys(b for b in bases if b))

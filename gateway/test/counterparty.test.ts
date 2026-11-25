@@ -1,5 +1,5 @@
 /**
- * 付款前驗證賣方：假的 Registry 與假的網路，不需要連線
+ * Verify the seller before paying: fake Registry and fake network, no network access
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -102,7 +102,7 @@ test("the card fetch is https only, capped in size, and does not follow redirect
   assert.equal((await readCapped(new Response("ok"), MAX_CARD_BYTES)).toString(), "ok");
 });
 
-// ── 直接向節點讀 Agent Registry ──
+// ── Reading the Agent Registry straight from a node ──
 test("agentOf decoder reads #1313's record from the CIS-8004 layout", async () => {
   const { decodeAgentOf, encodeAgentTokenId } = await import("../src/registry-node.ts");
   const { AccountAddress } = await import("@concordium/web-sdk");
@@ -176,6 +176,6 @@ test("EVM payTo: the CIS-8 check replaces payTo = agentWallet and receives the o
   assert.equal(bad.ok, false);
   const thrown = await verifySeller({ gateway: "https://seller.test", payTo: evm, ...world(), payToCheck: async () => { throw new Error("node down"); } });
   assert.equal(thrown.ok, false);
-  // 沒有 CIS-8 檢查時，EVM 地址當然不等於 agentWallet
+  // Without the CIS-8 check, an EVM address of course does not equal agentWallet
   assert.equal((await run({}, evm)).ok, false);
 });

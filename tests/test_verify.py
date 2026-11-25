@@ -29,7 +29,7 @@ def test_without_content_checks_chain_only():
 
 
 def test_anchoring_time_must_be_within_a_day_of_the_close():
-    """11-19 的日 K 在 11-20 00:00 UTC 收盤；期限 11-21 00:00 UTC。等結果出來才補寫的不算數"""
+    """The 11-19 candle closes 11-20 00:00 UTC; the deadline is 11-21 00:00 UTC. Backfilling after the outcome does not count"""
     from veriflow.verify import all_ok, sha256_hex, verify
 
     canon = '{"as_of":"2026-11-19","asset":"BTC","nonce":"ab","signal":"RISK_ON"}'
@@ -38,5 +38,5 @@ def test_anchoring_time_must_be_within_a_day_of_the_close():
     on_time = verify(c, chain("2026-11-20T05:00:42.000Z"), canon)
     assert len(on_time) == 4 and all_ok(on_time)
     assert not all_ok(verify(c, chain("2026-11-27T01:00:00.000Z"), canon))
-    assert not all_ok(verify(c, chain("2026-11-19T23:59:59.000Z"), canon))  # 收盤前上鏈
-    assert not all_ok(verify(c, {"status": "finalized", "data_text": f"veriflow:v1:{c}"}, canon))  # 時間不明
+    assert not all_ok(verify(c, chain("2026-11-19T23:59:59.000Z"), canon))  # anchored before the close
+    assert not all_ok(verify(c, {"status": "finalized", "data_text": f"veriflow:v1:{c}"}, canon))  # time unknown

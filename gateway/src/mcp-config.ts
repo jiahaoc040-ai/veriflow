@@ -1,11 +1,11 @@
 /**
- * Claude Desktop 設定小幫手
+ * Claude Desktop setup helper
  * ------------------------
- *   npm run mcp:config                 檢查環境並印出設定（預設連公開網站）
- *   npm run mcp:config -- --install    直接寫進 Claude Desktop 設定檔（先備份；其他 MCP server 不動）
- *   npm run mcp:config -- --local      改連本機 gateway（GATEWAY_URL，預設 http://localhost:4020；要先跑 gateway）
+ *   npm run mcp:config                 check the environment and print the config (connects to the public site by default)
+ *   npm run mcp:config -- --install    write it into Claude Desktop's config file (backs it up first; other MCP servers are left alone)
+ *   npm run mcp:config -- --local      use a local gateway instead (GATEWAY_URL, default http://localhost:4020; start the gateway first)
  *
- * 會檢查：Node 版本、買方金鑰檔讀得到（只印地址，不印金鑰）、買方帳號在目標網站是否已通過資格驗證。
+ * Checks: Node version, the buyer key file is readable (prints only the address, never the key), and whether the buyer account is already eligible on the target site.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -24,67 +24,67 @@ function stop(m: string): never {
   process.exit(1);
 }
 
-// 1. Node：--import 與 import.meta.resolve 需要 Node 20.6 以上
+// 1. Node: --import and import.meta.resolve need Node 20.6 or later
 const [major, minor] = process.versions.node.split(".").map(Number);
-if (major < 20 || (major === 20 && minor < 6)) stop(`Node ${process.versions.node} 太舊，請升級到 20.6 以上（建議 22 LTS 以上）`);
-ok(`Node ${process.versions.node}：${process.execPath}`);
+if (major < 20 || (major === 20 && minor < 6)) stop(`Node ${process.versions.node} is too old; upgrade to 20.6 or later (22 LTS or later recommended)`);
+ok(`Node ${process.versions.node}: ${process.execPath}`);
 
-// 2. 買方金鑰（只讀地址；金鑰本身不會被印出或寫進設定）
+// 2. Buyer key (only the address is read; the key itself is never printed or written into the config)
 let buyer: string;
 try {
   buyer = loadAccount(env("BUYER_KEY_FILE")).address;
 } catch (e) {
-  stop(`讀不到買方金鑰檔（gateway/.env 的 BUYER_KEY_FILE）：${e instanceof Error ? e.message : String(e)}`);
+  stop(`cannot read the buyer key file (BUYER_KEY_FILE in gateway/.env): ${e instanceof Error ? e.message : String(e)}`);
 }
-ok(`買方帳號（MCP 用它付款）：${buyer}`);
+ok(`buyer account (MCP pays from it): ${buyer}`);
 
-// 3. 買方在目標網站是否已通過資格驗證
+// 3. Is the buyer already eligible on the target site?
 try {
   const r = await fetch(`${gateway}/eligibility/${buyer}`, { signal: AbortSignal.timeout(90_000) });
   const j = (await r.json()) as { eligible?: boolean };
-  if (j.eligible) ok(`已在 ${gateway} 通過資格驗證，可以直接買訊號`);
-  else warn(`還沒在 ${gateway} 通過資格驗證：用錢包打開 ${gateway}/verify?account=${buyer} 做一次（get_signal 會被拒絕，其他工具照常）`);
+  if (j.eligible) ok(`eligible on ${gateway}: ready to buy signals`);
+  else warn(`not yet eligible on ${gateway}: open ${gateway}/verify?account=${buyer} with your wallet once (get_signal will be refused until then; the other tools work)`);
 } catch (e) {
   const why = e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e);
-  warn(`連不到 ${gateway}（${why}）${local ? "——本機 gateway 有在跑嗎？" : "——網路通了再跑一次這個指令確認"}`);
+  warn(`cannot reach ${gateway} (${why})${local ? " — is the local gateway running?" : " — run this command again once the network is up"}`);
 }
 
-// 4. 設定內容
+// 4. The config entry
 const entry = mcpServerEntry(gateway);
 const path = claudeConfigPath();
-console.log(`\nClaude Desktop 設定檔：${path}\n要加入的內容（mcpServers 裡的 "${SERVER_NAME}"）：\n`);
+console.log(`\nClaude Desktop config file: ${path}\nEntry to add ("${SERVER_NAME}" under mcpServers):\n`);
 console.log(JSON.stringify({ mcpServers: { [SERVER_NAME]: entry } }, null, 2));
 
 if (!install) {
-  console.log(`\n要直接寫進設定檔：npm run mcp:config -- --install${local ? " --local" : ""}`);
+  console.log(`\nTo write it into the config file: npm run mcp:config -- --install${local ? " --local" : ""}`);
   process.exit(0);
 }
 
-// 5. 寫入（先備份；原檔壞掉就不寫）
+// 5. Write (back up first; never write over a broken file)
 let existing: string | undefined;
 try {
   existing = readFileSync(path, "utf8");
 } catch (e) {
-  if ((e as NodeJS.ErrnoException).code !== "ENOENT") stop(`讀不到設定檔 ${path}：${e instanceof Error ? e.message : String(e)}`);
+  if ((e as NodeJS.ErrnoException).code !== "ENOENT") stop(`cannot read the config file ${path}: ${e instanceof Error ? e.message : String(e)}`);
 }
 let merged: string;
 try {
   merged = mergeConfig(existing, entry);
 } catch (e) {
-  stop(`原本的設定檔不是合法 JSON，為了不弄壞它，沒有寫入（${e instanceof Error ? e.message : String(e)}）。請手動把上面的內容加進去。`);
+  stop(`the existing config file is not valid JSON, so nothing was written to avoid breaking it (${e instanceof Error ? e.message : String(e)}). Add the entry above by hand.`);
 }
 mkdirSync(dirname(path), { recursive: true });
 if (existing !== undefined) {
   const backup = `${path}.bak-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  writeFileSync(backup, existing, { flag: "wx" }); // 備份剛剛讀到的內容；wx：絕不覆蓋既有檔案
-  ok(`原設定已備份：${backup}`);
+  writeFileSync(backup, existing, { flag: "wx" }); // back up what we just read; wx: never overwrite an existing file
+  ok(`original config backed up: ${backup}`);
 }
 writeFileSync(path, merged);
-ok(`已寫入 ${path}`);
+ok(`written: ${path}`);
 
-const quit = process.platform === "darwin" ? "選單列 Claude → Quit Claude（或 ⌘Q）" : "從系統匣／工作列完全結束 Claude";
+const quit = process.platform === "darwin" ? "menu bar Claude → Quit Claude (or ⌘Q)" : "quit Claude completely from the system tray / taskbar";
 console.log(`
-下一步：
-  1. 完全結束 Claude Desktop（${quit}），再重新打開——只關視窗不算
-  2. 對話框左下角「+」→ Connectors，應該看到 ${SERVER_NAME}（6 個工具）
-  3. 有問題看記錄：${claudeLogDir()}/mcp-server-${SERVER_NAME}.log`);
+Next:
+  1. Quit Claude Desktop completely (${quit}) and reopen it — closing the window is not enough
+  2. In a chat, "+" at the bottom left → Connectors: you should see ${SERVER_NAME} (6 tools)
+  3. If something goes wrong, read the log: ${claudeLogDir()}/mcp-server-${SERVER_NAME}.log`);

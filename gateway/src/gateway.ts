@@ -1,16 +1,16 @@
 /**
- * VeriFlow x402 付款關卡
+ * VeriFlow x402 payment gateway
  * ---------------------
- * GET /signal/:asset 要先付款（x402，Concordium testnet CCD）。
- * 付款驗證通過後，帶著共用密鑰轉發到 Python API；Python API 只認這把密鑰，
- * 所以沒付款的人沒辦法繞過關卡直接拿訊號。
+ * GET /signal/:asset requires payment first (x402, Concordium testnet CCD; optionally a PLT or USDC on Base).
+ * After the payment is verified, the request is forwarded to the Python API with a shared secret; the API accepts only that secret,
+ * so nobody can bypass the gateway and get a signal without paying.
  *
- * 公開端點（/track-record、/commitments、/health）直接轉發，不收費。
+ * Public endpoints (/track-record, /commitments, /health) are forwarded for free.
  *
- * 買方資格：付款前，買方帳號要先在 /verify 用 Concordium 錢包做零知識證明
- * （年滿 18、居住國不在限制名單）。沒驗證的帳號付款會被拒絕，錢不會被扣。
+ * Buyer eligibility: before paying, the buyer account must prove at /verify with a Concordium wallet, in zero knowledge,
+ * that it is 18+ and not resident in a restricted country. Payments from unverified accounts are refused and not charged.
  *
- * 執行：npm run gateway   （預設 http://localhost:4020）
+ * Run: npm run gateway   (default http://localhost:4020)
  */
 import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
 import { AGENT_EXTENSION } from "./counterparty.js";
@@ -43,8 +43,8 @@ const AGENT_BADGE = env("AGENT_BADGE", "JyP9UWYKh54TD2MUJDfqC");
 const AGENT_TOKEN_ID = env("AGENT_TOKEN_ID", "1313");
 const PAY_TO = env("SELLER_ADDRESS");
 const PRICE_MICROCCD = env("PRICE_MICROCCD", "1000000"); // 1 CCD
-// 選填：同一個訊號也可以用 Protocol-Level Token 付款，例如 PLT_PRICE=VFUSD:1000000（1 VFUSD，6 位小數）
-// 買方從 402 的 accepts 裡挑自己的花費護欄允許的那一種
+// Optional: the same signal can be paid in a Protocol-Level Token, e.g. PLT_PRICE=VFUSD:1000000 (1 VFUSD, 6 decimals)
+// The buyer picks, from the 402's accepts, the option its own spend controls allow
 const PLT_PRICE = (() => {
   const v = (process.env.PLT_PRICE ?? "").trim();
   if (!v) return undefined;
@@ -55,8 +55,8 @@ const PLT_PRICE = (() => {
 
 const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 
-// 選填：跨鏈收款。SELLER_EVM_PUBLIC_KEY 是賣方收款用的 EVM 公鑰（CIS-8 綁在 #1313 的擁有者底下），payTo 由它推出；
-// EVM_PRICE_USD 是 USDC 價格（預設 0.01）。買方付款前會從 Concordium 節點讀 CIS-8，確認這把金鑰屬於這個 agent。
+// Optional: cross-chain payment. SELLER_EVM_PUBLIC_KEY is the seller's EVM payout key (bound in CIS-8 under #1313's owner); payTo is derived from it.
+// EVM_PRICE_USD is the USDC price (default 0.01). Before paying, the buyer reads CIS-8 from a Concordium node to confirm the key belongs to this agent.
 const EVM = (() => {
   const pk = (process.env.SELLER_EVM_PUBLIC_KEY ?? "").trim();
   if (!pk) return undefined;
@@ -67,32 +67,32 @@ const EVM = (() => {
 
 const eligibility = new EligibilityService(
   { minAge: MIN_AGE, restrictedCountries: parseCountries(process.env.RESTRICTED_COUNTRIES) },
-  // 部署時設 DATABASE_URL（Postgres），本機預設 JSON 檔
+  // Deployed: DATABASE_URL (Postgres); locally: a JSON file
   await new EligibilityStore(
     process.env.DATABASE_URL
       ? postgresPersistence(process.env.DATABASE_URL)
       : filePersistence(resolve(GATEWAY_DIR, env("ELIGIBILITY_FILE", "data/eligibility.json"))),
   ).init(),
-  // 驗證請求（VRA）與稽核紀錄（VAA）由上鏈帳號付手續費寫上鏈
+  // The verification request (VRA) and audit record (VAA) are anchored by the anchoring account, which pays the fee
   concordiumChain(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE"))),
   PUBLIC_URL,
 );
 const REQUIRE_ELIGIBILITY = env("REQUIRE_ELIGIBILITY", "true") !== "false";
 const BUYER_AGENT_POLICY = parsePolicy(process.env.BUYER_AGENT);
-// 測試用的假鏈上紀錄只給買方的整合測試用；賣方伺服器看到它就拒絕啟動，免得驗證被繞過
+// The fake on-chain record is only for the buyer's integration tests; the seller refuses to start if it is set, so verification cannot be bypassed
 if (process.env.VERIFLOW_TEST_AGENT_RECORD) {
   console.error("❌ VERIFLOW_TEST_AGENT_RECORD is set; it replaces registry reads and must never be set on the gateway");
   process.exit(1);
 }
 
-// 免費主機只有 512 MB：EMBED_FACILITATOR=1 時 facilitator 跑在同一個 Node 程序裡（省約 130 MB）。
-// 必須在建立付款中介層「之前」啟動並等它開始監聽，否則中介層啟動時查詢 /supported 會失敗。
+// The free host has 512 MB: with EMBED_FACILITATOR=1 the facilitator runs in the same Node process (saves about 130 MB).
+// It must start and be listening before the payment middleware is created, or the middleware's /supported query fails at startup.
 if (process.env.EMBED_FACILITATOR) await (await import("./facilitator.js")).listening;
 
 const resourceServer = new x402ResourceServer([
   new HTTPFacilitatorClient({
     url: env("FACILITATOR_URL", "http://localhost:4021"),
-    // Concordium 的官方測試網 facilitator 要 API key。金鑰只放環境變數，不進 repo、不進日誌
+    // Concordium's hosted testnet facilitator needs an API key. The key lives only in an environment variable: never in the repo or the logs
     ...(process.env.FACILITATOR_API_KEY
       ? {
           createAuthHeaders: async () => {
@@ -104,16 +104,16 @@ const resourceServer = new x402ResourceServer([
         }
       : {}),
   }),
-  // EVM（Base）付款走公開的 x402 facilitator；它只負責上鏈結算，誰可以買仍由下面的檢查決定
+  // EVM (Base) payments settle through the public x402 facilitator; it only settles on-chain, who may buy is still decided by the checks below
   ...(EVM ? [new HTTPFacilitatorClient({ url: EVM.facilitator })] : []),
 ])
   .register(NETWORK, new ExactConcordiumScheme());
 if (EVM) resourceServer.register(EVM.network as `${string}:${string}`, new ExactEvmScheme());
 
 /**
- * 這筆付款屬於哪個 Concordium 帳號：
- *  - CCD / PLT：付款交易的 sender
- *  - Base USDC：從 EIP-3009 簽名還原付款人的公鑰，再從節點讀 CIS-8，看它綁在哪個帳號底下
+ * Which Concordium account a payment belongs to:
+ *  - CCD / PLT: the payment transaction's sender
+ *  - Base USDC: recover the payer's public key from the EIP-3009 signature, then read CIS-8 from a node to see which account it is bound to
  */
 async function payerAccount(paymentPayload: { payload: unknown }, requirements: { network: string; asset: string; payTo: string; amount: string; extra?: Record<string, unknown> }) {
   if (!isEvmNetwork(requirements.network)) {
@@ -125,7 +125,7 @@ async function payerAccount(paymentPayload: { payload: unknown }, requirements: 
 }
 
 resourceServer
-  // 付款交易送去結算之前：sender 沒通過資格驗證 → 拒絕（交易不會上鏈，買方不會被扣款）
+  // Before the payment is sent for settlement: if the sender is not eligible, refuse (the transaction never reaches the chain, the buyer is not charged)
   .onBeforeVerify(async ({ paymentPayload, requirements, transportContext }) => {
     const who = await payerAccount(paymentPayload, requirements);
     if (!who.ok) {
@@ -133,18 +133,18 @@ resourceServer
       return { abort: true, reason: who.code, message: who.reason };
     }
     const sender = who.account;
-    // 雙向驗證：買方若在標頭指名自己的 agent，賣方從節點確認它是 Active，而且付款帳號就是它鏈上的 agentWallet
+    // Trust in both directions: if the buyer names its agent in a header, the seller confirms from a node that it is Active and that the paying account is its on-chain agentWallet
     const req = (transportContext as { request?: { adapter?: { req?: express.Request } } } | undefined)?.request?.adapter?.req;
     const buyerAgent = await checkBuyerAgent(req?.header(BUYER_AGENT_HEADER), sender, BUYER_AGENT_POLICY, (id) => readAgent(id));
     if (!buyerAgent.ok) {
       console.log(`refused buyer agent from ${sender}: ${buyerAgent.reason}`);
-      // 原因代碼放在 reason：x402 只把 reason 回給買方（message 會被丟掉）
+      // The reason code goes in reason: x402 returns only reason to the buyer (message is dropped)
       return { abort: true, reason: `buyer_agent_check_failed:${buyerAgent.code}`, message: buyerAgent.reason };
     }
     if (buyerAgent.named && req?.res) req.res.locals.buyerAgent = buyerAgent;
     if (req?.res && "evm" in who) req.res.locals.evmPayer = { address: who.evm, account: who.account };
     if (!REQUIRE_ELIGIBILITY) return;
-    // 每一筆付款都重新檢查證明（不只看資料庫有沒有紀錄）；節點連不上也拒絕，不退回只看資料庫
+    // Every payment re-checks the proof (not just whether the database has a record); if the node is unreachable, refuse rather than fall back to the database
     try {
       if (!sender) throw new Error("no payer");
       await eligibility.recheck(sender);
@@ -157,14 +157,14 @@ resourceServer
       };
     }
   })
-  // facilitator 回報結算失敗時：先記錄原因；若它給了交易雜湊，就自己從節點確認錢是否真的付了，付了就照常交貨
+  // When the facilitator reports a settlement failure: log the reason; if it returned a transaction hash, read it from the chain ourselves and deliver if the money really arrived
   .onSettleFailure(async ({ error, paymentPayload, requirements }) => {
     const e = error as Error & { errorReason?: string; errorMessage?: string; transaction?: string };
     const evm = isEvmNetwork(requirements.network);
     const payer = evm ? (paymentPayload.payload as { authorization?: { from?: string } }).authorization?.from : payerOf(paymentPayload.payload);
     console.warn(`settlement reported failure: ${e.errorReason ?? e.message}${e.errorMessage && e.errorMessage !== e.errorReason ? ` (${e.errorMessage})` : ""} tx=${e.transaction || "-"} payer=${payer ?? "-"}`);
     if (!e.transaction || !payer) return;
-    // Base USDC：讀收據（這筆付款在 onBeforeVerify 已經對回綁定的 Concordium 帳號，這裡只確認錢真的到了）
+    // Base USDC: read the receipt (onBeforeVerify already mapped this payment to a bound Concordium account; here we only confirm the money arrived)
     const paid = evm
       ? await paidOnEvm(e.transaction, { from: payer, payTo: requirements.payTo, amount: requirements.amount, asset: requirements.asset })
       : await paidOnChain(e.transaction, payer, requirements.payTo, requirements.amount, requirements.asset);
@@ -175,10 +175,10 @@ resourceServer
     console.log(`recovered: ${e.transaction} is finalized and pays ${requirements.amount} to ${requirements.payTo}`);
     return { recovered: true as const, result: { success: true, transaction: e.transaction, network: requirements.network, payer } };
   })
-  // 結算前再讀一次：驗證到結算之間（中間會上鏈）agent 被撤銷或換了錢包，就不收這筆錢
+  // Read again before settling: if the agent was revoked or its wallet changed between verify and settle (the handler anchors in between), do not take the money
   .onBeforeSettle(async ({ paymentPayload, requirements, transportContext }) => {
     const req = (transportContext as { request?: { adapter?: { req?: express.Request } } } | undefined)?.request?.adapter?.req;
-    // EVM：結算前再讀一次 CIS-8，綁定在這之間被撤銷就不收
+    // EVM: re-read CIS-8 before settling; if the binding was revoked in between, do not take the money
     let account = payerOf(paymentPayload.payload);
     if (isEvmNetwork(requirements.network)) {
       const who = await payerAccount(paymentPayload, requirements);
@@ -200,17 +200,17 @@ resourceServer
 
 const app = express();
 app.disable("x-powered-by");
-// 部署在反向代理後面（Hugging Face / Render）時，用 X-Forwarded-For 取得真實 IP、X-Forwarded-Proto 判斷 HTTPS
+// Behind a reverse proxy (Hugging Face / Render): take the real IP from X-Forwarded-For and HTTPS from X-Forwarded-Proto
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
-// 全站基本上限（每 IP 每分鐘）；個別路由另有更嚴的限制（例如會花 CCD 的 /eligibility/challenge）
+// Site-wide limit (per IP per minute); individual routes have stricter limits (e.g. /eligibility/challenge, which spends CCD)
 app.use(baselineLimit({ windowMs: 60_000, limit: Number(env("REQUESTS_PER_MIN", "300")), standardHeaders: "draft-8", legacyHeaders: false }));
-// sendFile 預設會設 Cache-Control: public, max-age=0，蓋掉安全標頭的 no-store
+// sendFile sets Cache-Control: public, max-age=0 by default, which would override the no-store security header
 const NO_CACHE_FILE = { cacheControl: false, lastModified: false } as const;
 const pages = [new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname];
 app.use(securityHeaders(inlineScriptHashes(pages), ["/verify"], inlineScriptHashes(pages, "style")));
 app.use(express.json({ limit: "256kb" }));
 
-// 速率限制：challenge 每次都花 CCD 上鏈，限制最嚴；全站上限換 IP 也繞不過
+// Rate limits: each challenge spends CCD on-chain, so it is the strictest; the site-wide cap cannot be bypassed by switching IPs
 const MIN = 60_000;
 const ip = (req: express.Request) => req.ip ?? "unknown";
 const validAccount = (req: express.Request) => {
@@ -219,19 +219,19 @@ const validAccount = (req: express.Request) => {
 };
 const limitChallenge = rateLimit([
   { limiter: new RateLimiter(5, 10 * MIN), key: ip, what: "per IP" },
-  // 帳號格式不對的請求根本不會上鏈：不吃掉這個帳號或全站的額度（每 IP 的限制照算）
+  // Requests with a malformed account never reach the chain: they do not use up that account's or the site-wide quota (the per-IP limit still counts)
   { limiter: new RateLimiter(3, 60 * MIN), key: (req) => validAccount(req) ?? undefined, what: "per account" },
   { limiter: new RateLimiter(Number(env("CHALLENGES_PER_HOUR", "60")), 60 * MIN), key: (req) => (validAccount(req) ? "all" : undefined), what: "site-wide hourly budget" },
 ]);
 const limitVerify = rateLimit([{ limiter: new RateLimiter(10, 10 * MIN), key: ip, what: "per IP" }]);
 const limitRead = rateLimit([{ limiter: new RateLimiter(120, MIN), key: ip, what: "per IP" }]);
 
-// 讓買方 agent 在付款前就知道要先證明資格（格式參考 x402 issue #4182 的 buyerProof 提案）
+// Tell buyer agents before they pay that they must prove eligibility first (format follows the buyerProof proposal in x402 issue #4182)
 const buyerExtra = {
   buyerProof: ["adult", "region"],
   buyerProofPolicy: eligibility.describe(),
   buyerProofUrl: `${PUBLIC_URL}/verify`,
-  // 買方 agent 可以用這個標頭指名自己在 CIS-8004 的 token id；賣方從節點核對付款帳號＝它的 agentWallet
+  // A buyer agent can name its CIS-8004 token id in this header; the seller checks from a node that the paying account is its agentWallet
   buyerAgentHeader: "X-Concordium-Agent",
   buyerAgentPolicy: BUYER_AGENT_POLICY,
 };
@@ -249,7 +249,7 @@ app.use(
           payTo: PAY_TO,
           price: { amount: p.amount, asset: p.asset, extra: buyerExtra },
         })).concat(
-          // Base Sepolia 的 USDC：payTo 是 CIS-8 綁在本 agent 擁有者底下的 EVM 地址；cis8 欄位告訴買方去哪裡查
+          // USDC on Base Sepolia: payTo is the EVM address bound in CIS-8 under this agent's owner; the cis8 field tells the buyer where to check
           EVM
             ? [{
                 scheme: "exact",
@@ -266,7 +266,7 @@ app.use(
         ),
         description: "VeriFlow risk-regime signal (RISK_ON / RISK_OFF), committed on-chain",
         mimeType: "application/json",
-        // 指名收款的 agent（CIS-8004 的 registry 與 token id）。不放錢包：買方從鏈上讀 agentWallet 再比對 payTo
+        // Names the agent being paid (CIS-8004 registry and token id). No wallet here: the buyer reads agentWallet from the chain and compares it with payTo
         extensions: {
           [AGENT_EXTENSION]: {
             info: { network: NETWORK, registry: `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}`, badge: AGENT_BADGE, tokenId: AGENT_TOKEN_ID },
@@ -301,7 +301,7 @@ async function forward(path: string, res: express.Response, paid: boolean) {
   }
 }
 
-// 付款成功 → 向 Python API 拿訊號 → 把承諾雜湊寫上鏈 → 通知 API 記下交易 hash → 回傳給買方
+// Payment succeeded → fetch the signal from the Python API → anchor the commitment hash → tell the API the transaction hash → return it to the buyer
 const anchorer = createAnchorer(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE")));
 
 app.get("/signal/:asset", async (req, res) => {
@@ -312,7 +312,7 @@ app.get("/signal/:asset", async (req, res) => {
     const body = await r.json();
     if (!r.ok) return res.status(r.status).json(body);
 
-    // 當天的官方訊號已經上鏈（每日排程或先前的買家）：直接賣同一筆，不重複上鏈
+    // Today's official signal is already on-chain (daily job or an earlier buyer): sell that same one, do not anchor again
     if (!body.anchor_tx) {
       try {
         const tx = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
@@ -324,7 +324,7 @@ app.get("/signal/:asset", async (req, res) => {
         body.anchor_tx = tx;
         console.log(`anchored ${body.commitment.slice(0, 12)}… → ${tx}`);
       } catch (e) {
-        // 沒上鏈的訊號不能證明是事前發的：回錯誤，x402 只在成功回應時結算，所以買方不會被扣款
+        // A signal that is not on-chain cannot be shown to predate the outcome: return an error; x402 settles only on success, so the buyer is not charged
         console.error("anchor failed:", e);
         return res.status(503).json({ error: "anchor_failed", detail: "The signal could not be committed on-chain, so it was not sold and you were not charged. Try again shortly." });
       }
@@ -342,17 +342,17 @@ app.get("/track-record", (_req, res) => forward("/track-record", res, false));
 app.get("/commitments", (_req, res) => forward("/commitments", res, false));
 app.get("/commitments/:c", (req, res) => forward(`/commitments/${encodeURIComponent(req.params.c)}`, res, false));
 
-// 公開：從 Concordium 讀回上鏈的承諾（給儀表板的「一鍵驗證」用）
+// Public: read an anchored commitment back from Concordium (for the dashboard's one-click verify)
 app.get("/onchain/:tx", limitRead, async (req, res) => {
-  if (!/^[0-9a-f]{64}$/.test(String(req.params.tx))) return res.status(400).json({ error: "tx 格式錯誤" });
+  if (!/^[0-9a-f]{64}$/.test(String(req.params.tx))) return res.status(400).json({ error: "malformed tx hash" });
   try {
     res.json(await anchorer.read(String(req.params.tx)));
   } catch (e) {
     res.status(502).json({ error: `Concordium node error: ${String(e)}` });
   }
 });
-// 營運帳號餘額：每日上鏈、自動公開、贊助買方手續費都從這個帳號扣，用完紀錄就會中斷
-// 背景每 10 分鐘查一次（/health 只回快取，不拖慢健康檢查）；低於 MIN_OPERATOR_CCD 時 low=true
+// Operator account balance: daily commits, automatic reveals and sponsored buyer fees are paid from it; if it runs dry the record stops
+// Checked every 10 minutes in the background (/health only returns the cached value, so health checks stay fast); low=true below MIN_OPERATOR_CCD
 const MIN_OPERATOR_CCD = Number(env("MIN_OPERATOR_CCD", "100"));
 const operator: { account: string; balance_ccd: number | null; checked_at: string | null; low: boolean } = {
   account: "",
@@ -380,16 +380,16 @@ app.get("/health", limitRead, async (_req, res) => {
   }
 });
 
-// ── 買方資格驗證（Verify & Access）─────────────────────
+// ── Buyer eligibility (Verify & Access) ─────────────────────
 const verifyPage = new URL("../public/verify.html", import.meta.url);
 app.get("/verify", limitRead, (_req, res) => res.sendFile(verifyPage.pathname, NO_CACHE_FILE));
 
-// 公開儀表板（瀏覽器自己重算雜湊驗證，不用信任這台伺服器）與 Agent Card
+// Public dashboard (the browser recomputes hashes itself, no need to trust this server) and the Agent Card
 const dashboardPage = new URL("../public/index.html", import.meta.url);
 app.get("/", limitRead, (_req, res) => res.sendFile(dashboardPage.pathname, NO_CACHE_FILE));
 const agentCard = new URL("../../agent-card.json", import.meta.url);
 app.get("/.well-known/agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(agentCard.pathname, NO_CACHE_FILE));
-// 示範買方 agent 的 Agent Card（它在 CIS-8004 登記時釘住這個檔案的 SHA-256，所以內容不能再改）
+// The demo buyer agent's Agent Card (its SHA-256 is pinned in CIS-8004, so the content must not change)
 const buyerCard = new URL("../../agents/buyer-agent-card.json", import.meta.url);
 app.get("/agents/buyer-agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(buyerCard.pathname, NO_CACHE_FILE));
 
@@ -420,20 +420,20 @@ app.post("/eligibility/verify", limitVerify, async (req, res) => {
 
 app.get("/eligibility/:account", (req, res) => {
   const rec = eligibility.status(req.params.account);
-  // 公開端點不回傳 credential id（雖然它本來就在鏈上，但不需要讓人把帳號和身分憑證對起來）
+  // Public endpoints do not return the credential id (it is on-chain anyway, but there is no need to help link accounts to identity credentials)
   const { credId: _c, presentationJson: _p, requestJson: _r, challengeId: _i, ...pub } = rec ?? ({} as Record<string, unknown>);
-  // policy 放最後：rec 裡也有 policy（指紋字串），不能讓它蓋掉完整的政策說明
+  // policy goes last: rec also has a policy field (the fingerprint string), which must not overwrite the full policy description
   res.json({ eligible: !!rec, ...pub, policyId: rec?.policy, policy: eligibility.describe() });
 });
 
-// 公開版 MCP（Streamable HTTP）：免費工具 + 購買說明，不碰任何人的金鑰
+// Public MCP (Streamable HTTP): free tools + buying instructions, never touches anyone's keys
 const SELF_URL = `http://127.0.0.1:${env("GATEWAY_PORT", "4020")}`;
 mountRemoteMcp(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
-// A2A（Agent Card 的 url 指向這裡）：同樣只有唯讀技能
+// A2A (the Agent Card's url points here): read-only skills as well
 mountA2A(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
 
-// 找不到的路徑與未預期錯誤：自己回 JSON，保留上面設好的安全標頭
-// （Express 預設的錯誤頁會換成它自己的 CSP，ZAP 會抓到缺少 frame-ancestors 等規則）
+// Unknown paths and unexpected errors: answer with our own JSON and keep the security headers set above
+// (Express's default error page sets its own CSP; ZAP flags it for missing frame-ancestors and similar rules)
 app.use((_req, res) => res.status(404).json({ error: "not_found" }));
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("unhandled:", err);
@@ -441,8 +441,8 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 const PORT = Number(env("GATEWAY_PORT", "4020"));
-// 每日公開訊號：績效紀錄每天累積（DAILY_SIGNALS=off 可關閉；本機開發預設關閉）
-// DAILY_SIGNALS=reveal：v2 上線後，v1 不再發新訊號（v2 由 GitHub Actions 的 daily-v2 產生），只繼續公開 v1 到期的承諾
+// Daily public signals: the record grows every day (DAILY_SIGNALS=off disables it; off by default for local development)
+// DAILY_SIGNALS=reveal: since v2, v1 issues no new signals (v2 calls come from the daily-v2 GitHub workflow); it only keeps revealing v1 commitments that are due
 const DAILY_MODE = env("DAILY_SIGNALS", "off");
 const DAILY = DAILY_MODE !== "off";
 if (DAILY) {
@@ -456,7 +456,7 @@ if (DAILY) {
     },
     Number(env("DAILY_INTERVAL_MIN", "30")) * 60_000,
     60_000,
-    // 到期自動公開：合約模式才有（合約自己重算雜湊）
+    // Automatic reveal: contract mode only (the contract recomputes the hash itself)
     anchorer.contract && {
       apiUrl: API_URL,
       record: anchorer.contract.record,
@@ -470,11 +470,11 @@ operator.account = anchorer.address;
 setTimeout(refreshOperatorBalance, 5_000);
 setInterval(refreshOperatorBalance, 10 * 60_000);
 
-// SDK 有些檢查內部沒有 await（例如 createChecked 的 context 檢查）：一個壞的證明不能讓整個伺服器結束
+// Some SDK checks are not awaited internally (e.g. createChecked's context check): one bad proof must not take the whole server down
 process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 
-// 節點必須屬於 CONCORDIUM_NETWORK 選的那條鏈：開始接受連線之前先查，之後每分鐘再查一次。
-// 連不上只警告（節點暫時不通不該讓網站掛掉），選錯鏈就停。
+// The node must belong to the chain CONCORDIUM_NETWORK selects: check before accepting connections, then every minute.
+// If the node is unreachable, only warn (a temporary outage should not take the site down); if it is the wrong chain, stop.
 const checkNetwork = (): Promise<boolean> =>
     createGrpc()
       .getConsensusStatus()
@@ -488,8 +488,8 @@ const checkNetwork = (): Promise<boolean> =>
         console.warn(`network check skipped: ${e instanceof Error ? e.message : e}`);
         return false;
       });
-// 開始接受連線之前，最多試 3 次（每次 gRPC 20 秒逾時）拿到節點的 genesis；錯鏈就停。
-// 3 次都拿不到才先啟動（節點不通時付款本來就做不了），之後每分鐘再查。
+// Before accepting connections, try up to 3 times (20 s gRPC timeout each) to get the node's genesis; stop on the wrong chain.
+// Only if all 3 fail, start anyway (payments cannot work without a node either way) and check again every minute.
 for (let i = 0; i < 3 && !(await Promise.race([checkNetwork(), new Promise<boolean>((r) => setTimeout(() => r(false), 25_000))])); i++);
 setInterval(checkNetwork, 60_000).unref();
 
@@ -499,7 +499,7 @@ app.listen(PORT, () => {
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
   if (EVM) {
     console.log(`also accepts ${EVM.price} USDC on ${EVM.network} → ${EVM.payTo} via ${EVM.facilitator}`);
-    // 自我檢查：收款金鑰在 CIS-8 綁在本 agent 的擁有者底下嗎？沒有的話買方會拒付（這裡只記錄，不擋啟動）
+    // Self-check: is the payout key bound in CIS-8 under this agent's owner? If not, buyers will refuse to pay (logged only; startup is not blocked)
     readAgent(AGENT_TOKEN_ID)
       .then((a) => checkEvmBinding({ address: EVM.payTo, publicKey: EVM.publicKey, namespace: EVM.network, expectOwner: a?.owner ?? "?" }, sameAccount))
       .then((r) => (r.ok ? console.log(`CIS-8: ${EVM.payTo} is bound to agent #${AGENT_TOKEN_ID}'s owner ${r.owner}`) : console.warn(`CIS-8 self-check failed, buyers will refuse EVM payments: ${r.reason}`)))

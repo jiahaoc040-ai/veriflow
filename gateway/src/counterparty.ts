@@ -1,17 +1,17 @@
 /**
- * 付款前驗證賣方（買方 agent 用）
+ * Verify the seller before paying (used by buyer agents)
  * ------------------------------
- * 賣方用零知識證明檢查買方；這裡是反方向：買方付錢之前，先確認收款的那一方是誰。
- * 全部向 Concordium 官方的 Agent Registry（CIS-8004 <12802,0>，透過官方 hosted MCP）查，不信任賣方自己的說法：
+ * The seller checks the buyer with a zero-knowledge proof; this is the other direction: before paying, the buyer confirms who is being paid.
+ * Everything is checked against Concordium's Agent Registry (CIS-8004 <12802,0>, via the official hosted MCP and a node), not the seller's own claims:
  *
- *   1. 賣方網站的 Agent Card 宣告了 Verified by Concordium badge
- *   2. 這個 badge 在 Registry 上存在、狀態 Active
- *   3. 官方 check_badge 全部通過（擁有者是通過身份驗證的真人、card 結構正確…）
- *   4. 我們自己下載 Agent Card、自己算 SHA-256，等於鏈上釘住的 metadata_hash（card 沒被換過）
- *   5. x402 要我們付款的地址（payTo）＝鏈上登記的 agentWallet——
- *      擋掉「抄別人的 badge、但把錢收到自己地址」的冒充者
+ *   1. the seller's Agent Card declares a Verified by Concordium badge
+ *   2. that badge exists in the Registry and is Active
+ *   3. the official check_badge passes in full (the owner is an identity-verified person, the card is well-formed, …)
+ *   4. we download the Agent Card and compute its SHA-256 ourselves; it equals the metadata_hash pinned on-chain (the card was not swapped)
+ *   5. the address x402 asks us to pay (payTo) = the agentWallet registered on-chain —
+ *      stops impostors who copy someone's badge but collect the money at their own address
  *
- * 任何一項不過就不付款（fail closed）。Registry 連不到也一樣不付。
+ * If any check fails, do not pay (fail closed). If the Registry cannot be reached, do not pay either.
  */
 import type { AgentOnChain } from "./registry-node.js";
 import { NET } from "./network.js";
@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import type { Check } from "./verify.js";
 
 export const BADGE_EXTENSION = "https://docs.concordium.com/a2a-extensions/concordium-badge/v1";
-/** x402 PaymentRequired 的頂層擴充欄位：指名收款的 agent（只是指標，錢包從鏈上讀） */
+/** Top-level x402 PaymentRequired extension: names the agent being paid (only a pointer; the wallet is read from the chain) */
 export const AGENT_EXTENSION = "concordium-agent";
 
 export type RegistryCall = (name: string, args: Record<string, unknown>) => Promise<any>;
@@ -34,8 +34,8 @@ export type SellerVerdict = {
   agentWallet?: string;
 };
 
-/** Agent Card 裡 badge 的 token address（"ccd:<genesis>/cis-2:JyP9…" → "JyP9…"） */
-/** Agent Card 最大 64 KiB：賣方回傳超大或不停的內容時，買方不會被拖住 */
+/** The badge's token address in an Agent Card ("ccd:<genesis>/cis-2:JyP9…" → "JyP9…") */
+/** Agent Cards are capped at 64 KiB: a seller returning a huge or endless body cannot stall the buyer */
 export const MAX_CARD_BYTES = 64 * 1024;
 
 export async function readCapped(r: Response, max: number): Promise<Buffer> {
@@ -74,12 +74,12 @@ export async function verifySeller(opts: {
   registry: RegistryCall;
   network?: string;
   fetch?: typeof fetch;
-  /** 直接向節點讀 CIS-8004 的 agent 紀錄；有的話，狀態、card 位置與雜湊、收款錢包都以節點讀到的為準 */
+  /** Read the CIS-8004 agent record straight from a node; if given, status, card location and hash, and payout wallet all come from the node */
   readAgent?: (tokenId: string) => Promise<AgentOnChain | null>;
-  /** 402 回應的 concordium-agent 擴充欄位指名的 agent 與 badge（有的話必須一致） */
+  /** The agent and badge named by the 402's concordium-agent extension (must agree if present) */
   expectTokenId?: string;
   expectBadge?: string;
-  /** 收款地址不在 Concordium 上（例如 Base 的 USDC）時，用這個檢查取代「payTo＝agentWallet」；收到節點讀到的擁有者與錢包 */
+  /** When payTo is not on Concordium (e.g. USDC on Base), this replaces the payTo = agentWallet check; it receives the owner and wallet read from the node */
   payToCheck?: (agent: { owner?: string; wallet?: string }) => Promise<Check>;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
@@ -89,7 +89,7 @@ export async function verifySeller(opts: {
   const done = () => ({ ...out, ok: checks.length === 5 && checks.every((c) => c.ok) });
   const err = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-  // 1. 賣方網站宣告的 badge
+  // 1. The badge declared by the seller's site
   let tokenAddress: string | undefined;
   try {
     const r = await f(`${opts.gateway}/.well-known/agent-card.json`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
@@ -105,7 +105,7 @@ export async function verifySeller(opts: {
   if (!tokenAddress) return done();
   out.tokenAddress = tokenAddress;
 
-  // 2. Registry 上的紀錄
+  // 2. The Registry record
   let rec: { token_id?: string; owner_account?: string; agent_uri?: string; metadata_hash_hex?: string; agent_wallet?: string; status?: string };
   try {
     rec = await opts.registry("agent_by_token_address", { network, token_address: tokenAddress });
@@ -113,7 +113,7 @@ export async function verifySeller(opts: {
     checks.push({ name: "registered and Active in the CIS-8004 Agent Registry", ok: false, detail: `registry unreachable: ${err(e)}` });
     return done();
   }
-  // 託管服務只用來從 badge 找到 token id；紀錄本身直接向節點讀，兩者不一致就不付
+  // The hosted service is only used to find the token id from the badge; the record itself is read from a node, and if they disagree we do not pay
   const problems: string[] = [];
   if (opts.expectBadge && opts.expectBadge !== tokenAddress) problems.push(`the 402 names badge ${opts.expectBadge}, the card advertises ${tokenAddress}`);
   if (opts.expectTokenId && rec.token_id !== opts.expectTokenId)
@@ -145,7 +145,7 @@ export async function verifySeller(opts: {
     detail: `agent #${rec.token_id ?? "?"}, status ${rec.status ?? "not found"}, owner ${rec.owner_account ?? "?"} (${source})${problems.length ? `; ${problems.join("; ")}` : ""}`,
   });
 
-  // 3. 官方 badge 檢查
+  // 3. Official badge check
   try {
     const b = await opts.registry("check_badge", { network, id: tokenAddress });
     const failed = Object.entries(b?.checks ?? {}).filter(([, v]) => v === false).map(([k]) => k);
@@ -158,7 +158,7 @@ export async function verifySeller(opts: {
     checks.push({ name: "official badge check passes (identity-verified owner)", ok: false, detail: `registry unreachable: ${err(e)}` });
   }
 
-  // 4. 自己下載 card、自己算雜湊
+  // 4. Download the card and hash it ourselves
   try {
     if (!rec.agent_uri) throw new Error("no agent_uri on-chain");
     // https only (plain http allowed only for a local test server)
@@ -176,7 +176,7 @@ export async function verifySeller(opts: {
     checks.push({ name: "Agent Card unchanged since pinned on-chain (own SHA-256)", ok: false, detail: err(e) });
   }
 
-  // 5. 收款地址綁定
+  // 5. Payout address binding
   if (opts.payToCheck) {
     try {
       checks.push(await opts.payToCheck({ owner: rec.owner_account, wallet: rec.agent_wallet }));
@@ -193,7 +193,7 @@ export async function verifySeller(opts: {
   return done();
 }
 
-/** 給人看的一行摘要 */
+/** One-line summary for people */
 export function summarize(v: SellerVerdict): string {
   const bad = v.checks.filter((c) => !c.ok);
   return v.ok

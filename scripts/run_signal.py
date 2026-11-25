@@ -1,6 +1,6 @@
 """
-命令列：算出最新訊號並記到帳本
-執行：python scripts/run_signal.py BTC
+Command line: compute the latest signal and record it in the ledger
+Run: python scripts/run_signal.py BTC
 """
 
 import json

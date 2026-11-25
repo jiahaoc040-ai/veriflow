@@ -1,11 +1,11 @@
 /**
- * 示範買方 Agent：自動付款買一個訊號
+ * Demo buyer agent: pays for one signal automatically
  * ---------------------------------
- * 1. 呼叫 /signal/BTC → 拿到 402 和付款條件
- * 2. 用買方帳號簽一筆轉帳（手續費由 facilitator 代付）
- * 3. 帶著簽好的付款重送 → 拿到訊號 + 鏈上交易
+ * 1. call /signal/BTC → get the 402 and payment terms
+ * 2. sign a transfer from the buyer account (the facilitator pays the fee)
+ * 3. resend with the signed payment → get the signal + on-chain transactions
  *
- * 執行：npm run buyer -- BTC
+ * Run: npm run buyer -- BTC
  */
 import { NET } from "./network.js";
 import { createBuyerAgent } from "./agent.js";

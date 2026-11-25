@@ -1,12 +1,12 @@
 """
-訊號帳本：記錄每個發出的訊號、它的承諾雜湊、上鏈交易，事後計算命中率
+Signal ledger: records each issued signal, its commitment hash and anchor transaction
 -------------------------------------------------------------------
-流程（先承諾、後揭露）：
-  1. 發訊號時：存下完整內容 + 雜湊，雜湊寫上 Concordium（anchor_tx 先留空）
-  2. 之後任何人都能拿公開的訊號內容重算雜湊，對照鏈上紀錄
-  3. 評分：RISK_ON 之後 7 天價格上漲 = 命中；RISK_OFF 之後 7 天下跌 = 命中
+Flow (commit first, reveal later):
+  1. On issue: store the full content + hash, anchor the hash on Concordium (anchor_tx empty at first)
+  2. Afterwards anyone can recompute the hash from the revealed content and compare it with the chain
+  3. Scoring is done only by the on-chain rule (docs/SCORING-v2.md, gateway/src/score-v2.ts), not here
 
-儲存：本機預設 SQLite 檔案；部署時設 DATABASE_URL=postgresql://… 改用 Postgres（平台重開資料不會掉）。
+Storage: a local SQLite file by default; DATABASE_URL=postgresql://… uses Postgres when deployed (data survives platform restarts).
 """
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ CREATE TABLE IF NOT EXISTS signals (
     close       REAL NOT NULL,
     canonical   TEXT NOT NULL,
     issued_at   TEXT NOT NULL,
-    anchor_tx   TEXT            -- Concordium 交易 hash，上鏈後填入
+    anchor_tx   TEXT            -- Concordium transaction hash, filled in once anchored
 );
 """
 
 
 def _engine_url(target: str | Path) -> str:
-    """檔案路徑 → SQLite；postgres:// 或 postgresql:// → Postgres（psycopg 驅動）"""
+    """File path → SQLite; postgres:// or postgresql:// → Postgres (psycopg driver)"""
     t = str(target)
     if t.startswith(("postgres://", "postgresql://")):
         return "postgresql+psycopg://" + t.split("://", 1)[1]
@@ -74,7 +74,7 @@ class Ledger:
         return dict(row) if row else None
 
     def for_day(self, asset: str, as_of: str) -> list[dict]:
-        """某資產某個收盤日的所有訊號（每日自動發訊號用來避免重複）"""
+        """All signals for one asset and close (used by the daily job to avoid duplicates)"""
         with self.engine.connect() as conn:
             rows = conn.execute(
                 text("SELECT * FROM signals WHERE asset=:a AND as_of=:d ORDER BY issued_at"), {"a": asset, "d": as_of}
@@ -86,19 +86,19 @@ class Ledger:
             return pd.read_sql(text("SELECT * FROM signals ORDER BY issued_at"), conn)
 
     def track_record(self, prices: dict[str, pd.DataFrame] | None = None, now: pd.Timestamp | None = None) -> dict:
-        """公開紀錄的計數（不計分）
+        """Public counts of the record (no scoring)
 
-        計分只由 docs/SCORING.md 的規則與 gateway/src/score.ts 從鏈上與 Binance 計算，
-        不用這裡的資料庫或價格；這裡也不再顯示命中率。
-        - 只列有上鏈的訊號
-        - 同一資產同一收盤日有多筆時不隱藏：duplicate_asset_days 照實回報（計分規則把它算成失敗）
-        prices 參數保留只為相容舊呼叫，不使用。
+        Scoring is done only from the chain and Binance by the rule in docs/SCORING.md / docs/SCORING-v2.md (gateway/src/score.ts, score-v2.ts),
+        never from this database or its prices; no hit rate is shown here any more.
+        - only anchored signals are listed
+        - several signals for the same asset and close are not hidden: duplicate_asset_days reports them (the scoring rule counts them as failures)
+        The prices parameter is kept only for compatibility with old callers and is unused.
         """
         df = self.all()
         issued = int(len(df))
         anchored = df[df["anchor_tx"].notna()].sort_values("issued_at", kind="stable") if not df.empty else df
         if not anchored.empty:
-            # v1 與 v2 是不同合約：同一天各一筆不算重複，只在同一個合約裡重複才算
+            # v1 and v2 are different contracts: one each on the same day is not a duplicate; only repeats within one contract count
             anchored = anchored.assign(contract=anchored["canonical"].str.contains('"momentum_e6":', regex=False).map({True: "v2", False: "v1"}))
             days = anchored.groupby(["contract", "asset", "as_of"]).size()
         else:

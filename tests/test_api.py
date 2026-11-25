@@ -1,4 +1,4 @@
-"""API 測試：付款保護、上鏈回報、到期才揭露（用假資料，不需要網路）"""
+"""API tests: payment protection, anchor reporting, reveal only after the horizon (fake data, no network)"""
 
 import importlib
 
@@ -26,7 +26,7 @@ def test_signal_requires_gateway(tmp_path, monkeypatch):
 
 
 def test_no_secret_fails_closed_unless_dev_flag(tmp_path, monkeypatch):
-    """沒設 GATEWAY_SECRET 不再等於全開：預設拒絕，只有 VERIFLOW_INSECURE_DEV=1 才放行"""
+    """No GATEWAY_SECRET no longer means wide open: refuse by default; only VERIFLOW_INSECURE_DEV=1 lets requests through"""
     monkeypatch.delenv("VERIFLOW_INSECURE_DEV", raising=False)
     _, c = make_client(tmp_path, monkeypatch, secret="")
     assert c.get("/signal/BTC").status_code == 402
@@ -41,13 +41,13 @@ def test_anchor_and_reveal(tmp_path, monkeypatch):
     body = c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"}).json()
     cm = body["commitment"]
 
-    # 只有付款關卡能回報上鏈交易
+    # Only the payment gateway may report anchor transactions
     assert c.post(f"/commitments/{cm}/anchor", json={"anchor_tx": "ab" * 32}).status_code == 403
     r = c.post(f"/commitments/{cm}/anchor", json={"anchor_tx": "ab" * 32}, headers={"X-VeriFlow-Gateway": "s"})
     assert r.status_code == 200
     assert c.post("/commitments/nope/anchor", json={"anchor_tx": "x"}, headers={"X-VeriFlow-Gateway": "s"}).status_code == 404
 
-    # fake_data 的資料日期在過去，已過 7 天 → 揭露完整內容，雜湊可重算
+    # fake_data's dates are in the past, more than 7 days ago → full content revealed, hash can be recomputed
     got = c.get(f"/commitments/{cm}").json()
     assert got["anchor_tx"] == "ab" * 32 and got["revealed"] is True
     assert verify_commitment(got["canonical"], cm)
@@ -55,13 +55,13 @@ def test_anchor_and_reveal(tmp_path, monkeypatch):
 
 def test_commitments_with_unanchored_signal(tmp_path, monkeypatch):
     _, c = make_client(tmp_path, monkeypatch)
-    c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"})   # 沒有上鏈紀錄
+    c.get("/signal/BTC", headers={"X-VeriFlow-Gateway": "s"})   # no anchor record
     r = c.get("/commitments")
     assert r.status_code == 200 and r.json()[0]["anchor_tx"] is None
 
 
 def test_price_cache_refreshes_each_hour(monkeypatch):
-    """服務一直醒著時，價格每小時要重新抓，不能永遠用第一次的資料"""
+    """While the service stays awake, prices are refetched every hour, not kept from the first fetch forever"""
     import veriflow.api as api_mod
 
     calls = []
@@ -71,29 +71,29 @@ def test_price_cache_refreshes_each_hour(monkeypatch):
     monkeypatch.setattr(api_mod.time, "time", lambda: now[0])
     api_mod._prices_at("BTC", api_mod._hour_bucket())
     api_mod._prices_at("BTC", api_mod._hour_bucket())
-    assert calls == ["BTC"]                     # 同一小時：用快取
+    assert calls == ["BTC"]                     # same hour: cached
     now[0] += api_mod.CACHE_SECONDS
     api_mod._prices_at("BTC", api_mod._hour_bucket())
-    assert calls == ["BTC", "BTC"]              # 下一小時：重新抓
+    assert calls == ["BTC", "BTC"]              # next hour: fetched again
 
 
 def test_daily_signal_once_per_day_and_retries_unanchored(tmp_path, monkeypatch):
-    """每日訊號：同一收盤日只上鏈一筆；上鏈失敗的那筆會被重送，不會另發新的"""
+    """Daily signal: one anchored signal per close; a signal whose anchoring failed is resent, no new one is issued"""
     api, c = make_client(tmp_path, monkeypatch)
     gw = {"X-VeriFlow-Gateway": "s"}
-    assert c.post("/daily/BTC").status_code == 403            # 只有付款關卡能呼叫
+    assert c.post("/daily/BTC").status_code == 403            # only the payment gateway may call it
     first = c.post("/daily/BTC", headers=gw).json()
     assert first["status"] == "new"
-    again = c.post("/daily/BTC", headers=gw).json()           # 還沒上鏈 → 重送同一筆
+    again = c.post("/daily/BTC", headers=gw).json()           # not anchored yet → resend the same one
     assert again == {**first, "status": "retry"}
     c.post(f"/commitments/{first['commitment']}/anchor", json={"anchor_tx": "cd" * 32}, headers=gw)
     assert c.post("/daily/BTC", headers=gw).json()["status"] == "exists"
-    assert c.post("/daily/ETH", headers=gw).json()["status"] == "new"   # 各資產分開
+    assert c.post("/daily/ETH", headers=gw).json()["status"] == "new"   # assets are independent
     assert c.post("/daily/DOGE", headers=gw).status_code == 404
 
 
 def test_parse_klines_drops_unclosed_today():
-    """Binance /klines 的格式；今天（UTC）還沒收盤的那根不能用"""
+    """Binance /klines format; today's (UTC) candle has not closed and must not be used"""
     import pandas as pd
 
     from veriflow.data import parse_klines
@@ -107,7 +107,7 @@ def test_parse_klines_drops_unclosed_today():
 
 
 def test_fetch_prices_falls_back_when_an_endpoint_blocks(monkeypatch):
-    """Binance 某個網域擋了主機 IP（418/451）時，改用下一個公開網域"""
+    """When one Binance host blocks the server IP (418/451), use the next public host"""
     import httpx
 
     from veriflow import data
@@ -126,7 +126,7 @@ def test_fetch_prices_falls_back_when_an_endpoint_blocks(monkeypatch):
 
 
 def test_okx_fallback_when_binance_bans_the_host(monkeypatch):
-    """Binance 所有網域都回 418（整個 IP 被封）→ 用 OKX 日 K，只留已收盤、轉成同樣格式"""
+    """Every Binance host returns 418 (IP banned) → use OKX daily candles, closed ones only, in the same format"""
     import httpx
     import pandas as pd
 
@@ -138,7 +138,7 @@ def test_okx_fallback_when_binance_bans_the_host(monkeypatch):
     day = 86_400_000
     t0 = int(pd.Timestamp("2026-01-10", tz="UTC").timestamp() * 1000)
     pages = [
-        [[str(t0 + 2 * day), "1", "1", "1", "103", "1", "1", "1", "0"],      # 今天：未收盤
+        [[str(t0 + 2 * day), "1", "1", "1", "103", "1", "1", "1", "0"],      # today: not closed
          [str(t0 + day), "1", "1", "1", "102", "1", "1", "1", "1"],
          [str(t0), "1", "1", "1", "101", "1", "1", "1", "1"]],
     ]
@@ -160,7 +160,7 @@ def test_okx_fallback_when_binance_bans_the_host(monkeypatch):
 
 
 def test_price_refresh_failure_reuses_data_that_is_still_current(monkeypatch):
-    """每小時更新失敗（來源限流）：手上的資料已含昨天收盤就照用；已經過時就報錯，不發舊訊號"""
+    """Hourly refresh failed (rate-limited): use the data on hand if it already has yesterday's close; if it is stale, raise rather than issue an old signal"""
     import pandas as pd
     import pytest
     import veriflow.api as api_mod
@@ -172,26 +172,26 @@ def test_price_refresh_failure_reuses_data_that_is_still_current(monkeypatch):
     api_mod._prices_cached.cache_clear()
     api_mod._last_good.clear()
     assert api_mod._prices_at("BTC", 1) is current
-    # 只抓最近一段，不是 2020 年至今
+    # Fetch only a recent window, not everything since 2020
     assert pd.Timestamp(seen["since"]) > today - pd.Timedelta(days=api_mod.PRICE_HISTORY_DAYS + 2)
 
     def down(a, since=None):
         raise RuntimeError("429 Too Many Requests")
 
     monkeypatch.setattr(api_mod, "fetch_prices", down)
-    assert api_mod._prices_at("BTC", 2) is current          # 照用，內容一樣
-    api_mod._last_good["BTC"] = current.iloc[:1]              # 只到前天：已過時
+    assert api_mod._prices_at("BTC", 2) is current          # reused, identical content
+    api_mod._last_good["BTC"] = current.iloc[:1]              # only up to two days ago: stale
     with pytest.raises(RuntimeError):
         api_mod._prices_at("BTC", 3)
 
 
 def test_paid_signal_is_the_one_official_signal_of_the_day(tmp_path, monkeypatch):
-    """同一資產同一收盤日：每日排程發的、先前買家買的、現在買的，都是同一筆承諾"""
+    """Same asset, same close: the daily job's, an earlier buyer's and this purchase are all the same commitment"""
     api, c = make_client(tmp_path, monkeypatch)
     gw = {"X-VeriFlow-Gateway": "s"}
     daily = c.post("/daily/BTC", headers=gw).json()
     first = c.get("/signal/BTC", headers=gw).json()
-    assert first["commitment"] == daily["commitment"] and "anchor_tx" not in first   # 還沒上鏈：交給付款關卡上鏈
+    assert first["commitment"] == daily["commitment"] and "anchor_tx" not in first   # not anchored yet: the gateway anchors it
     c.post(f"/commitments/{daily['commitment']}/anchor", json={"anchor_tx": "ef" * 32}, headers=gw)
     again = c.get("/signal/BTC", headers=gw).json()
     assert again["commitment"] == daily["commitment"] and again["anchor_tx"] == "ef" * 32
@@ -200,7 +200,7 @@ def test_paid_signal_is_the_one_official_signal_of_the_day(tmp_path, monkeypatch
 
 
 def test_v2_mode_sells_only_the_committed_v2_row(tmp_path, monkeypatch):
-    """v2：只賣已上鏈的 v2 訊號（昨日收盤）；沒有就 503、不收費；v1 的每日發訊號關閉"""
+    """v2: sell only anchored v2 signals (yesterday's close); otherwise 503 and no charge; v1 daily issuing is off"""
     import pandas as pd
     monkeypatch.setenv("SIGNAL_VERSION", "v2")
     api, c = make_client(tmp_path, monkeypatch)
@@ -214,7 +214,7 @@ def test_v2_mode_sells_only_the_committed_v2_row(tmp_path, monkeypatch):
     commit = hashlib.sha256(canon.encode()).hexdigest()
     with api.ledger.engine.begin() as conn:
         conn.execute(text("INSERT INTO signals VALUES (:c,'BTC',:d,'RISK_ON',1.0,:k,'x',NULL)"), {"c": commit, "d": as_of, "k": canon})
-    assert c.get("/signal/BTC", headers=h).status_code == 503  # 還沒上鏈：不賣
+    assert c.get("/signal/BTC", headers=h).status_code == 503  # not anchored yet: not for sale
     api.ledger.set_anchor(commit, "tx1")
     body = c.get("/signal/BTC", headers=h).json()
     assert body["commitment"] == commit and body["anchor_tx"] == "tx1" and body["contract"] == "v2"

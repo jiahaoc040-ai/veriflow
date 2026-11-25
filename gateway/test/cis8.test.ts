@@ -61,7 +61,7 @@ test("live testnet read-back: the contract stores the key compressed, and it sti
   assert.equal(compressPublicKey(asked.publicKey).toString("hex"), r.key.publicKey);
   assert.equal(sameExternalKey(r.key, asked), true);
   assert.equal(evmAddressOf(asked.publicKey), "0xdd315C4383bC9aedbE18E7bD954be3718a2F8746");
-  // 另一把金鑰、別的命名空間：不算同一把
+  // Another key, or another namespace: not the same key
   assert.equal(sameExternalKey(r.key, { ...asked, publicKey: "0x04fef7ae831fcbbc71697d2ce20ec771cbe161f4be20436e018597b449fd630e169a1be4750b544dfff57fe92a02d6297119d53941baccf1b2dfb6052130f86093" }), false);
   assert.equal(sameExternalKey(r.key, { ...asked, namespace: "eip155:8453" }), false);
 });

@@ -1,12 +1,12 @@
 /**
- * 賣方驗證買方 agent（雙向的代理互信）
+ * The seller verifies the buyer's agent (trust between agents in both directions)
  * ------------------------------------
- * 買方在請求標頭 X-Concordium-Agent 寫上自己在 CIS-8004 Agent Registry 的 token id。
- * 這個標頭只是「指名」，不需要另外簽名：付款交易本身由買方帳號簽名，賣方從節點讀 agentOf(token id)，
- * 要求這個 agent 是 Active，而且它在鏈上綁定的 agentWallet 就是這筆付款的付款帳號。
- * 所以別人不能冒用某個 agent 的身分：除非用那個 agent 的錢包付款，否則對不上。
+ * The buyer puts its CIS-8004 Agent Registry token id in the X-Concordium-Agent request header.
+ * The header only names the agent and needs no extra signature: the payment itself is signed by the buyer's account, and the seller reads agentOf(token id) from a node,
+ * requiring the agent to be Active and its on-chain agentWallet to be the account paying.
+ * So nobody can borrow an agent's identity: unless they pay from that agent's wallet, it does not match.
  *
- * BUYER_AGENT 政策：off（不看）、optional（有指名就驗證，驗證不過就拒絕；沒指名照賣）、required（一定要是已登記的 agent）
+ * BUYER_AGENT policy: off (ignore), optional (check when named and refuse if the check fails; sell when not named), required (registered agents only)
  */
 import { sameAccount } from "./contract-v2.js";
 import type { AgentOnChain } from "./registry-node.js";

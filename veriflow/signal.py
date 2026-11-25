@@ -1,18 +1,18 @@
 """
-訊號引擎：把每日價格 + 穩定幣總供給變成「風險狀態」訊號
+Signal engine (v1, retired): turns daily prices + total stablecoin supply into a risk-regime signal
 -------------------------------------------------------
-  - 動能：過去 30 天報酬 > 0（沿用 crypto-onchain-factors，唯一在測試期穩定有效的是「降低回撤」）
-  - 流動性：所有鏈穩定幣總供給的 7 天變化率，取 90 天 z-score
+  - Momentum: 30-day return > 0 (from crypto-onchain-factors; the only effect that held up out of sample was lower drawdowns)
+  - Liquidity: 7-day change of total stablecoin supply across all chains, as a 90-day z-score
 
-訊號只有兩種：
-  RISK_ON  = 動能為正，且穩定幣流動性沒有明顯收縮（liquidity_z > -1）
-  RISK_OFF = 其他情況
+Only two signals:
+  RISK_ON  = positive momentum and no clear stablecoin liquidity contraction (liquidity_z > -1)
+  RISK_OFF = anything else
 
-為什麼用總供給而不是交易所流量：
-  先前研究發現交易所流量因子在 2023 年失效，懷疑原因是 Dune cex.flows 只涵蓋 EVM 鏈、
-  看不到 Tron 上的 USDT。總供給涵蓋所有鏈，正好避開這個資料盲點。
+Why total supply rather than exchange flows:
+  earlier research found the exchange-flow factor broke down in 2023, probably because Dune cex.flows covers only EVM chains
+  and misses USDT on Tron. Total supply covers every chain, avoiding that blind spot.
 
-VeriFlow 賣的是「風險狀態」，不是保證賺錢的預測；鏈上績效紀錄讓買方自己驗證。
+VeriFlow sells a risk regime, not a guaranteed prediction; the on-chain record lets buyers check it themselves.
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-CHANGE_WINDOW = 7     # 天：供給變化率的視窗
-Z_WINDOW = 90         # 天：z-score 的視窗
-MOM_LOOKBACK = 30     # 天：動能回看期間
-LIQUIDITY_DROP_Z = 1.0  # liquidity_z 低於 -1 視為流動性明顯收縮
+CHANGE_WINDOW = 7     # days: window of the supply change
+Z_WINDOW = 90         # days: z-score window
+MOM_LOOKBACK = 30     # days: momentum lookback
+LIQUIDITY_DROP_Z = 1.0  # liquidity_z below -1 counts as a clear liquidity contraction
 
 RISK_ON = "RISK_ON"
 RISK_OFF = "RISK_OFF"
@@ -37,9 +37,9 @@ RISK_OFF = "RISK_OFF"
 
 def build_factors(supply: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     """
-    supply：index = 日期，欄位 supply_usd（穩定幣總供給）
-    prices：index = 日期，欄位 close
-    回傳每天的 close、momentum、liquidity_z、signal
+    supply: index = date, column supply_usd (total stablecoin supply)
+    prices: index = date, column close
+    Returns close, momentum, liquidity_z and signal for each day
     """
     d = prices[["close"]].join(supply[["supply_usd"]], how="inner").sort_index()
 
@@ -50,36 +50,36 @@ def build_factors(supply: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
 
     on = (d["momentum"] > 0) & (d["liquidity_z"] > -LIQUIDITY_DROP_Z)
     d["signal"] = np.where(on, RISK_ON, RISK_OFF)
-    # 因子還沒算出來的前幾天不給訊號
+    # No signal for the first days, before the factors exist
     d.loc[d["liquidity_z"].isna() | d["momentum"].isna(), "signal"] = None
     return d
 
 
 @dataclass
 class Signal:
-    asset: str          # 例如 "BTC"
-    as_of: str          # 訊號依據的資料日期（UTC，YYYY-MM-DD）
+    asset: str          # e.g. "BTC"
+    as_of: str          # date of the data the signal uses (UTC, YYYY-MM-DD)
     signal: str         # RISK_ON / RISK_OFF
     momentum: float
     liquidity_z: float
     close: float
-    issued_at: str      # 訊號發出時間（UTC ISO）
-    nonce: str          # 隨機值：避免別人用雜湊反推訊號（只有兩種可能值，不加會被猜出來）
+    issued_at: str      # when the signal was issued (UTC ISO)
+    nonce: str          # random value: stops anyone from reversing the hash (with only two possible signals it could be guessed)
 
     def canonical(self) -> str:
-        """固定格式的 JSON：同一個訊號永遠得到同一個字串，雜湊才能被別人重算"""
+        """Fixed-format JSON: the same signal always gives the same string, so anyone can recompute the hash"""
         return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
 
     def commitment(self) -> str:
-        """要寫上鏈的承諾雜湊（SHA-256）"""
+        """The commitment hash written on-chain (SHA-256)"""
         return hashlib.sha256(self.canonical().encode()).hexdigest()
 
 
 def latest_signal(asset: str, factors: pd.DataFrame) -> Signal:
-    """取最後一個有效日的訊號"""
+    """The signal for the last valid day"""
     valid = factors.dropna(subset=["signal"])
     if valid.empty:
-        raise ValueError("資料不足，因子還沒算出來（至少需要約 100 天資料）")
+        raise ValueError("not enough data: the factors are not available yet (needs about 100 days of data)")
     row = valid.iloc[-1]
     return Signal(
         asset=asset,
@@ -94,5 +94,5 @@ def latest_signal(asset: str, factors: pd.DataFrame) -> Signal:
 
 
 def verify_commitment(signal_json: str, commitment: str) -> bool:
-    """任何人都能用公開的訊號內容重算雜湊，確認跟鏈上的承諾一致"""
+    """Anyone can recompute the hash from the public signal content and check it against the on-chain commitment"""
     return hashlib.sha256(signal_json.encode()).hexdigest() == commitment

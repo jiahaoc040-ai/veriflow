@@ -106,7 +106,7 @@
     try {
       const w = await wallet();
       if (!w.requestVerifiablePresentationV1) throw new Error("Please update the Concordium Wallet (needs Verify & Access V1 support).");
-      log("0/4 Waiting for the wallet to approve this site (a small Concordium window opens — check Chrome menu 視窗/Window if you don't see it)…");
+      log("0/4 Waiting for the wallet to approve this site (a small Concordium window opens — check the Chrome Window menu if you don't see it)…");
       if (w.connect) await w.connect();
       log("1/4 VeriFlow is anchoring a one-time verification request on Concordium (~10 s)…");
       setResult("Anchoring the verification request on-chain…");

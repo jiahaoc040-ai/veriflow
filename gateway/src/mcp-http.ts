@@ -1,12 +1,12 @@
 /**
- * 公開版 MCP（Streamable HTTP，POST /mcp）——不用安裝，任何 MCP 客戶端貼網址就能用
+ * Public MCP (Streamable HTTP, POST /mcp) — nothing to install; any MCP client can use the URL
  * --------------------------------------------------------------------------
- * 只有免費工具與購買說明：付款要用買方自己的錢包，公開伺服器不碰任何人的金鑰。
- *   get_track_record / list_commitments / verify_signal / check_eligibility（與本機版共用 mcp-tools.ts）
- *   how_to_buy：不付款，回傳 x402 的付款條件（付給誰、多少、需要什麼證明）與購買方式
+ * Free tools and buying instructions only: paying needs the buyer's own wallet, and the public server touches nobody's keys.
+ *   get_track_record / list_commitments / verify_signal / check_eligibility (shared with the local version through mcp-tools.ts)
+ *   how_to_buy: no payment; returns the x402 terms (whom to pay, how much, what proof) and how to buy
  *
- * 無狀態（每個請求一個 server），不需要 session。
- * verify_signal 在這裡是「VeriFlow 的伺服器去讀 Concordium」；要完全不信任我們，用本機版或公開儀表板（瀏覽器自己算）。
+ * Stateless (one server per request), no session.
+ * Here verify_signal means VeriFlow's server reads Concordium; to trust us not at all, use the local version or the public dashboard (the browser computes itself).
  */
 import type { Express, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -71,7 +71,7 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
       if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: errText(e) }, id: null });
     }
   });
-  // 無狀態：不提供 SSE 串流與 session 結束
+  // Stateless: no SSE stream and no session termination
   const notAllowed = (_req: Request, res: Response) =>
     res.status(405).set("Allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed: POST JSON-RPC to /mcp" }, id: null });
   app.get("/mcp", notAllowed);

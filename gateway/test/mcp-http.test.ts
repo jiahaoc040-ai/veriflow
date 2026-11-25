@@ -1,5 +1,5 @@
 /**
- * 公開版 MCP（POST /mcp，Streamable HTTP）：用官方 SDK 的 HTTP 客戶端連進來，賣方網站用假的伺服器代替
+ * Public MCP (POST /mcp, Streamable HTTP): connects with the official SDK's HTTP client, with a fake seller site
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";

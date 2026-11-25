@@ -1,5 +1,5 @@
 /**
- * 跨鏈付款：EIP-3009 簽名 → 付款人公鑰 → CIS-8 → Concordium 帳號（假的 CIS-8 紀錄，不需要連線）
+ * Cross-chain payment: EIP-3009 signature → payer public key → CIS-8 → Concordium account (fake CIS-8 records, no network)
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -58,7 +58,7 @@ test("unbound, revoked, or foreign-signed payments are refused", async () => {
     assert.equal(r.ok, false, why);
     assert.equal(!r.ok && r.code, "evm_payer_not_bound", why);
   }
-  // 授權寫的是 A，簽名卻是 B 簽的：還原出的地址對不上，拒絕（就算 B 有綁定）
+  // The authorization says A but B signed it: the recovered address does not match, refuse (even if B is bound)
   const a = privateKeyToAccount(generatePrivateKey());
   const b = privateKeyToAccount(generatePrivateKey());
   const forged = await pay(a, b);

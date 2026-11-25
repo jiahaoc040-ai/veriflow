@@ -1,12 +1,12 @@
 /**
- * 每日公開訊號
+ * Daily public signals (v1, retired; v2 calls come from daily-v2.ts)
  * ------------
- * 「沒人能造假的績效紀錄」需要每天都有紀錄，不能只靠有人付費購買。
- * 這個排程定期（預設每 30 分鐘）對每個資產呼叫 API 的 /daily/{asset}：
- *   - API 決定「最新收盤日」，那一天還沒有上鏈的訊號才發新的
- *   - 拿到承諾雜湊後上鏈（合約 commit 或 register data），再回報交易給 API
- *   - 上鏈失敗就留到下一輪重試；同一天不會重複上鏈
- * 訊號內容跟付費訊號一樣，7 天後公開並計分。
+ * A record nobody can fake needs an entry every day, not only when someone pays.
+ * This job periodically (every 30 minutes by default) calls the API's /daily/{asset} for each asset:
+ *   - the API decides the latest close and issues a new signal only if that day has none on-chain yet
+ *   - the commitment hash is anchored (contract commit or register data), then the transaction is reported back to the API
+ *   - if anchoring fails it is retried next round; a day is never anchored twice
+ * The content is the same as a paid signal, revealed and scored after 7 days.
  */
 
 export type DailyDeps = {
@@ -51,7 +51,7 @@ export async function runDailyOnce(d: DailyDeps): Promise<DailyResult[]> {
   return out;
 }
 
-/** 啟動排程：第一次延遲 firstDelayMs（讓 API 先把價格抓好），之後每 intervalMs 一次；不會同時跑兩輪 */
+/** Start the job: first run after firstDelayMs (so the API can fetch prices first), then every intervalMs; never two rounds at once */
 export function startDailySignals(d: DailyDeps, intervalMs: number, firstDelayMs = 60_000, reveals?: RevealDeps) {
   let running = false;
   const tick = async () => {
@@ -73,15 +73,15 @@ export function startDailySignals(d: DailyDeps, intervalMs: number, firstDelayMs
 }
 
 /**
- * 到期自動公開（reveal）
+ * Automatic reveal after the horizon
  * --------------------
- * 合約規定：commit 之後滿 horizon（7 天）任何人都能 reveal，合約自己重算 SHA-256 才接受。
- * 這裡讓伺服器自己做：每一輪找出「在合約裡、已過 horizon、還沒公開」的承諾，把內容送上鏈。
- * 不在合約裡的（早期用 register data 上鏈的）跳過；每輪最多 max 筆，避免一次花太多手續費。
+ * Contract rule: once horizon (7 days) has passed since the commit, anyone can reveal; the contract accepts only if its own SHA-256 matches.
+ * Here the server does it itself: each round, find commitments that are in the contract, past the horizon and not yet revealed, and send their content.
+ * Commitments not in the contract (early register-data ones) are skipped; at most max per round, to limit fees.
  */
 export type RevealDeps = {
   apiUrl: string;
-  /** null＝合約裡沒有這個承諾 */
+  /** null = this commitment is not in the contract */
   record: (commitment: string) => Promise<{ committed_at: string; reveal: unknown | null } | null>;
   reveal: (canonical: string) => Promise<string>;
   horizonMs?: number;
@@ -109,14 +109,14 @@ export async function runRevealsOnce(d: RevealDeps): Promise<RevealResult[]> {
     try {
       rec = await d.record(row.commitment);
     } catch {
-      continue; // 這一輪查不到（節點暫時連不上），下一輪再試
+      continue; // lookup failed this round (node briefly unreachable); try again next round
     }
-    if (!rec || rec.reveal) continue; // 不在合約裡（register data 時期的承諾）或已經公開
-    if (now < Date.parse(rec.committed_at) + horizon + 60_000) continue; // 多等一分鐘，避開區塊時間誤差
+    if (!rec || rec.reveal) continue; // not in the contract (register-data era) or already revealed
+    if (now < Date.parse(rec.committed_at) + horizon + 60_000) continue; // wait an extra minute for block-time skew
     try {
       const c = await f(`${d.apiUrl}/commitments/${row.commitment}`);
       const canonical = c.ok ? ((await c.json()) as { canonical?: string }).canonical : undefined;
-      if (!canonical) continue; // API 還沒公開內容
+      if (!canonical) continue; // the API has not made the content public yet
       const tx = await d.reveal(canonical);
       out.push({ commitment: row.commitment, status: "revealed", tx });
       d.log?.(`revealed ${row.commitment.slice(0, 12)}… on-chain → ${tx}`);

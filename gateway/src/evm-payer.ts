@@ -1,14 +1,14 @@
 /**
- * 跨鏈付款（Base 上的 USDC）：把 EVM 付款人對回 Concordium 帳號
+ * Cross-chain payment (USDC on Base): map the EVM payer back to a Concordium account
  * ---------------------------------------------------------------
- * x402 的 EVM exact 付款是一張 EIP-3009 授權（TransferWithAuthorization），由付款人的 EVM 金鑰簽 EIP-712。
- * 從簽名可以還原出簽名者的公鑰；這把公鑰若在 CIS-8 登記在某個 Concordium 帳號底下（登記時它自己簽過，
- * 合約在鏈上驗過），這筆付款就「屬於」那個 Concordium 帳號。賣方據此套用同一套資格與買方 agent 檢查。
- * 不需要買方另外送任何標頭：證據就是付款簽名本身。
+ * An x402 EVM exact payment is an EIP-3009 authorization (TransferWithAuthorization) that the payer's EVM key signs as EIP-712.
+ * The signer's public key can be recovered from the signature; if that key is registered in CIS-8 under a Concordium account (it signed the registration itself,
+ * and the contract verified it on-chain), the payment belongs to that Concordium account. The seller then applies the same eligibility and buyer-agent checks.
+ * The buyer sends no extra header: the evidence is the payment signature itself.
  *
- * 只接受 EIP-3009（USDC 用的方式）與一般 EOA 簽名。智慧合約錢包（ERC-1271 / ERC-6492）的地址不是某把金鑰的地址，綁不進 CIS-8，拒絕。
- * Permit2 對 EOA 其實也能還原公鑰，但它是另一種 EIP-712 結構，這裡沒有實作，所以一律拒絕（涵蓋範圍的限制，不是做不到）。
- * 另外自己檢查授權的收款人與金額就是這次的 payTo 與價格（facilitator 也會檢查，這裡是第二道）。
+ * Only EIP-3009 (what USDC uses) and plain EOA signatures are accepted. A smart-contract wallet's address (ERC-1271 / ERC-6492) is not a key's address and cannot be a CIS-8 subject, so it is refused.
+ * Permit2 is also recoverable for an EOA, but it is a different EIP-712 structure that is not implemented here, so it is refused (a coverage limit, not an impossibility).
+ * We also check that the authorization's payee and amount are this payTo and price (the facilitator checks too; this is a second line).
  */
 import { getAddress, hashTypedData, recoverPublicKey, type Hex } from "viem";
 import { checkEvmBinding, type Cis8Registration, type ExternalKey } from "./cis8.js";
@@ -29,7 +29,7 @@ const authorizationTypes = {
 type Req = { network: string; asset: string; payTo: string; amount: string; extra?: Record<string, unknown> };
 export type EvmPayer = { ok: true; from: string; publicKey: string } | { ok: false; code: string; reason: string };
 
-/** 從 EIP-3009 付款授權還原付款人的公鑰（未壓縮，0x04…），並確認它就是 authorization.from */
+/** Recover the payer's public key (uncompressed, 0x04…) from an EIP-3009 authorization, and confirm it is authorization.from */
 export async function evmPayerOf(payload: unknown, req: Req): Promise<EvmPayer> {
   const p = payload as { signature?: string; authorization?: Record<string, string>; permit2Authorization?: unknown } | undefined;
   if (p?.permit2Authorization) return { ok: false, code: "evm_unsupported", reason: "only EIP-3009 (USDC transferWithAuthorization) payments are accepted, not Permit2" };
@@ -63,7 +63,7 @@ export async function evmPayerOf(payload: unknown, req: Req): Promise<EvmPayer> 
 
 export type EvmAccount = { ok: true; from: string; account: string } | { ok: false; code: string; reason: string };
 
-/** EVM 付款 → 簽名者公鑰 → CIS-8（從 Concordium 節點讀）→ Concordium 帳號 */
+/** EVM payment → signer's public key → CIS-8 (read from a Concordium node) → Concordium account */
 export async function concordiumAccountOfEvmPayment(
   payload: unknown,
   req: Req,
@@ -71,7 +71,7 @@ export async function concordiumAccountOfEvmPayment(
 ): Promise<EvmAccount> {
   const who = await evmPayerOf(payload, req);
   if (!who.ok) return who;
-  // 還原出的地址必須是授權上寫的付款人（不然簽名就不是他的）；checkEvmBinding 會比對
+  // The recovered address must be the payer named in the authorization (otherwise the signature is not theirs); checkEvmBinding compares them
   const b = await checkEvmBinding({ address: who.from, publicKey: who.publicKey, namespace: req.network, read });
   if (!b.ok) return { ok: false, code: "evm_payer_not_bound", reason: `${b.reason}. Bind the paying key to your Concordium account in the CIS-8 registry first` };
   return { ok: true, from: who.from, account: b.owner };

@@ -1,24 +1,24 @@
 /**
- * Concordium Agent Registry（CIS-8004）註冊工具
+ * Concordium Agent Registry (CIS-8004) tool
  * --------------------------------------------
- * 把 VeriFlow 註冊成鏈上的 Agent（一顆 CIS-8004 NFT），並把 Agent Card 的 SHA-256 釘在鏈上，
- * 取得「Verified by Concordium」badge：任何人都能從鏈上確認這個 Agent 的擁有者帳號（背後是通過身份驗證的真人）、
- * 狀態是 Active，而且公開的 Agent Card 沒被換過。
+ * Registers VeriFlow as an on-chain agent (a CIS-8004 NFT) and pins the Agent Card's SHA-256 on-chain,
+ * which earns the "Verified by Concordium" badge: anyone can confirm from the chain the agent's owner account (an identity-verified person),
+ * that it is Active, and that the public Agent Card has not been swapped.
  *
- * 交易參數由官方 Agent Registry MCP 服務（agent-registry-mcp.concordium.com）產生；
- * 簽名與送出在本機用擁有者帳號的金鑰完成（MCP 服務不碰任何金鑰）。
+ * Transaction parameters come from the official Agent Registry MCP service (agent-registry-mcp.concordium.com);
+ * signing and submitting happen locally with the owner account's key (the MCP service never touches a key).
  *
- * 用法：
- *   npm run registry -- register            鑄造 Agent NFT，印出 token id
- *   npm run registry -- set-uri <tokenId>   讀取公開的 Agent Card、算 SHA-256、釘上鏈
- *   npm run registry -- status <tokenId>    官方 badge 檢查
+ * Usage:
+ *   npm run registry -- register            mint the agent NFT and print the token id
+ *   npm run registry -- set-uri <tokenId>   fetch the public Agent Card, compute its SHA-256, pin it on-chain
+ *   npm run registry -- status <tokenId>    official badge check
  *   npm run registry -- set-wallet <tokenId>
- *        把收款帳號（SELLER_KEY_FILE，＝x402 的 payTo）登記成 agent 的鏈上 agentWallet。
- *        收款帳號簽「授權訊息」（簽之前逐位元組檢查內容），擁有者帳號送出交易。
- *        買方 agent（自己的或別人的）付款前會比對 payTo＝agentWallet，擋掉冒充者。
+ *        registers the payout account (SELLER_KEY_FILE, = x402 payTo) as the agent's on-chain agentWallet.
+ *        The payout account signs an authorization message (checked byte by byte before signing); the owner account submits the transaction.
+ *        Buyer agents (ours or anyone's) compare payTo with agentWallet before paying, which stops impostors.
  *
- * 擁有者帳號：REGISTRY_OWNER_KEY_FILE（預設 = FACILITATOR_KEY_FILE）
- * Agent Card 網址：AGENT_CARD_URL（預設 GitHub 上的 agent-card.json）
+ * Owner account: REGISTRY_OWNER_KEY_FILE (default = FACILITATOR_KEY_FILE)
+ * Agent Card URL: AGENT_CARD_URL (default: agent-card.json on GitHub)
  */
 import { NET, checkGenesis, txLink } from "./network.js";
 import { BlockHash } from "@concordium/web-sdk";
@@ -40,10 +40,10 @@ import { createGrpc } from "./grpc.js";
 export const REGISTRY_MCP = env("REGISTRY_MCP_URL", "https://agent-registry-mcp.concordium.com/mcp");
 export const REGISTRY_NETWORK = NET.name;
 export const DEFAULT_CARD_URL = "https://raw.githubusercontent.com/jiahaoc040-ai/veriflow/main/agent-card.json";
-/** VeriFlow 在 testnet Agent Registry <12802,0> 的 token id（2026-11-20 註冊） */
+/** VeriFlow's token id in the testnet Agent Registry <12802,0> (registered 2026-11-20) */
 export const VERIFLOW_TOKEN_ID = "1313";
 
-/** 呼叫官方 Agent Registry MCP 服務的一個工具（JSON-RPC over HTTP） */
+/** Call one tool of the official Agent Registry MCP service (JSON-RPC over HTTP) */
 export async function registryTool(name: string, args: Record<string, unknown>): Promise<any> {
   const res = await fetch(REGISTRY_MCP, {
     method: "POST",
@@ -51,7 +51,7 @@ export async function registryTool(name: string, args: Record<string, unknown>):
     body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name, arguments: args } }),
   });
   const text = await res.text();
-  // 伺服器可能回 JSON，也可能回 SSE（data: {...}）
+  // The server may answer with JSON or with SSE (data: {...})
   const jsonText = text.trim().startsWith("{") ? text : (text.match(/^data: (.*)$/m)?.[1] ?? text);
   const msg = JSON.parse(jsonText);
   if (msg.error) throw new Error(`${name}: ${JSON.stringify(msg.error)}`);
@@ -65,8 +65,8 @@ export async function registryTool(name: string, args: Record<string, unknown>):
 }
 
 /**
- * 從合約事件裡找新 Agent 的 token id：CIS-8004 Registered（tag 0xF0）或 CIS-2 Mint（tag 0xFE）。
- * 格式：tag ‖ token_id 長度(1 byte) ‖ token_id ‖ …；CIS-8004 的 token id 是 8 bytes little-endian 的 u64。
+ * Find the new agent's token id in the contract events: CIS-8004 Registered (tag 0xF0) or CIS-2 Mint (tag 0xFE).
+ * Layout: tag ‖ token_id length (1 byte) ‖ token_id ‖ …; a CIS-8004 token id is a u64, 8 bytes little-endian.
  */
 export function mintedTokenId(eventHexes: string[]): string | undefined {
   for (const hex of eventHexes) {
@@ -82,36 +82,36 @@ export function mintedTokenId(eventHexes: string[]): string | undefined {
   return undefined;
 }
 
-/** testnet 的 genesis hash（setAgentWallet 授權訊息會綁定鏈，避免跨鏈重放） */
+/** Testnet genesis hash (the setAgentWallet authorization is bound to the chain, preventing cross-chain replay) */
 export const TESTNET_GENESIS = "4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796";
 const SET_WALLET_PREFIX = "CIS-8004/v1/setAgentWallet";
 
 /**
- * 解析並檢查 setAgentWallet 的 162 位元組授權訊息——簽名之前一定要確認內容就是我們要授權的那件事，
- * 不能盲簽遠端服務給的位元組。版面（官方 set_agent_wallet_canonical_bytes）：
- *   前綴(26) ‖ token_id u64 LE(8) ‖ owner(32) ‖ new_wallet(32) ‖ nonce u64 LE(8) ‖ deadline u64 LE(8) ‖ 合約 index,subindex u64 LE(16) ‖ genesis(32)
+ * Parse and check the 162-byte setAgentWallet authorization message — before signing, confirm it authorizes exactly what we mean;
+ * never blind-sign bytes from a remote service. Layout (official set_agent_wallet_canonical_bytes):
+ *   prefix(26) ‖ token_id u64 LE(8) ‖ owner(32) ‖ new_wallet(32) ‖ nonce u64 LE(8) ‖ deadline u64 LE(8) ‖ contract index,subindex u64 LE(16) ‖ genesis(32)
  */
 export function checkSetWalletMessage(
   bytes: Uint8Array,
   want: { tokenId: string; owner: string; wallet: string; deadlineMs: number; contract: { index: bigint; subindex: bigint }; genesis: string },
 ): { nonce: bigint } {
   const b = Buffer.from(bytes);
-  if (b.length !== 162) throw new Error(`授權訊息長度 ${b.length}，應該是 162`);
+  if (b.length !== 162) throw new Error(`authorization message is ${b.length} bytes, expected 162`);
   const fail = (what: string) => {
-    throw new Error(`授權訊息的 ${what} 不符，拒絕簽名`);
+    throw new Error(`authorization message ${what} does not match; refusing to sign`);
   };
-  if (b.subarray(0, 26).toString("utf8") !== SET_WALLET_PREFIX) fail("前綴");
+  if (b.subarray(0, 26).toString("utf8") !== SET_WALLET_PREFIX) fail("prefix");
   if (b.readBigUInt64LE(26) !== BigInt(want.tokenId)) fail("token id");
-  if (!b.subarray(34, 66).equals(Buffer.from(AccountAddress.fromBase58(want.owner).decodedAddress))) fail("擁有者");
-  if (!b.subarray(66, 98).equals(Buffer.from(AccountAddress.fromBase58(want.wallet).decodedAddress))) fail("新錢包");
+  if (!b.subarray(34, 66).equals(Buffer.from(AccountAddress.fromBase58(want.owner).decodedAddress))) fail("owner");
+  if (!b.subarray(66, 98).equals(Buffer.from(AccountAddress.fromBase58(want.wallet).decodedAddress))) fail("new wallet");
   const nonce = b.readBigUInt64LE(98);
-  if (b.readBigUInt64LE(106) !== BigInt(want.deadlineMs)) fail("期限");
-  if (b.readBigUInt64LE(114) !== want.contract.index || b.readBigUInt64LE(122) !== want.contract.subindex) fail("合約");
-  if (b.subarray(130, 162).toString("hex") !== want.genesis) fail("鏈（genesis hash）");
+  if (b.readBigUInt64LE(106) !== BigInt(want.deadlineMs)) fail("deadline");
+  if (b.readBigUInt64LE(114) !== want.contract.index || b.readBigUInt64LE(122) !== want.contract.subindex) fail("contract");
+  if (b.subarray(130, 162).toString("hex") !== want.genesis) fail("chain (genesis hash)");
   return { nonce };
 }
 
-/** 從最終確認的交易摘要裡收集所有合約事件（hex） */
+/** Collect all contract events (hex) from a finalized transaction summary */
 function contractEvents(summary: any): string[] {
   const out: string[] = [];
   const walk = (x: any) => {
@@ -119,7 +119,7 @@ function contractEvents(summary: any): string[] {
     if (Array.isArray(x.events))
       for (const e of x.events) {
         if (typeof e === "string") out.push(e);
-        // web-sdk v12：合約事件是 ContractEvent 物件（bytes 在 .buffer）
+        // web-sdk v12: contract events are ContractEvent objects (bytes in .buffer)
         else if (e?.buffer instanceof Uint8Array) out.push(Buffer.from(e.buffer).toString("hex"));
       }
     for (const v of Object.values(x)) if (v && typeof v === "object") walk(v);
@@ -175,13 +175,13 @@ async function main() {
 
   if (cmd === "set-uri") {
     if (!arg) throw new Error("usage: npm run registry -- set-uri <tokenId>");
-    // 雜湊必須是「驗證者實際會下載到的位元組」，所以直接抓公開網址，而不是讀本機檔案
+    // The hash must be of the bytes verifiers actually download, so fetch the public URL rather than read the local file
     const res = await fetch(cardUrl, { cache: "no-store" });
     if (!res.ok) throw new Error(`cannot fetch ${cardUrl}: HTTP ${res.status}`);
     const bytes = Buffer.from(await res.arrayBuffer());
     const sha = createHash("sha256").update(bytes).digest("hex");
     console.log(`card ${cardUrl}  sha256=${sha}`);
-    // 防呆：card 自己宣告的 agent id 必須就是要釘的這個（避免 .env 的 AGENT_CARD_URL 還指著別的 agent 的 card）
+    // Safety check: the card's own declared agent id must be the one being pinned (in case .env's AGENT_CARD_URL still points at another agent's card)
     try {
       const ids = ((JSON.parse(bytes.toString("utf8")) as { registrations?: { agentId?: unknown }[] }).registrations ?? []).map((r) => String(r.agentId));
       if (ids.length && !ids.includes(arg)) throw new Error(`this card declares agent ${ids.join(", ")}, not ${arg}; set AGENT_CARD_URL to agent ${arg}'s card`);
@@ -205,7 +205,7 @@ async function main() {
     const wallet = loadAccount(env("SELLER_KEY_FILE", "keys/seller.export"));
     const seller = process.env.SELLER_ADDRESS;
     if (seller && seller !== wallet.address)
-      throw new Error(`SELLER_KEY_FILE 是 ${wallet.address}，但 x402 收款地址 SELLER_ADDRESS 是 ${seller}——要登記的應該是收款地址`);
+      throw new Error(`SELLER_KEY_FILE is ${wallet.address}, but the x402 payTo SELLER_ADDRESS is ${seller}; the payout address is the one to register`);
     const deadlineMs = Date.now() + 15 * 60_000;
     const msg = await registryTool("set_agent_wallet_canonical_bytes", {
       network: REGISTRY_NETWORK,
@@ -222,10 +222,10 @@ async function main() {
       contract: { index: BigInt(msg.contract_address?.index ?? NET.agentRegistry.index), subindex: BigInt(msg.contract_address?.subindex ?? NET.agentRegistry.subindex) },
       genesis: checkGenesis(BlockHash.toHexString((await createGrpc().getConsensusStatus()).genesisBlock)),
     });
-    console.log(`授權訊息檢查通過（agent #${arg}、擁有者 ${ownerB58}、新錢包 ${wallet.address}、nonce ${nonce}）`);
+    console.log(`authorization message checked (agent #${arg}, owner ${ownerB58}, new wallet ${wallet.address}, nonce ${nonce})`);
     const sigs = await wallet.signer.sign(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) as ArrayBuffer);
     const signatureHex = Object.values(Object.values(sigs)[0] ?? {})[0];
-    if (!signatureHex) throw new Error("收款帳號沒有可用的簽名金鑰");
+    if (!signatureHex) throw new Error("the payout account has no usable signing key");
     const built = await registryTool("build_set_agent_wallet", {
       network: REGISTRY_NETWORK,
       token_id: arg,
@@ -236,7 +236,7 @@ async function main() {
     });
     await submit(owner, built);
     const now = await registryTool("get_agent_wallet", { network: REGISTRY_NETWORK, token_id: arg });
-    console.log(`\n✅ agent #${arg} 的鏈上 agentWallet：${JSON.stringify(now)}`);
+    console.log(`\n✅ agent #${arg}'s on-chain agentWallet: ${JSON.stringify(now)}`);
     return;
   }
 

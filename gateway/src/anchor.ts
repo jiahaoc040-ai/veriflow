@@ -1,14 +1,14 @@
 /**
- * 把訊號的承諾雜湊寫上 Concordium（register data 交易，不需要智能合約）
+ * Write a signal's commitment hash to Concordium (register-data transaction, no smart contract needed; v1)
  * -------------------------------------------------------------------
- * 鏈上資料格式（UTF-8 文字，ccdexplorer 上可以直接看到）：
- *   veriflow:v1:<64 字元 SHA-256 承諾雜湊>
+ * On-chain data format (UTF-8 text, readable directly on ccdexplorer):
+ *   veriflow:v1:<64-character SHA-256 commitment hash>
  *
- * 只送出、不等最終確認（約 10 秒），避免拖慢買方拿訊號；交易 hash 會立刻回傳。
+ * Send only, without waiting for finalization (about 10 s), so the buyer is not slowed down; the transaction hash returns immediately.
  *
- * 設定 REGISTRY_CONTRACT 後改用 VeriFlow 智能合約（contract/）的 commit：
- * 鏈上強制只有賣方能寫、不能覆蓋，期滿後任何人都能公開並由鏈上驗證雜湊。
- * read() 會把合約的 Committed 事件轉成同樣的 veriflow:v1:<hash> 格式，所以驗證流程不用改。
+ * With REGISTRY_CONTRACT set, commits go to the VeriFlow smart contract (contract/) instead:
+ * the chain enforces that only the seller can write and nothing is overwritten; after the horizon anyone can reveal and the chain checks the hash.
+ * read() turns the contract's Committed events into the same veriflow:v1:<hash> form, so verification does not change.
  */
 import { createGrpc } from "./grpc.js";
 import {
@@ -32,7 +32,7 @@ import { ANCHOR_PREFIX } from "./anchor-format.js";
 export { ANCHOR_PREFIX };
 
 export function anchorPayload(commitment: string): ArrayBuffer {
-  if (!/^[0-9a-f]{64}$/.test(commitment)) throw new Error(`commitment 格式錯誤：${commitment}`);
+  if (!/^[0-9a-f]{64}$/.test(commitment)) throw new Error(`malformed commitment: ${commitment}`);
   return new TextEncoder().encode(ANCHOR_PREFIX + commitment).buffer as ArrayBuffer;
 }
 
@@ -46,25 +46,25 @@ export function createAnchorer(keyFile: string) {
     address: account.address,
     mode: registry ? `contract <${registry.index},${registry.subindex}>` : "register data",
 
-    /** 從鏈上讀回一筆上鏈交易（見 readAnchorTx） */
+    /** Read an anchor transaction back from the chain (see readAnchorTx) */
     read: (txHash: string) => readAnchorTx(grpc, txHash, registry),
 
-    /** 營運帳號（上鏈、贊助手續費）目前的餘額，單位 microCCD */
+    /** Current balance of the operator account (anchoring, fee sponsoring), in microCCD */
     async balanceMicroCcd(): Promise<bigint> {
       return (await grpc.getAccountInfo(account.accountAddress)).accountAmount.microCcdAmount;
     },
 
-    /** 合約模式才有：查某個承諾在合約裡的紀錄、到期後公開內容（合約自己重算雜湊） */
+    /** Contract mode only: look up a commitment's record in the contract, reveal its content after the horizon (the contract recomputes the hash) */
     contract: registryClient
       ? { record: (commitment: string) => registryClient.commitment(commitment), reveal: (canonical: string) => registryClient.reveal(canonical) }
       : undefined,
     async anchor(commitment: string, asset = "BTC"): Promise<string> {
       if (registryClient) {
-        anchorPayload(commitment); // 格式檢查
+        anchorPayload(commitment); // format check
         return registryClient.commit(commitment, asset);
       }
       const data = anchorPayload(commitment);
-      // 營運帳號的交易要排隊、序號不重複（見 txqueue.ts）
+      // The operator account's transactions are queued so nonces never collide (see txqueue.ts)
       return serialize(account.address, async () => {
         const fromNode = (await grpc.getNextAccountNonce(account.accountAddress)).nonce.value;
         const tx = Transaction.registerData({ data: new DataBlob(data) })
@@ -86,26 +86,26 @@ export function createAnchorer(keyFile: string) {
   };
 }
 
-/** 從 Concordium 讀回的一筆上鏈交易 */
+/** An anchor transaction read back from Concordium */
 export type OnChainAnchor = {
   tx: string;
   status: string; // "pending" | "committed" | "finalized"
   block_hash?: string | null;
-  block_time?: string | null; // 區塊時間（ISO，UTC）：證明「什麼時候」上鏈
+  block_time?: string | null; // block time (ISO, UTC): proves when it was anchored
   sender?: string | null;
   transaction_type?: string | null;
   data_hex?: string | null;
   data_text?: string | null;
-  /** 合約 v2 的承諾：哪個合約、哪個 (asset, as_of) */
+  /** Contract v2 commitment: which contract, which (asset, as_of) */
   contract?: string;
   asset?: string;
   as_of?: string;
 };
 
 /**
- * 從鏈上讀回一筆上鏈交易：狀態、區塊時間、發送者、資料（hex 與解碼後文字）。
- * 不需要任何私鑰——買方的 agent（MCP verify_signal）直接用它向 Concordium 節點驗證，不必相信賣方的伺服器。
- * 合約模式：只認指定合約（registry）發出的 Committed 事件，轉成同樣的 veriflow:v1:<hash> 格式。
+ * Read an anchor transaction back from the chain: status, block time, sender, data (hex and decoded text).
+ * No private key needed — the buyer's agent (MCP verify_signal) uses it against a Concordium node directly, without trusting the seller's server.
+ * Contract mode: only Committed events emitted by the given contract (registry) count, turned into the same veriflow:v1:<hash> form.
  */
 export async function readAnchorTx(
   grpc: ConcordiumGRPCClient,
@@ -125,7 +125,7 @@ export async function readAnchorTx(
       if (ev) dataHex = Buffer.from(ANCHOR_PREFIX + ev.commitment, "utf8").toString("hex");
     }
   }
-  // 合約 v2：Committed 事件帶 (asset, as_of)，合約已保證每個鍵只有一筆、而且在收盤後一天內上鏈
+  // Contract v2: Committed events carry (asset, as_of); the contract already guarantees one per key, committed within a day of the close
   const v2 = registryV2 ?? v2Address() ?? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n);
   if (!dataHex && s?.transactionType === "update") {
     for (const e of contractEventsOf(s, v2.index)) {
@@ -150,7 +150,7 @@ export async function readAnchorTx(
   };
 }
 
-/** 交易摘要裡，屬於指定合約的事件（hex） */
+/** Events of the given contract in a transaction summary (hex) */
 function contractEventsOf(summary: any, contractIndex: bigint): string[] {
   const out: string[] = [];
   for (const ev of summary?.events ?? []) {

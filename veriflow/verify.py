@@ -1,11 +1,11 @@
 """
-驗證邏輯：任何人都能檢查「這個訊號在結果出來前就上鏈、而且沒被改過」
+Verification: anyone can check that a signal was on-chain before its outcome and has not been changed
 ------------------------------------------------------------------
-三個檢查：
-  1. 鏈上交易已確認
-  2. 鏈上資料 == "veriflow:v1:" + 承諾雜湊
-  3. 重算 sha256(訊號完整內容) == 承諾雜湊（需要訊號內容：買方手上有，或滿 7 天後公開）
-  4. 上鏈時間在資料收盤後一天內（有內容與區塊時間時）：遠早於 7 天後的結果，不能等結果出來才補寫
+Checks:
+  1. the on-chain transaction is confirmed
+  2. on-chain data == "veriflow:v1:" + commitment hash
+  3. recomputed sha256(full signal content) == commitment hash (needs the content: the buyer has it, or it is public after 7 days)
+  4. anchored within a day of the data's close (when content and block time are available): long before the 7-day outcome, so it cannot be backfilled
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def sha256_hex(text: str) -> str:
 
 
 def as_of_of(canonical: str) -> str | None:
-    """訊號內容裡的資料日期（YYYY-MM-DD）"""
+    """The data date in the signal content (YYYY-MM-DD)"""
     try:
         v = json.loads(canonical).get("as_of")
         datetime.strptime(v, "%Y-%m-%d")
@@ -40,7 +40,7 @@ def as_of_of(canonical: str) -> str | None:
 
 
 def anchored_in_time(as_of: str, block_time: str) -> Check:
-    """as_of 那根日 K 在隔天 00:00 UTC 收盤；訊號必須在收盤後一天內上鏈"""
+    """The as_of daily candle closes at 00:00 UTC the next day; the signal must be anchored within a day of that close"""
     day = datetime.strptime(as_of, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     closed, deadline = day + timedelta(days=1), day + timedelta(days=2)
     try:
@@ -48,8 +48,8 @@ def anchored_in_time(as_of: str, block_time: str) -> Check:
         ok = closed <= t < deadline
     except ValueError:
         ok = False
-    return Check("上鏈時間在資料收盤之後、一天之內（遠早於 7 天後的結果）", ok,
-                 f"上鏈 {block_time}；資料 {as_of} 於 {closed.isoformat()} 收盤")
+    return Check("anchored after the data close and within a day of it (long before the 7-day outcome)", ok,
+                 f"anchored {block_time}; data {as_of} closed {closed.isoformat()}")
 
 
 def verify(commitment: str, onchain: dict | None, canonical: str | None = None) -> list[Check]:
@@ -57,25 +57,25 @@ def verify(commitment: str, onchain: dict | None, canonical: str | None = None) 
 
     status = (onchain or {}).get("status")
     checks.append(Check(
-        "鏈上交易已確認",
+        "on-chain transaction confirmed",
         status in ("finalized", "committed"),
-        f"狀態：{status or '查不到'}" + (f"，發送者 {onchain.get('sender')}" if onchain and onchain.get("sender") else ""),
+        f"status: {status or 'not found'}" + (f", sender {onchain.get('sender')}" if onchain and onchain.get("sender") else ""),
     ))
 
     expected = ANCHOR_PREFIX + commitment
     got = (onchain or {}).get("data_text")
     checks.append(Check(
-        "鏈上資料與承諾一致",
+        "on-chain data equals the commitment",
         got == expected,
-        f"鏈上：{got or '無資料'}",
+        f"on-chain: {got or 'no data'}",
     ))
 
     if canonical is not None:
         h = sha256_hex(canonical)
         checks.append(Check(
-            "訊號內容的雜湊與承諾一致",
+            "content hashes to the commitment",
             h == commitment,
-            f"重算 SHA-256：{h}",
+            f"recomputed SHA-256: {h}",
         ))
         as_of, block_time = as_of_of(canonical), (onchain or {}).get("block_time")
         if as_of:

@@ -1,11 +1,11 @@
 /**
- * 鏈上監控（GitHub Actions 每天跑）：任何一項跟預期不同就失敗（紅燈）
+ * On-chain monitor (GitHub Actions, daily): fails (red) if anything differs from what is expected
  * ----------------------------------------------------------------
- *   - Agent #1313（CIS-8004 <12802,0>，直接讀節點）：Active、收款錢包、Agent Card 位置與雜湊、擁有者
- *   - 合約 v2 <13115,0>：擁有者、上鏈帳號（committer）
- *   - 線上 402：payTo 等於鏈上錢包、concordium-agent 指名 #1313 與同一個 badge
- * 改動這些值的只有冷錢包 4dNM；如果這裡變紅、而你沒有做過，就代表有人拿到了擁有者金鑰：
- * 立刻用 4dNM revoke_committer，並把 agent 設為 Revoked。
+ *   - Agent #1313 (CIS-8004 <12802,0>, read from a node): Active, payout wallet, Agent Card location and hash, owner
+ *   - Contract v2 <13115,0>: owner, committer
+ *   - Live 402: payTo equals the on-chain wallet, and concordium-agent names #1313 with the same badge
+ * Only the cold wallet 4dNM can change these values; if this turns red and you did not do it, someone has the owner key:
+ * immediately run revoke_committer with 4dNM and set the agent to Revoked.
  *
  *   npm run watch
  */
@@ -36,7 +36,7 @@ async function main() {
   const agent = await readAgent(EXPECTED.agent.tokenId);
   const v2 = await createV2Reader(v2Address() ?? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n)).summary();
   const problems = [...compare("agent", EXPECTED.agent, agent), ...compare("contractV2", EXPECTED.contractV2, v2)];
-  // 線上 402：收款地址必須是鏈上錢包，並且指名 #1313
+  // Live 402: the payout address must be the on-chain wallet, and it must name #1313
   try {
     const { decodePaymentRequiredHeader } = await import("@x402/core/http");
     const r = await fetch(`${PUBLIC_GATEWAY}/signal/BTC`, { signal: AbortSignal.timeout(60_000) });

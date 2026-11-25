@@ -1,10 +1,10 @@
 /**
- * 驗證一個訊號承諾（與 Python 版 veriflow/verify.py 相同邏輯）
- *   1. 鏈上交易已確認
- *   2. 鏈上資料 == "veriflow:v1:" + 承諾雜湊
- *   3. （有訊號內容時）sha256(內容) == 承諾雜湊
- *   4. （有訊號內容與區塊時間時）上鏈時間在資料收盤後一天內——遠早於 7 天後的結果，
- *      不能等結果出來才補寫
+ * Verify a signal commitment (same logic as the Python veriflow/verify.py)
+ *   1. the on-chain transaction is confirmed
+ *   2. on-chain data == "veriflow:v1:" + commitment hash
+ *   3. (with the signal content) sha256(content) == commitment hash
+ *   4. (with content and block time) anchored within a day of the data's close — long before the 7-day outcome,
+ *      so it cannot be backfilled
  */
 import { createHash } from "node:crypto";
 import { ANCHOR_PREFIX } from "./anchor-format.js";
@@ -17,7 +17,7 @@ type OnChain =
 
 const DAY_MS = 86_400_000;
 
-/** 訊號內容裡的資料日期（as_of，YYYY-MM-DD）；內容不是 JSON 就回傳 undefined */
+/** The data date in the signal content (as_of, YYYY-MM-DD); undefined if the content is not JSON */
 export function asOfOf(canonical: string): string | undefined {
   try {
     const v = (JSON.parse(canonical) as { as_of?: unknown }).as_of;
@@ -28,8 +28,8 @@ export function asOfOf(canonical: string): string | undefined {
 }
 
 /**
- * 上鏈時間檢查：as_of 那根日 K 在隔天 00:00 UTC 收盤，訊號必須在收盤後一天內上鏈。
- * 晚上鏈的紀錄（例如等結果出來才補寫）就不算數。
+ * Anchor time check: the as_of candle closes at 00:00 UTC the next day, and the signal must be anchored within a day of that close.
+ * Records anchored later (e.g. backfilled after the outcome) do not count.
  */
 export function anchoredInTime(asOf: string, blockTime: string): Check {
   const closed = Date.parse(`${asOf}T00:00:00Z`) + DAY_MS;
@@ -63,7 +63,7 @@ export function verifyCommitment(commitment: string, onchain: OnChain, canonical
     checks.push({ name: "signal content hashes to commitment", ok: h === commitment, detail: `sha256: ${h}` });
     const asOf = asOfOf(canonical);
     if (asOf) checks.push(anchoredInTime(asOf, onchain?.block_time ?? "(unknown)"));
-    // 合約 v2：鏈上的鍵 (asset, as_of) 必須就是這個訊號的；同一天只能有這一筆，合約已經保證
+    // Contract v2: the on-chain key (asset, as_of) must be this signal's; the contract already guarantees only one per day
     if (onchain?.contract) {
       let s: { asset?: unknown; as_of?: unknown } = {};
       try {

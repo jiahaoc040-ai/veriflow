@@ -1,6 +1,6 @@
 /**
- * 資格驗證（V1）的規則測試：鏈上部分用假的 Chain 取代，不需要網路
- * 執行：npm test
+ * Eligibility (V1) rule tests: the on-chain part is replaced by a fake Chain, no network needed
+ * Run: npm test
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +19,7 @@ import {
   type ParsedPresentation,
 } from "../src/eligibility.ts";
 
-const BUYER = "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"; // 測試用地址（32 個 0x01）
+const BUYER = "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"; // test address (32 bytes of 0x01)
 const OTHER = "2xdTv8awN1BjgYEw8W1BVXVtiEwG2b29U8KoZQqJrDuEqddseE";
 const POLICY = { minAge: 18, restrictedCountries: ["KP", "US"] };
 const WANT = buildClaims(POLICY, [0, 1])[0].statements as Atomic[];
@@ -34,7 +34,7 @@ type Opts = {
   recheckFails?: string;
 };
 
-/** 假鏈：記錄有沒有把稽核寫上鏈 */
+/** Fake chain: records whether the audit was anchored */
 function fakeChain(o: Opts = {}): Chain & { audits: number; requests: number; rechecks: number } {
   const chain = {
     audits: 0,
@@ -84,66 +84,66 @@ test("valid proof → eligible, with request (VRA) and audit (VAA) anchors", asy
 });
 
 test("official check failing (bad ZK proof, unanchored request, inactive credential) is refused", async () => {
-  const { svc, id } = await run({ auditFails: "官方驗證未通過：proof invalid" });
+  const { svc, id } = await run({ auditFails: "official verification failed: proof invalid" });
   await assert.rejects(svc.verify(id, "{}"), /proof invalid/);
   assert.equal(svc.status(BUYER), null);
 });
 
 test("someone else's credential cannot verify my account — and nothing is anchored", async () => {
   const { svc, chain, id } = await run({ owner: OTHER });
-  await assert.rejects(svc.verify(id, "{}"), /屬於帳號/);
+  await assert.rejects(svc.verify(id, "{}"), /belongs to account/);
   assert.equal(chain.audits, 0);
 });
 
 test("identity credential (not linked to an account) is refused", async () => {
   const { svc, id } = await run({ kind: "identity" });
-  await assert.rejects(svc.verify(id, "{}"), /帳號 credential/);
+  await assert.rejects(svc.verify(id, "{}"), /account credential/);
 });
 
 test("more than one credential is refused", async () => {
   const { svc, id } = await run({ count: 2 });
-  await assert.rejects(svc.verify(id, "{}"), /一個 credential/);
+  await assert.rejects(svc.verify(id, "{}"), /exactly one credential/);
 });
 
 test("request id can only be used once", async () => {
   const { svc, id } = await run();
   await svc.verify(id, "{}");
-  await assert.rejects(svc.verify(id, "{}"), /用過/);
+  await assert.rejects(svc.verify(id, "{}"), /already used/);
 });
 
 test("a failed attempt does not burn the request: the buyer can retry with a correct proof", async () => {
   const chain = fakeChain({ kind: "identity" });
   const svc = new EligibilityService(POLICY, new EligibilityStore(), chain);
   const { id } = await svc.challenge(BUYER);
-  await assert.rejects(svc.verify(id, "{}"), /帳號 credential/); // wrong credential kind
+  await assert.rejects(svc.verify(id, "{}"), /account credential/); // wrong credential kind
   (chain as any).parsePresentation = fakeChain({}).parsePresentation; // the buyer retries with an account credential
   const rec = await svc.verify(id, "{}");
   assert.equal(rec.account, BUYER);
   assert.equal((chain as any).requests, 1); // no second request anchored
-  await assert.rejects(svc.verify(id, "{}"), /用過/); // and after success it is spent
+  await assert.rejects(svc.verify(id, "{}"), /already used/); // and after success it is spent
 });
 
 test("two verifications of one request cannot run at the same time", async () => {
   const store = new EligibilityStore();
   store.put("x", { account: BUYER, request: {} as any, wanted: [], policy: "p" });
   store.claim("x");
-  assert.throws(() => store.claim("x"), /處理中/);
+  assert.throws(() => store.claim("x"), /being processed/);
   store.release("x");
   store.claim("x");
   store.finish("x");
-  assert.throws(() => store.claim("x"), /用過/);
+  assert.throws(() => store.claim("x"), /already used/);
 });
 
 test("unknown request id is refused", async () => {
   const { svc } = await run();
-  await assert.rejects(svc.verify("00".repeat(32), "{}"), /不存在/);
+  await assert.rejects(svc.verify("00".repeat(32), "{}"), /not found/);
 });
 
 test("expired request is refused", async () => {
   let now = 1_000_000;
   const { svc, id } = await run({}, () => now);
   now += CHALLENGE_TTL_MS + 1;
-  await assert.rejects(svc.verify(id, "{}"), /過期/);
+  await assert.rejects(svc.verify(id, "{}"), /expired/);
 });
 
 test("weaker statement (younger age bound / fewer restricted countries) is refused", async () => {
@@ -151,7 +151,7 @@ test("weaker statement (younger age bound / fewer restricted countries) is refus
   for (const [statement, msg] of [
     [[{ ...age, upper: "20991231" }, region], /dob/],
     [[age, { ...region, set: ["KP"] }], /US/],
-    [[age], /缺少/],
+    [[age], /missing/],
   ] as const) {
     const { svc, id } = await run({ statement: [...statement] as Atomic[] });
     await assert.rejects(svc.verify(id, "{}"), msg);
@@ -160,7 +160,7 @@ test("weaker statement (younger age bound / fewer restricted countries) is refus
 
 test("unknown identity provider is refused", async () => {
   const { svc, id } = await run({ issuer: 9 });
-  await assert.rejects(svc.verify(id, "{}"), /身份提供者/);
+  await assert.rejects(svc.verify(id, "{}"), /identity provider/);
 });
 
 test("changing the policy invalidates earlier verifications", async () => {
@@ -200,7 +200,7 @@ test("prototype keys are never treated as approved accounts", () => {
 });
 
 
-// ── 付款時重新檢查 ──
+// ── Re-check at payment ──
 test("settlement re-checks the stored proof on every payment, and never caches a pass", async () => {
   const { svc, chain, id } = await run();
   await svc.verify(id, '{"proof":1}');

@@ -1,5 +1,5 @@
 /**
- * 普查的純函式：統計、Card 內網址、x402 402 解析（不需要連線）
+ * Census pure functions: counts, URLs in cards, parsing an x402 402 (no network)
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -59,7 +59,7 @@ test("agentOf decodes a CIS-8 external_reference and the fields after it", () =>
   assert.equal(a.status, "Active");
   assert.equal(a.wallet, owner);
   assert.deepEqual(a.externalRef, { contract: "<10081,0>", namespace: "eip155:8453", keyType: "secp256k1-compressed", publicKey: pk.toString("hex") });
-  // 未定義的 kind：拒絕
+  // An undefined kind: refused
   const bad = Buffer.from(buf); bad[2 + 8 + 32 + 2 + 1 + 16] = 7;
   assert.throws(() => decodeAgentOf(bad), /unknown external_reference kind/);
 });

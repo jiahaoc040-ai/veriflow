@@ -1,5 +1,5 @@
 /**
- * 網路設定集中在 network.ts：其他檔案不能寫死測試網
+ * Network settings live in network.ts: no other file may hard-code testnet
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -1,11 +1,11 @@
 /**
- * 先讀 gateway/.env，再載入其他模組。
- * network.ts 在載入時就決定網路，所以 .env 必須比它更早讀進來；任何需要 .env 的模組都先 import 這個檔案。
+ * Read gateway/.env before loading any other module.
+ * network.ts picks the network as it loads, so .env must be read before it; every module that needs .env imports this file first.
  */
 import { config } from "dotenv";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** gateway/ 資料夾；.env 與金鑰檔的相對路徑都以這裡為準（MCP 客戶端可能從別的資料夾啟動我們） */
+/** The gateway/ folder; relative paths to .env and key files resolve from here (MCP clients may start us from another folder) */
 export const GATEWAY_DIR = resolve(fileURLToPath(new URL("..", import.meta.url)));
 config({ path: resolve(GATEWAY_DIR, ".env"), quiet: true });

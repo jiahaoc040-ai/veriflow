@@ -1,9 +1,9 @@
 /**
- * CIS-8 指令：產生 EVM 金鑰、把它綁到 Concordium 帳號、查綁定
- *   npm run cis8 -- keygen <name>   產生 keys/evm-<name>.json（測試網用；不會印出私鑰）
- *   npm run cis8 -- bind <name>     用 REGISTRY_OWNER_KEY_FILE 的帳號送出 CIS-8 登記（EVM 金鑰先對規範化位元組簽名）
- *   npm run cis8 -- show <name>     從 Concordium 節點讀這把金鑰目前綁在誰底下
- * EVM_NAMESPACE 預設 eip155:84532（Base Sepolia）
+ * CIS-8 commands: create an EVM key, bind it to a Concordium account, look up a binding
+ *   npm run cis8 -- keygen <name>   create keys/evm-<name>.json (testnet use; the private key is never printed)
+ *   npm run cis8 -- bind <name>     register in CIS-8 from the REGISTRY_OWNER_KEY_FILE account (the EVM key first signs the canonical bytes)
+ *   npm run cis8 -- show <name>     read from a Concordium node which account this key is currently bound to
+ * EVM_NAMESPACE defaults to eip155:84532 (Base Sepolia)
  */
 import "./env-file.js";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -38,7 +38,7 @@ async function main() {
   const key = loadKey(name);
   const ext = { namespace: NS, keyType: EVM_KEY_TYPE, publicKey: key.publicKey };
 
-  // 除錯：印出節點回傳的原始位元組，和官方服務的 owner_of_key 結果
+  // Debugging: print the node's raw return bytes and the official service's owner_of_key result
   if (cmd === "raw") {
     console.log("query  :", encodeExternalKey(ext).toString("hex"));
     try { console.log("node   :", await ownerOfKeyRaw(ext)); } catch (e) { console.log("node   : error", e instanceof Error ? e.message : e); }
@@ -61,7 +61,7 @@ async function main() {
     const grpc = createGrpc();
     const genesis = BlockHash.toHexString((await grpc.getConsensusStatus()).genesisBlock);
     const mine = canonicalBytes({ account: ownerB58, genesisHash: genesis, externalNamespace: NS, key: ext, proofScheme: EVM_PROOF_SCHEME });
-    // 和官方服務算出來的位元組比對；不一致就不簽
+    // Compare with the bytes the official service computes; if they differ, do not sign
     const canon = await registryTool("build_cis8_canonical_bytes", {
       network: REGISTRY_NETWORK,
       concordium_account: ownerB58,

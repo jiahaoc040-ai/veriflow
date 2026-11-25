@@ -1,14 +1,14 @@
 /**
- * A2A（Agent2Agent）端點：POST /a2a，JSON-RPC 2.0，message/send
+ * A2A (Agent2Agent) endpoint: POST /a2a, JSON-RPC 2.0, message/send
  * ------------------------------------------------------------
- * Agent Card（/.well-known/agent-card.json）的 url 指向這裡。別的 agent 傳一則訊息，
- * 我們依技能回一則 agent 訊息（文字摘要 + data 部分的完整結果）。只有唯讀技能：
- *   track_record   命中率（每個資產每天只算一次、只算有上鏈的）
- *   commitments    所有鏈上承諾
- *   verify_signal  驗證承諾（訊息裡放 64 字元承諾；data 可附 canonical）
- *   eligibility    查帳號是否通過零知識資格驗證（訊息裡放帳號地址）
- *   how_to_buy     x402 付款條件（付給誰、多少、需要什麼證明）——付款要用買方自己的錢包
- * 選技能：data 部分的 {"skill": "..."} 優先，否則看文字關鍵字。
+ * The Agent Card (/.well-known/agent-card.json) url points here. Another agent sends a message and
+ * we answer by skill with an agent message (text summary + the full result as a data part). Read-only skills only:
+ *   track_record   public counts of the record (no hit rate; each asset-day counted once, anchored only)
+ *   commitments    all on-chain commitments
+ *   verify_signal  verify a commitment (64-character commitment in the message; data may add canonical)
+ *   eligibility    whether an account passed the zero-knowledge eligibility check (account address in the message)
+ *   how_to_buy     x402 payment terms (whom to pay, how much, what proof) — paying needs the buyer's own wallet
+ * Skill choice: a {"skill": "..."} data part wins, otherwise keywords in the text.
  */
 import { randomUUID } from "node:crypto";
 import type { Express, Request, Response } from "express";
@@ -23,7 +23,7 @@ type IncomingMessage = { role?: string; parts?: Part[]; messageId?: string; cont
 const COMMITMENT = /\b[0-9a-f]{64}\b/;
 const ACCOUNT = /\b[1-9A-HJ-NP-Za-km-z]{50}\b/;
 
-/** 從訊息挑技能與參數 */
+/** Pick the skill and its arguments from a message */
 export function route(msg: IncomingMessage): { skill: Skill | "help"; commitment?: string; canonical?: string; account?: string } {
   const parts = Array.isArray(msg.parts) ? msg.parts : [];
   const text = parts.filter((p) => p?.kind === "text" && typeof p.text === "string").map((p) => p.text).join("\n");

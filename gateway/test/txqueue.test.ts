@@ -1,13 +1,13 @@
 /**
- * 營運帳號交易排隊：模擬多人同時購買，確認序號不重複、一次只送一筆、失敗不卡住後面
+ * Operator transaction queue: simulates several buyers at once; nonces never collide, one send at a time, a failure does not block the rest
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { forgetNonce, pickNonce, serialize, waitForNode } from "../src/txqueue.ts";
 
-/** 假節點：回報的下一個序號可能落後（還沒算進剛送出的交易） */
+/** Fake node: the next nonce it reports may lag (not yet counting a just-sent transaction) */
 function fakeNode(lag = true) {
-  let accepted = 10n; // 下一個可用序號
+  let accepted = 10n; // next usable nonce
   const seen = new Set<bigint>();
   let inFlight = 0;
   let maxInFlight = 0;
@@ -15,7 +15,7 @@ function fakeNode(lag = true) {
     get maxInFlight() {
       return maxInFlight;
     },
-    nextNonce: async () => (lag ? accepted - (accepted > 10n ? 1n : 0n) : accepted), // 落後一筆
+    nextNonce: async () => (lag ? accepted - (accepted > 10n ? 1n : 0n) : accepted), // one behind
     async send(nonce: bigint) {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
@@ -60,20 +60,20 @@ test("a failed send does not block the queue, and the next send trusts the node 
   assert.equal(await b, "ok");
   assert.deepEqual(order, ["a", "b"]);
   assert.equal(pickNonce(acct, 5n), 5n);
-  assert.equal(pickNonce(acct, 5n), 6n); // 節點還回報 5：用 6
+  assert.equal(pickNonce(acct, 5n), 6n); // node still says 5: use 6
   forgetNonce(acct);
-  assert.equal(pickNonce(acct, 5n), 5n); // 忘記之後以節點為準
+  assert.equal(pickNonce(acct, 5n), 5n); // after forgetting, follow the node
 });
 
 test("waitForNode: waits until the node has caught up with our last send, with a timeout", async () => {
   const acct = "op-3";
-  await waitForNode(acct, async () => 0n); // 沒送過：不用等
+  await waitForNode(acct, async () => 0n); // nothing sent yet: no wait
   pickNonce(acct, 7n);
   let n = 7n;
   const t0 = Date.now();
-  await waitForNode(acct, async () => n++, 1_000, 10); // 第二次問就追上（8 > 7）
+  await waitForNode(acct, async () => n++, 1_000, 10); // caught up on the second query (8 > 7)
   assert.ok(Date.now() - t0 < 500);
   const t1 = Date.now();
-  await waitForNode(acct, async () => 7n, 50, 10); // 一直沒追上：逾時放行
+  await waitForNode(acct, async () => 7n, 50, 10); // never catches up: time out and continue
   assert.ok(Date.now() - t1 >= 50);
 });

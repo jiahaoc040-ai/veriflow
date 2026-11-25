@@ -1,11 +1,11 @@
 /**
- * Concordium gRPC 連線（gateway、上鏈、資格驗證共用設定）
+ * Concordium gRPC connection (shared settings for the gateway, anchoring and eligibility)
  * ---------------------------------------------------
- * 問題：連線閒置很久後，中間的 NAT／路由器會悄悄把它斷掉，下一次呼叫就卡到 ETIMEDOUT。
- * 解法：
- *   1. keepalive：閒置時每 2 分鐘送一次 ping，連線就不會被當成死線路丟掉
- *   2. 每次呼叫最多等 20 秒，不會無限卡住
- *   3. isTransient()：辨認「網路暫時出錯」，讓呼叫端可以重建連線再試一次
+ * Problem: after a long idle period, a NAT or router in between silently drops the connection and the next call hangs until ETIMEDOUT.
+ * Fix:
+ *   1. keepalive: ping every 2 minutes while idle, so the connection is not treated as dead
+ *   2. every call waits at most 20 seconds, never forever
+ *   3. isTransient(): recognizes temporary network errors so the caller can reconnect and retry once
  */
 import { ConcordiumGRPCNodeClient, credentials } from "@concordium/web-sdk/nodejs";
 import { getConcordiumGrpcUrl, parseGrpcUrl } from "@x402/concordium";
@@ -31,7 +31,7 @@ export function createGrpc() {
   });
 }
 
-/** 網路暫時性錯誤（值得重建連線再試一次），不是付款本身有問題 */
+/** A temporary network error (worth reconnecting and retrying), not a problem with the payment itself */
 export function isTransient(e: unknown): boolean {
   const s = e instanceof Error ? `${e.message} ${(e as { code?: unknown }).code ?? ""}` : String(e);
   return /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|EAI_AGAIN|UNAVAILABLE|DEADLINE_EXCEEDED|deadline|socket hang up|Connection dropped|GOAWAY/i.test(s);

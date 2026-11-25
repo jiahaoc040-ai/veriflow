@@ -1,5 +1,5 @@
 /**
- * 每日公開訊號排程：用假的 API 與假的上鏈，不需要網路
+ * Daily public signal job: fake API and fake anchoring, no network
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -71,7 +71,7 @@ test("API errors are reported per asset without anchoring", async () => {
   assert.match(out[0].error!, /404/);
 });
 
-// ── 到期自動公開 ──
+// ── Automatic reveal after the horizon ──
 const DAY = 86_400_000;
 const T0 = Date.parse("2026-11-20T05:00:00Z");
 
@@ -108,9 +108,9 @@ function revealWorld(records: Record<string, { committed_at: string; reveal: unk
 
 test("reveal: only contract commitments past the 7-day horizon and not yet revealed", async () => {
   const w = revealWorld({
-    a: { committed_at: new Date(T0).toISOString(), reveal: null }, // 到期 → 公開
-    b: { committed_at: new Date(T0 + 3 * DAY).toISOString(), reveal: null }, // 還沒到期
-    d: { committed_at: new Date(T0).toISOString(), reveal: { signal: "RISK_ON" } }, // 已公開
+    a: { committed_at: new Date(T0).toISOString(), reveal: null }, // due → reveal
+    b: { committed_at: new Date(T0 + 3 * DAY).toISOString(), reveal: null }, // not due yet
+    d: { committed_at: new Date(T0).toISOString(), reveal: { signal: "RISK_ON" } }, // already revealed
   });
   const out = await runRevealsOnce({ ...w.deps, now: () => T0 + 7 * DAY + 2 * 60_000 });
   assert.deepEqual(out.map((r) => r.status), ["revealed"]);

@@ -1,7 +1,7 @@
 /**
- * MCP server 整合測試：用跟 Claude Desktop 一模一樣的啟動方式（mcpServerEntry 產生的指令），
- * 從根目錄、只帶最少的環境變數啟動，再透過 stdio 跟它對話。
- * 賣方網站用本機的假伺服器代替：不需要網路，也不會付款。
+ * MCP server integration test: starts it exactly the way Claude Desktop does (the command mcpServerEntry produces),
+ * from the root directory with a minimal environment, then talks to it over stdio.
+ * The seller site is a local fake server: no network, no payment.
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { claudeConfigPath, claudeLogDir, mcpServerEntry, mergeConfig, SERVER_NAME } from "../src/mcp-launch.ts";
 
-const BUYER = "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"; // 測試用地址
+const BUYER = "2xBpaHottqhwFZURMZW4uZduQvpxNDSy46iXMYs9kceNGaPpZX"; // test address
 const C1 = "ab".repeat(32);
 const TOKEN = "JyP9UWYKh54TD2MUJDfqC";
 const SELLER_WALLET = "3WSAJwTZqVRypnGMkUjW28QDES8h1FUBoCwrzQ1rdN35NGavf8";
@@ -30,7 +30,7 @@ let client: Client;
 let stderr = "";
 const protocolErrors: Error[] = [];
 
-/** 假的賣方網站：只回答 MCP 免費工具會問的端點 */
+/** Fake seller site: answers only the endpoints the free MCP tools call */
 function fakeGateway(): Promise<string> {
   http = createServer((req, res) => {
     const send = (code: number, body: unknown) => {
@@ -43,7 +43,7 @@ function fakeGateway(): Promise<string> {
       return res.end(CARD);
     }
     if (url === "/signal/BTC") {
-      // 未付款：x402 的 402，PAYMENT-REQUIRED 標頭說要付給誰
+      // Unpaid: x402's 402, with the PAYMENT-REQUIRED header saying whom to pay
       const required = {
         x402Version: 2,
         accepts: [{ scheme: "exact", network: "ccd:test", amount: "1000000", asset: "CCD", payTo: SELLER_WALLET }],
@@ -53,7 +53,7 @@ function fakeGateway(): Promise<string> {
       return res.end("{}");
     }
     if (url === "/mcp" && req.method === "POST") {
-      // 假的 Concordium Agent Registry MCP
+      // Fake Concordium Agent Registry MCP
       let body = "";
       req.on("data", (d) => (body += d));
       req.on("end", () => {
@@ -75,7 +75,7 @@ function fakeGateway(): Promise<string> {
   return new Promise((ok) => http.listen(0, "127.0.0.1", () => ok(`http://127.0.0.1:${(http.address() as { port: number }).port}`)));
 }
 
-/** 格式正確、但沒有錢的一次性測試金鑰（不會簽任何交易） */
+/** A well-formed one-off test key with no funds (never signs a transaction) */
 function throwawayKeyFile(): string {
   const hex = (n: number) => randomBytes(n).toString("hex");
   const wallet = {
@@ -105,10 +105,10 @@ before(async () => {
       ...entry.env,
       BUYER_KEY_FILE: throwawayKeyFile(),
       REGISTRY_MCP_URL: `${gateway}/mcp`,
-      // 假的節點紀錄，與假的託管服務一致（真實環境是直接讀 Concordium 節點）
+      // Fake node record, consistent with the fake hosted service (in production it is read straight from a Concordium node)
       VERIFLOW_TEST_AGENT_RECORD: JSON.stringify({ tokenId: "1313", owner: "4dNM", agentUri: `${gateway}/card.json`, metadataHash: createHash("sha256").update(CARD).digest("hex"), wallet: SELLER_WALLET, status: "Active" }),
-    }, // SDK 只另外帶 HOME、PATH 等少數變數，跟 Claude Desktop 一樣
-    cwd: "/", // Claude Desktop 不會在專案資料夾裡啟動我們
+    }, // the SDK adds only HOME, PATH and a few other variables, like Claude Desktop
+    cwd: "/", // Claude Desktop does not start us inside the project folder
     stderr: "pipe",
   });
   transport.stderr?.on("data", (d) => (stderr += String(d)));
@@ -164,7 +164,7 @@ test("errors come back as tool errors, not crashes", async () => {
   const unknown = await client.callTool({ name: "verify_signal", arguments: { commitment: "cd".repeat(32) } });
   assert.equal(unknown.isError, true);
   assert.match(text(unknown), /404/);
-  // 伺服器還活著
+  // The server is still alive
   assert.equal((await client.listTools()).tools.length, 6);
 });
 
@@ -193,9 +193,9 @@ test("installing keeps the user's other MCP servers and settings, and never over
   assert.deepEqual(merged.mcpServers[SERVER_NAME], entry);
   assert.deepEqual(JSON.parse(mergeConfig(undefined, entry)), { mcpServers: { [SERVER_NAME]: entry } });
   assert.deepEqual(JSON.parse(mergeConfig("  \n", entry)), { mcpServers: { [SERVER_NAME]: entry } });
-  // 重跑一次只會更新 veriflow，不會重複
+  // Running it again only updates veriflow, never duplicates it
   assert.deepEqual(JSON.parse(mergeConfig(JSON.stringify(merged), entry)), merged);
   assert.throws(() => mergeConfig("{ not json", entry));
-  assert.throws(() => mergeConfig("[]", entry), /不是 JSON 物件/);
+  assert.throws(() => mergeConfig("[]", entry), /not a JSON object/);
   assert.throws(() => mergeConfig('{"mcpServers":[]}', entry), /mcpServers/);
 });

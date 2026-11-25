@@ -1,6 +1,6 @@
 /**
- * 跨鏈付款整條路（離線）：賣方用 x402 產生 Base Sepolia USDC 的付款條件 → 買方用官方 EVM client 簽 →
- * 賣方從簽名還原付款人並對回 Concordium 帳號。facilitator 用假的，只回 /supported。
+ * The whole cross-chain path (offline): the seller builds Base Sepolia USDC payment terms with x402 → the buyer signs with the official EVM client →
+ * the seller recovers the payer from the signature and maps it to a Concordium account. The facilitator is a fake that only answers /supported.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

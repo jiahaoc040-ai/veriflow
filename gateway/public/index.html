@@ -87,7 +87,7 @@
   // Same three checks as veriflow/verify.py and the MCP verify_signal tool
   async function check(commitment, onchain, canonical) {
     const st = onchain && onchain.status;
-    // 讀回的資料統一成 "veriflow:v1:<hash>"（v1 時代的格式名稱）；v2 另外帶合約、資產、日期
+    // Read-back data is always "veriflow:v1:<hash>" (the format name from v1); v2 also carries the contract, asset and day
     const onHash = onchain && onchain.data_text && onchain.data_text.startsWith("veriflow:v1:") ? onchain.data_text.slice(12) : null;
     const where = onchain && onchain.contract ? `contract ${onchain.contract} · ${onchain.asset} ${onchain.as_of} · ` : "";
     const out = [
@@ -101,7 +101,7 @@
     if (canonical !== undefined && canonical !== null) {
       const h = await sha256(canonical);
       out.push({ ok: h === commitment, name: "content hashes to the commitment", detail: h });
-      // 上鏈時間：as_of 那根日 K 隔天 00:00 UTC 收盤，必須在收盤後一天內上鏈（不能等結果出來才補寫）
+      // Anchor time: the as_of candle closes 00:00 UTC the next day; it must be anchored within a day of that close (no backfilling after the outcome)
       let asOf;
       try { asOf = JSON.parse(canonical).as_of; } catch (e) { asOf = undefined; }
       if (/^\d{4}-\d{2}-\d{2}$/.test(asOf || "")) {
@@ -120,7 +120,7 @@
 
   async function load() {
     try {
-      // 承諾列表先顯示；績效要抓價格（剛重啟時較慢），之後再補上，不擋住頁面
+      // Show the commitment list first; the record counts need prices (slow right after a restart) and fill in later without blocking the page
       get("/track-record").then((tr) => {
         $("issued").textContent = tr.issued;
         $("scored").textContent = tr.matured;

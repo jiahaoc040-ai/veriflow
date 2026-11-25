@@ -1,12 +1,12 @@
 /**
- * 結算回報失敗、但錢其實已經上鏈時的補救
+ * Recovery when settlement is reported as failed but the money is actually on-chain
  * --------------------------------------
- * facilitator 可能在交易已送出後才逾時或回報失敗（例如等待 finalization 太久）。
- * 這時 x402 會回 402、丟掉回應內容：買方被扣款卻拿不到訊號。
- * 這裡自己從節點讀那筆交易：已 finalized、成功、由這個付款人送出、把正確金額的 CCD 轉給 payTo，
- * 全部成立才把這次結算視為成功，讓買方拿到他付錢買的內容。CCD 從 Concordium 節點讀；PLT 一律不補救（只記錄）。
- * Base 的 USDC（paidOnEvm）：從 EVM RPC 讀交易收據，要求成功，而且收據裡有一筆由這個代幣合約發出的 Transfer：
- * 付款人 → payTo、金額剛好是價格。
+ * A facilitator may time out or report failure after the transaction was already sent (e.g. waiting too long for finalization).
+ * x402 then answers 402 and drops the response body: the buyer is charged but gets no signal.
+ * Here we read that transaction ourselves: finalized, successful, sent by this payer, transferring exactly the price in CCD to payTo;
+ * only if all hold is the settlement treated as successful and the buyer gets what they paid for. CCD is read from a Concordium node; PLTs are never recovered (only logged).
+ * USDC on Base (paidOnEvm): read the transaction receipt from an EVM RPC; it must succeed and contain a Transfer emitted by this token contract,
+ * payer → payTo, for exactly the price.
  */
 import { TransactionHash, TransactionStatusEnum } from "@concordium/web-sdk";
 import { createPublicClient, getAddress, http, parseEventLogs, erc20Abi, type TransactionReceipt } from "viem";
@@ -16,7 +16,7 @@ import { sameAccount } from "./contract-v2.js";
 
 export type PaidOnChain = { ok: true } | { ok: false; why: string };
 
-/** 從已 finalized 的交易摘要找出「誰轉了多少 CCD 給誰」；不同版本的摘要欄位不同，盡量寬鬆地讀 */
+/** From a finalized transaction summary, find who transferred how much CCD to whom; summary fields differ by version, so read leniently */
 export function transferOf(summary: any): { sender?: string; to?: string; amount?: bigint } {
   const asAddr = (a: any) => (typeof a === "string" ? a : a?.address ?? (typeof a?.toString === "function" ? String(a) : undefined));
   const asAmount = (x: any) => {
@@ -54,7 +54,7 @@ export async function paidOnChain(txHash: string, payer: string, payTo: string, 
   return { ok: true };
 }
 
-/** 從 EVM 收據找出「這個代幣合約，付款人 → payTo，剛好這個金額」的 Transfer */
+/** From an EVM receipt, find a Transfer from this token contract, payer → payTo, for exactly this amount */
 export function evmTransferMatches(receipt: Pick<TransactionReceipt, "status" | "logs">, o: { from: string; payTo: string; amount: string; asset: string }): PaidOnChain {
   if (receipt.status !== "success") return { ok: false, why: "transaction reverted" };
   const logs = parseEventLogs({ abi: erc20Abi, eventName: "Transfer", logs: receipt.logs, strict: false });

@@ -1,1 +1,1 @@
-"""VeriFlow：只賣給合格 Agent、績效無法造假的鏈上資金流訊號"""
+"""VeriFlow: crypto risk-regime signals sold only to eligible agents, with a record that cannot be faked on-chain"""

@@ -14,7 +14,7 @@ test("reads sender, receiver and amount from SDK-typed and plain summaries", () 
   assert.equal(transferOf({ sender: A }).amount, undefined);
 });
 
-// ---- Base USDC：從收據確認錢真的到了 ----
+// ---- Base USDC: confirm from the receipt that the money arrived ----
 import { encodeEventTopics, encodeAbiParameters, erc20Abi } from "viem";
 import { evmTransferMatches, paidOnEvm } from "../src/settle-recovery.ts";
 

@@ -1,18 +1,18 @@
 """
-VeriFlow 訊號 API（FastAPI）
+VeriFlow signal API (FastAPI)
 ---------------------------
-執行：uvicorn veriflow.api:app --reload
+Run: uvicorn veriflow.api:app --reload
 
-端點：
-  GET /health            健康檢查
-  GET /signal/{asset}    取得最新訊號（之後由 x402 付款關卡保護）
-  GET /track-record      命中率與所有已評分訊號（公開）
-  GET /commitments       所有承諾雜湊與上鏈交易（公開）
-  GET /commitments/{c}   單一承諾；滿 7 天後揭露完整內容，任何人可重算雜湊（公開）
-  POST /commitments/{c}/anchor  付款關卡回報上鏈交易 hash（只接受關卡密鑰）
+Endpoints:
+  GET /health            health check
+  GET /signal/{asset}    the current signal (behind the x402 payment gateway)
+  GET /track-record      public counts of the record (no hit rate; the score comes from the on-chain rule)
+  GET /commitments       all commitment hashes and their anchor transactions (public)
+  GET /commitments/{c}   one commitment; after 7 days the full content is revealed so anyone can recompute the hash (public)
+  POST /commitments/{c}/anchor  the gateway reports the anchor transaction hash (gateway secret only)
 
-付款保護：x402 關卡（TypeScript）驗證付款後，帶著 X-VeriFlow-Gateway 標頭轉發過來。
-API 只接受帶正確密鑰的請求，所以沒付款的人無法繞過關卡直接拿訊號。
+Payment protection: the x402 gateway (TypeScript) verifies the payment, then forwards the request with an X-VeriFlow-Gateway header.
+The API accepts only requests with the right secret, so nobody can bypass the gateway and get a signal without paying.
 """
 
 from __future__ import annotations
@@ -40,12 +40,12 @@ app = FastAPI(title="VeriFlow", version="0.1.0")
 
 @app.on_event("startup")
 def _warm_caches():
-    """啟動後在背景先抓價格與穩定幣資料，第一個訪客（評審）不用等 10 秒以上"""
+    """Fetch prices and stablecoin data in the background at startup, so the first visitor (a judge) does not wait 10+ seconds"""
     def warm():
         for a in SYMBOLS:
             try:
                 _prices(a)
-            except Exception as e:  # noqa: BLE001 — 只是預熱，失敗就等第一次請求再抓
+            except Exception as e:  # noqa: BLE001 — only a warm-up; if it fails, the first request fetches instead
                 print(f"warm-up {a} failed: {e}")
         try:
             _supply()
@@ -53,12 +53,12 @@ def _warm_caches():
             print(f"warm-up supply failed: {e}")
 
     threading.Thread(target=warm, daemon=True).start()
-# 部署時設 DATABASE_URL（Postgres），本機預設 SQLite 檔案
+# Deployed: DATABASE_URL (Postgres); locally: a SQLite file
 ledger = Ledger(os.environ.get("DATABASE_URL") or os.environ.get("VERIFLOW_DB", "veriflow.db"))
 GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")
-# 沒設 GATEWAY_SECRET 時預設「關閉」：訊號與寫入端點一律拒絕。只有明確設 VERIFLOW_INSECURE_DEV=1 才不檢查（本機開發用）
+# Without GATEWAY_SECRET the default is closed: signal and write endpoints refuse everything. Only an explicit VERIFLOW_INSECURE_DEV=1 skips the check (local development)
 INSECURE_DEV = os.environ.get("VERIFLOW_INSECURE_DEV") == "1"
-# v2：訊號由 daily-v2 產生並上鏈到合約 v2；API 只賣已上鏈的那一筆
+# v2: signals are produced and committed to contract v2 by daily-v2; the API only sells the committed one
 SIGNAL_VERSION = os.environ.get("SIGNAL_VERSION", "v1")
 
 
@@ -72,16 +72,16 @@ CACHE_SECONDS = int(os.environ.get("DATA_CACHE_SECONDS", "3600"))
 
 
 def _hour_bucket() -> int:
-    """快取每小時換一次：部署後服務一直醒著，不能永遠用第一天抓到的資料"""
+    """The cache rolls over every hour: a deployed service stays awake and must not keep the first day's data forever"""
     return int(time.time() // CACHE_SECONDS)
 
 
-# 同一份資料同時只抓一次（預熱和第一個請求不會各抓一份，免費主機記憶體只有 512 MB）
+# Fetch the same data only once at a time (warm-up and the first request do not each fetch a copy; the free host has only 512 MB)
 _fetch_lock = threading.Lock()
 
 
-# 訊號只需要約 100 天（90 天 z-score + 7 天變化），績效只需要最近的價格；抓 400 天就夠，
-# 不必每小時把 2020 年至今全部重抓（備援來源 OKX 每頁 100 根，全抓要 20 多次請求，會被限流）
+# The signal needs about 100 days (90-day z-score + 7-day change) and the record only recent prices; 400 days is enough,
+# no need to refetch everything since 2020 every hour (the OKX fallback returns 100 candles per page, 20+ requests in total, and gets rate-limited)
 PRICE_HISTORY_DAYS = int(os.environ.get("PRICE_HISTORY_DAYS", "400"))
 _last_good: dict[str, object] = {}
 
@@ -98,7 +98,7 @@ def _supply_cached(bucket: int):
 
 
 def _still_current(df) -> bool:
-    """資料已經包含昨天（UTC）的收盤：今天之內不會有新的收盤，沿用也不會讓訊號過時"""
+    """The data already includes yesterday's (UTC) close: no new close arrives today, so reusing it cannot make the signal stale"""
     try:
         yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
         return df.index[-1].strftime("%Y-%m-%d") >= yesterday
@@ -111,7 +111,7 @@ def _prices_at(asset: str, bucket: int):
         try:
             df = _prices_cached(asset, bucket)
         except Exception as e:  # noqa: BLE001
-            # 每小時的更新失敗（來源暫時擋我們）：手上的資料如果已經含昨天收盤，就照用——內容完全一樣
+            # The hourly refresh failed (the source is blocking us for now): if the data on hand already has yesterday's close, use it — the content is identical
             last = _last_good.get(asset)
             if last is not None and _still_current(last):
                 print(f"price refresh {asset} failed, using cached data through {last.index[-1].date()}: {e}")
@@ -144,28 +144,28 @@ def health():
 def get_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)):
     asset = asset.upper()
     if asset not in SYMBOLS:
-        raise HTTPException(404, f"不支援的資產：{asset}，可用：{list(SYMBOLS)}")
+        raise HTTPException(404, f"unsupported asset: {asset}; available: {list(SYMBOLS)}")
     if not _from_gateway(x_veriflow_gateway):
-        raise HTTPException(402, "Payment required：請透過 x402 付款關卡取得訊號")
+        raise HTTPException(402, "Payment required: get the signal through the x402 payment gateway")
     if SIGNAL_VERSION == "v2":
         return _v2_signal(asset)
     s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
-    # 每個資產每個收盤日只有一筆官方訊號：當天已經發過（每日排程或先前的買家），就賣同一筆，不產生新的承諾。
-    # 否則每次購買都會多一個雜湊，紀錄上同一天會有好幾筆，也無法證明賣方沒有兩邊都押。
+    # One official signal per asset and close: if today's was already issued (daily job or an earlier buyer), sell the same one and create no new commitment.
+    # Otherwise every purchase would add a hash, the record would hold several per day, and nobody could show the seller did not bet both ways.
     rows = ledger.for_day(asset, s.as_of)
     anchored = [r for r in rows if r["anchor_tx"]]
     if anchored or rows:
         r = (anchored or rows)[0]
         out = {"signal": json.loads(r["canonical"]), "canonical": r["canonical"], "commitment": r["commitment"]}
         if r["anchor_tx"]:
-            out["anchor_tx"] = r["anchor_tx"]  # 已上鏈：付款關卡不再重複上鏈
+            out["anchor_tx"] = r["anchor_tx"]  # already on-chain: the gateway does not anchor it again
         return out
     commitment = ledger.record(s)
     return {"signal": s.__dict__, "canonical": s.canonical(), "commitment": commitment}
 
 
 def _v2_signal(asset: str) -> dict:
-    """v2：只賣 daily-v2（GitHub Actions）產生、已經在合約 v2 上鏈的昨日收盤訊號；這裡不產生新訊號"""
+    """v2: sell only yesterday's close call, produced by daily-v2 (GitHub Actions) and already committed to contract v2; no new signal is created here"""
     as_of = (pd.Timestamp.now(tz="UTC").normalize() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     rows = [r for r in ledger.for_day(asset, as_of) if '"momentum_e6":' in r["canonical"] and r["anchor_tx"]]
     if not rows:
@@ -178,18 +178,18 @@ def _v2_signal(asset: str) -> dict:
 @app.post("/daily/{asset}")
 def daily_signal(asset: str, x_veriflow_gateway: str | None = Header(default=None)):
     """
-    每日公開訊號（只接受付款關卡呼叫）：每個資產每個收盤日至少一筆上鏈的訊號，
-    讓績效紀錄每天累積，不依賴有沒有人付費購買。
-      - 這一天已經有上鏈的訊號 → {"status": "exists"}，不重複發
-      - 有訊號但上鏈失敗過 → 回傳那一筆，讓關卡重新上鏈
-      - 都沒有 → 發一筆新的
+    Daily public signal (gateway only): at least one anchored signal per asset and close,
+    so the record grows every day whether or not anyone buys.
+      - an anchored signal for this day exists → {"status": "exists"}, nothing new
+      - a signal exists but anchoring failed → return it so the gateway anchors it again
+      - neither → issue a new one
     """
     _require_gateway(x_veriflow_gateway)
     if SIGNAL_VERSION == "v2":
         raise HTTPException(410, "v1 daily signals are retired; v2 signals come from the daily-v2 workflow")
     asset = asset.upper()
     if asset not in SYMBOLS:
-        raise HTTPException(404, f"不支援的資產：{asset}")
+        raise HTTPException(404, f"unsupported asset: {asset}")
     s = latest_signal(asset, build_factors(_supply(), _prices(asset)))
     rows = ledger.for_day(asset, s.as_of)
     if any(r["anchor_tx"] for r in rows):
@@ -210,9 +210,9 @@ def track_record():
 def commitments():
     all_ = ledger.all()
     df = all_[["commitment", "asset", "as_of", "issued_at", "anchor_tx"]].copy()
-    # v2（合約 <13115,0>，每個資產每天最多一筆）的訊號帶 momentum_e6；其餘是已退役的 v1
+    # v2 calls (contract <13115,0>, at most one per asset and day) carry momentum_e6; the rest are from the retired v1
     df["contract"] = all_["canonical"].str.contains('"momentum_e6":', regex=False).map({True: "v2", False: "v1"}) if len(all_) else []
-    # 還沒上鏈的訊號 anchor_tx 是空值；pandas 會變成 NaN，JSON 不接受，要轉成 None
+    # Unanchored signals have an empty anchor_tx; pandas makes it NaN, which JSON rejects, so convert it to None
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
@@ -222,14 +222,14 @@ class Anchor(BaseModel):
 
 def _require_gateway(secret: str | None):
     if not _from_gateway(secret):
-        raise HTTPException(403, "只接受付款關卡的請求")
+        raise HTTPException(403, "only the payment gateway may call this")
 
 
 @app.post("/commitments/{commitment}/anchor")
 def set_anchor(commitment: str, body: Anchor, x_veriflow_gateway: str | None = Header(default=None)):
     _require_gateway(x_veriflow_gateway)
     if not ledger.get(commitment):
-        raise HTTPException(404, "找不到這個承諾")
+        raise HTTPException(404, "commitment not found")
     ledger.set_anchor(commitment, body.anchor_tx)
     return {"ok": True}
 
@@ -238,13 +238,13 @@ def set_anchor(commitment: str, body: Anchor, x_veriflow_gateway: str | None = H
 def get_commitment(commitment: str):
     row = ledger.get(commitment)
     if not row:
-        raise HTTPException(404, "找不到這個承諾")
+        raise HTTPException(404, "commitment not found")
     matured = datetime.now(timezone.utc).date() >= (
         datetime.fromisoformat(row["as_of"]).date() + timedelta(days=HORIZON_DAYS)
     )
     out = {k: row[k] for k in ("commitment", "asset", "as_of", "issued_at", "anchor_tx")}
     out["revealed"] = matured
     if matured:
-        # 揭露完整內容：sha256(canonical) 必須等於 commitment，且等於鏈上 veriflow:v1:<commitment>
+        # Reveal the full content: sha256(canonical) must equal the commitment, and match the on-chain veriflow:v1:<commitment>
         out["canonical"] = row["canonical"]
     return out

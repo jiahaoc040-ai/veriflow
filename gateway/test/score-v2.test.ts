@@ -1,5 +1,5 @@
 /**
- * 計分規則 v2（docs/SCORING-v2.md）：純函式測試，不需要網路
+ * Scoring rule v2 (docs/SCORING-v2.md): pure-function tests, no network
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

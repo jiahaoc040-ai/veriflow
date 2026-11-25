@@ -1,4 +1,4 @@
-"""不需要網路的測試：用假資料檢查因子、訊號、承諾雜湊、帳本評分與 DefiLlama 解析"""
+"""Tests that need no network: fake data for factors, signals, commitment hashes, ledger counts and DefiLlama parsing"""
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ def fake_data(days=200, trend=0.002, seed=0):
 def test_factors_have_signals_after_warmup():
     flows, prices = fake_data()
     d = build_factors(flows, prices)
-    assert d["signal"].iloc[:90].isna().all()          # 暖機期不給訊號
+    assert d["signal"].iloc[:90].isna().all()          # no signal during warm-up
     assert set(d["signal"].dropna()) <= {RISK_ON, RISK_OFF}
 
 
@@ -34,7 +34,7 @@ def test_commitment_roundtrip_and_tamper():
     c = s.commitment()
     assert verify_commitment(s.canonical(), c)
     tampered = s.canonical().replace(s.signal, RISK_OFF if s.signal == RISK_ON else RISK_ON)
-    assert not verify_commitment(tampered, c)          # 改內容就對不上
+    assert not verify_commitment(tampered, c)          # changed content no longer matches
 
 
 def test_nonce_hides_signal():
@@ -48,9 +48,9 @@ def test_track_record_counts_matured_and_publishes_no_hit_rate(tmp_path):
     flows, prices = fake_data()
     f = build_factors(flows, prices)
     led = Ledger(tmp_path / "t.db")
-    s = latest_signal("BTC", f.iloc[:-10])             # 10 天前的訊號 → 已到期
+    s = latest_signal("BTC", f.iloc[:-10])             # signal from 10 days ago → past the horizon
     led.set_anchor(led.record(s), "aa" * 32)
-    led.set_anchor(led.record(latest_signal("BTC", f)), "bb" * 32)   # 今天的訊號 → 未到期
+    led.set_anchor(led.record(latest_signal("BTC", f)), "bb" * 32)   # today's signal → not yet
     tr = led.track_record({"BTC": prices}, now=prices.index[-1])
     assert tr["issued"] == 2 and tr["matured"] == 1
     assert "hit_rate" not in tr and "hit" not in tr["signals"][0]
@@ -58,19 +58,19 @@ def test_track_record_counts_matured_and_publishes_no_hit_rate(tmp_path):
 
 
 def test_track_record_counts_each_day_once_and_only_anchored(tmp_path):
-    """同一天有好幾筆上鏈承諾：不隱藏，照實回報為重複；沒上鏈的不列"""
+    """Several anchored commitments on the same day: not hidden, reported as duplicates; unanchored ones are not listed"""
     flows, prices = fake_data()
     f = build_factors(flows, prices)
     led = Ledger(tmp_path / "t.db")
     old = f.iloc[:-10]
     first = led.record(latest_signal("BTC", old))
     led.set_anchor(first, "aa" * 32)
-    for _ in range(3):                                  # 同一天又賣了 3 次
+    for _ in range(3):                                  # sold 3 more times the same day
         led.set_anchor(led.record(latest_signal("BTC", old)), "cc" * 32)
-    led.record(latest_signal("BTC", f.iloc[:-12]))      # 另一天，但從沒上鏈
+    led.record(latest_signal("BTC", f.iloc[:-12]))      # another day, never anchored
     tr = led.track_record({"BTC": prices})
     assert tr["issued"] == 5 and tr["signal_days"] == 1 and tr["duplicate_asset_days"] == 1
-    assert tr["signals"][0]["commitment"] == first and len(tr["signals"]) == 4   # 四筆上鏈都列出
+    assert tr["signals"][0]["commitment"] == first and len(tr["signals"]) == 4   # all four anchored ones are listed
 
 
 def test_parse_llama():

@@ -1,15 +1,15 @@
 /**
- * Agent Registry 普查（唯讀）：一個買方 agent 能不能「安全地付錢」給登記的 agent？
+ * Agent Registry census (read-only): could a buyer agent safely pay each registered agent?
  * ------------------------------------------------------------------------------
- * 從 Concordium 節點逐一讀 CIS-8004 的 agent（token id 從 1 往上，連續 GAP 個不存在就停），
- * 對每個 Active 的 agent 做 VeriFlow 買方在付款前做的同一套鏈上可驗證的檢查：
- *   - 有沒有在鏈上綁收款錢包（agentWallet）
- *   - agent_uri 是 https、Agent Card 讀得到、SHA-256 等於鏈上 metadata_hash
- *   - Card 有沒有 Verified by Concordium badge 的擴充欄位（只看宣告；官方 badge 檢查是託管服務，這裡不跑）
- *   - Card 若提到 x402：去它列的 https 端點 GET 一次，若回 x402 的 402，看 Concordium 的 payTo 是否就是鏈上 agentWallet
- * 不送任何交易、不付款。網路由 CONCORDIUM_NETWORK 決定（mainnet 讀 <10082,0>）。
+ * Reads every CIS-8004 agent from a Concordium node (token ids from 1 upward, stopping after GAP consecutive missing ids)
+ * and runs, for each Active agent, the same on-chain-verifiable checks VeriFlow's buyer makes before paying:
+ *   - is a payout wallet (agentWallet) bound on-chain
+ *   - is agent_uri https, does the Agent Card load, does its SHA-256 equal the on-chain metadata_hash
+ *   - does the card declare a Verified by Concordium badge (declaration only; the official badge check is a hosted service and not run here)
+ *   - if the card mentions x402: GET its https endpoints once; if one answers with an x402 402, is the Concordium payTo the on-chain agentWallet
+ * Sends no transactions and pays nothing. CONCORDIUM_NETWORK selects the network (mainnet reads <10082,0>).
  *
- * 執行：CONCORDIUM_NETWORK=mainnet npm run census   → census-report.json、census-summary.md
+ * Run: CONCORDIUM_NETWORK=mainnet npm run census   → census-report.json, census-summary.md
  */
 import "./env-file.js";
 import { createHash } from "node:crypto";
@@ -25,16 +25,16 @@ import { NET } from "./network.js";
 export type Row = {
   id: string;
   status: "Active" | "Revoked" | "unreadable";
-  reason?: string; // 讀不到的原因（例如節點限流 HTTP 429）
-  extRef?: boolean; // external_reference 已設定：agent 宣告了一把其他鏈的金鑰（CIS-8）
+  reason?: string; // why the agent could not be read (e.g. node rate limit, HTTP 429)
+  extRef?: boolean; // external_reference is set: the agent declares a key on another chain (CIS-8)
   extNs?: string;
-  // 那把金鑰在 CIS-8 的實際狀態：綁在這個 agent 的擁有者底下／綁在別人底下／沒有登記／已撤銷／指向別的合約／讀取失敗
+  // That key's actual state in CIS-8: bound under this agent's owner / bound under someone else / not registered / revoked / points at another contract / read failed
   cis8?: "owner" | "other" | "none" | "revoked" | "other-contract" | "error";
   wallet?: boolean;
   walletIsOwner?: boolean;
   https?: boolean;
   card?: "ok" | "unreachable" | "not-json" | "none";
-  hashMatch?: boolean | null; // null：鏈上沒有 metadata_hash
+  hashMatch?: boolean | null; // null: no metadata_hash on-chain
   badge?: boolean;
   mentionsX402?: boolean;
   x402?: { url: string; networks: string[]; ccdPayToMatchesWallet: boolean | null; evmPayTo: boolean; cis8Key: boolean } | null;
@@ -43,11 +43,11 @@ export type Row = {
 const GAP = Number(process.env.CENSUS_GAP ?? 300);
 const MAX_ID = Number(process.env.CENSUS_MAX_ID ?? 50_000);
 const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 4);
-// 時間預算：到了就停止往上讀，照樣寫出報告（標示 partial 與讀到的最高 id）
+// Time budget: when it runs out, stop reading higher ids and still write the report (marked partial, with the highest id read)
 const BUDGET_MS = Number(process.env.CENSUS_BUDGET_MIN ?? 150) * 60_000;
 const PROBES = Number(process.env.CENSUS_PROBES_PER_AGENT ?? 5);
 
-// 公開節點會限流（HTTP 429）：退避後重試，最多約 2 分鐘
+// Public nodes rate-limit (HTTP 429): back off and retry, up to about 2 minutes
 const rateLimited = (e: unknown) => /\b429\b|RESOURCE_EXHAUSTED|Too Many Requests/i.test(e instanceof Error ? e.message : String(e));
 async function withRetry<T>(f: () => Promise<T>): Promise<T> {
   for (let i = 0; ; i++) {
@@ -61,7 +61,7 @@ async function withRetry<T>(f: () => Promise<T>): Promise<T> {
 
 const sameAcct = (a?: string | null, b?: string | null) => { try { return !!a && !!b && sameAccount(a, b); } catch { return false; } };
 
-/** Card 裡所有 https 網址（去重、不含 agent_uri 本身） */
+/** Every https URL in a card (deduplicated, excluding agent_uri itself) */
 export function urlsIn(card: unknown, self: string): string[] {
   const out = new Set<string>();
   const walk = (v: unknown) => {
@@ -73,16 +73,16 @@ export function urlsIn(card: unknown, self: string): string[] {
   return [...out];
 }
 
-// 文件、規格、程式碼託管與登記服務本身的網址不會是賣方的付費端點：不去打
+// URLs of docs, specs, code hosting and the registry service itself are never a seller's paid endpoint: do not call them
 const NOT_ENDPOINT = /^https:\/\/([^/]*\.)?(github\.com|githubusercontent\.com|eips\.ethereum\.org|docs\.[^/]+|agent-registry-mcp\.concordium\.com|ccdexplorer\.io|ccdscan\.io|x\.com|twitter\.com|t\.me|discord\.(gg|com)|linkedin\.com|medium\.com|youtube\.com)\//i;
-/** 先打看起來像付費端點的（網址含 x402 / pay / signal / api），再打其他的 */
+/** Try URLs that look like paid endpoints first (containing x402 / pay / signal / api), then the rest */
 export function probeOrder(urls: string[]): string[] {
   const cand = urls.filter((u) => !NOT_ENDPOINT.test(u) && !/\.(json|md|html?|png|jpe?g|svg|pdf)(\?|#|$)/i.test(u));
   const score = (u: string) => (/x402/i.test(u) ? 0 : /pay|signal|paid|api|judge|review/i.test(u) ? 1 : 2);
   return cand.sort((a, b) => score(a) - score(b));
 }
 
-/** 讀一個 x402 的 402：v2 在 PAYMENT-REQUIRED 標頭，v1 在 JSON body */
+/** Read an x402 402: v2 puts it in the PAYMENT-REQUIRED header, v1 in the JSON body */
 export function acceptsOf402(header: string | null, body: string): { network: string; payTo: string; extra?: Record<string, unknown> }[] {
   try {
     if (header) return (decodePaymentRequiredHeader(header).accepts ?? []) as never;
@@ -155,7 +155,7 @@ export function summarize(rows: Row[]) {
   const cardOk = active.filter((r) => r.card === "ok");
   const x = active.filter((r) => r.x402);
   const pct = (a: number, b: number) => (b ? Math.round((1000 * a) / b) / 10 : 0);
-  // 「買方可以安全付款」：Active、綁了收款錢包、Card 讀得到且雜湊吻合
+  // "A buyer could pay safely": Active, payout wallet bound, card loads and its hash matches
   const payable = n((r) => r.status === "Active" && !!r.wallet && r.card === "ok" && r.hashMatch === true);
   return {
     agents: rows.length,
@@ -207,7 +207,7 @@ async function main() {
         const m = e instanceof Error ? e.message : String(e);
         console.error(`agent #${id} unreadable: ${m}`);
         rows.push({ id: String(id), status: "unreadable", reason: m.slice(0, 200) });
-        // 解碼錯誤代表這個 id 存在；節點錯誤（例如限流）不能證明存在，不延長搜尋範圍
+        // A decode error means this id exists; a node error (e.g. rate limiting) does not, so it does not extend the search
         if (!rateLimited(e) && !isTransient(e)) lastFound = Math.max(lastFound, id);
         continue;
       }

@@ -1,17 +1,17 @@
 /**
- * VeriFlow registry smart contract（Rust，contract/）的部署與使用
+ * Deploying and using the VeriFlow registry smart contract v1 (Rust, contract/; retired, replaced by contract-v2)
  * ---------------------------------------------------------------
- * 合約把 commit–reveal 變成鏈上強制規則：
- *   commit  只有賣方能寫、記錄區塊時間、不能覆蓋
- *   reveal  期滿後任何人都能公開；鏈上自己算 SHA-256，對不上承諾就拒絕
+ * The contract turns commit–reveal into rules enforced on-chain:
+ *   commit  only the seller can write; block time recorded; nothing is overwritten
+ *   reveal  anyone can reveal after the horizon; the chain computes SHA-256 itself and rejects a mismatch
  *
- * 用法（在 gateway/）：
- *   npm run contract -- deploy [horizonDays=7]   部署 CI 編好的模組並建立合約，印出合約編號
- *   npm run contract -- status                    合約總數（REGISTRY_CONTRACT）
- *   npm run contract -- show <commitment>         查一個承諾與它的公開內容
- *   npm run contract -- reveal <commitment>       期滿後從 API 取內容、送上鏈公開
+ * Usage (in gateway/):
+ *   npm run contract -- deploy [horizonDays=7]   deploy the CI-built module and create the contract; prints its address
+ *   npm run contract -- status                    total count (REGISTRY_CONTRACT)
+ *   npm run contract -- show <commitment>         look up a commitment and its revealed content
+ *   npm run contract -- reveal <commitment>       after the horizon, fetch the content from the API and reveal it on-chain
  *
- * 設定 REGISTRY_CONTRACT=<index> 之後，gateway 的每個付費訊號改成用合約 commit 上鏈。
+ * With REGISTRY_CONTRACT=<index> set, every paid signal from the gateway is committed through the contract.
  */
 import { NET } from "./network.js";
 import { createHash } from "node:crypto";
@@ -37,12 +37,12 @@ import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 import { createGrpc } from "./grpc.js";
 
 export const CONTRACT_NAME = "veriflow_registry";
-/** VeriFlow 在 testnet 上的合約 <13094,0>（買方 agent 驗證時，只認這個合約發出的承諾事件） */
+/** VeriFlow's v1 contract on testnet, <13094,0> (buyer agents accept commitment events only from this contract) */
 export const TESTNET_REGISTRY_INDEX = 13094n;
 export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/registry-module/module.wasm.v1";
 const DAY_MS = 24 * 3600 * 1000;
 
-// ── 參數與回傳值的二進位格式（與 Rust 的 concordium-std Serial 相同）──────────
+// ── Binary format of parameters and return values (same as Rust concordium-std Serial) ──────────
 const u32le = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
 const u64le = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
 const str = (s: string) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([u32le(b.length), b]); };
@@ -73,7 +73,7 @@ export type CommitmentRecord = {
   committed_at: string;
   reveal: null | { signal: Signal; revealed_at: string; canonical: string };
 };
-/** SDK 要的是獨立的 ArrayBuffer（不能是共用記憶體的 Buffer 切片） */
+/** The SDK needs a standalone ArrayBuffer (not a Buffer slice of shared memory) */
 const ab = (b: Buffer): ArrayBuffer => new Uint8Array(b).buffer as ArrayBuffer;
 const iso = (ms: bigint) => new Date(Number(ms)).toISOString();
 
@@ -99,7 +99,7 @@ export function decodeSummary(buf: Buffer) {
   return out;
 }
 
-/** 合約事件 Committed（tag 0）：tag ‖ commitment(32) ‖ asset ‖ committed_at */
+/** Contract event Committed (tag 0): tag ‖ commitment(32) ‖ asset ‖ committed_at */
 export function decodeCommittedEvent(hex: string): { commitment: string; asset: string } | null {
   const b = Buffer.from(hex, "hex");
   if (b[0] !== 0 || b.length < 37) return null;
@@ -108,7 +108,7 @@ export function decodeCommittedEvent(hex: string): { commitment: string; asset: 
   return { commitment, asset: r.str() };
 }
 
-// ── 鏈上操作 ────────────────────────────────────────────────────────────────
+// ── On-chain operations ────────────────────────────────────────────────────────────────
 export function registryAddress(): ContractAddress.Type | undefined {
   const idx = process.env.REGISTRY_CONTRACT;
   return idx ? ContractAddress.create(BigInt(idx), 0n) : undefined;
@@ -120,7 +120,7 @@ export function createRegistryClient(keyFile: string, contract: ContractAddress.
   const owner = loadAccount(keyFile);
   const grpc = createGrpc();
 
-  // 營運帳號的交易要排隊、序號不重複（見 txqueue.ts）
+  // The operator account's transactions are queued so nonces never collide (see txqueue.ts)
   function send(tx: ReturnType<typeof Transaction.updateContract>) {
     return serialize(owner.address, async () => {
       const fromNode = (await grpc.getNextAccountNonce(owner.accountAddress)).nonce.value;
@@ -162,7 +162,7 @@ export function createRegistryClient(keyFile: string, contract: ContractAddress.
 
   return {
     address: owner.address,
-    /** 付費訊號上鏈：回傳交易 hash（不等最終確認，跟 register data 一樣） */
+    /** Commit a paid signal: returns the transaction hash (does not wait for finalization, like register data) */
     commit: (commitment: string, asset: string) => update("commit", encodeCommit(commitment, asset)),
     reveal: (canonical: string) => update("reveal", encodeReveal(canonical), 60_000),
     commitment: async (c: string) => decodeCommitmentRecord(await view("commitment", encodeCommitmentKey(c))),
@@ -186,7 +186,7 @@ async function deploy(horizonDays: number) {
     return (await grpc.waitForTransactionFinalization(hash, 120_000)).summary as any;
   };
 
-  // 模組編號 = 版本化模組檔（.wasm.v1）的 SHA-256；已經在鏈上就不重送
+  // Module reference = SHA-256 of the versioned module file (.wasm.v1); not resent if already on-chain
   const moduleRef = ModuleReference.fromHexString(createHash("sha256").update(source).digest("hex"));
   const refHex = ModuleReference.toHexString(moduleRef);
   const onChain = await grpc.getModuleSource(moduleRef).then(() => true, () => false);
@@ -228,7 +228,7 @@ async function main() {
   if (cmd === "status") return console.log(json(await client.summary()));
   if (cmd === "show") return console.log(JSON.stringify(await client.commitment(arg), null, 2));
   if (cmd === "reveal") {
-    // 內容從 VeriFlow API 取（期滿後才公開）
+    // Content comes from the VeriFlow API (public only after the horizon)
     const api = env("API_URL", "http://localhost:8000");
     const c = (await (await fetch(`${api}/commitments/${arg}`)).json()) as { canonical?: string; revealed?: boolean };
     if (!c.canonical) throw new Error("not revealed yet by the API (horizon not reached)");

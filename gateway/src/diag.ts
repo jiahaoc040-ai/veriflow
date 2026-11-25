@@ -1,6 +1,6 @@
 /**
- * 連線診斷：比較不同 gRPC 設定能不能連上 Concordium testnet 節點
- * 執行：npm run diag
+ * Connection diagnostics: compare which gRPC settings can reach a Concordium testnet node
+ * Run: npm run diag
  */
 import { ConcordiumGRPCNodeClient, credentials } from "@concordium/web-sdk/nodejs";
 import { GRPC_CHANNEL_OPTIONS, GRPC_CALL_TIMEOUT_MS, grpcEndpoint } from "./grpc.js";

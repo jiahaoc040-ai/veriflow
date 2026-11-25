@@ -1,5 +1,5 @@
 /**
- * A2A 端點（POST /a2a，JSON-RPC message/send）：路由規則與完整請求，賣方網站用假的伺服器代替
+ * A2A endpoint (POST /a2a, JSON-RPC message/send): routing rules and full requests, with a fake seller site
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";

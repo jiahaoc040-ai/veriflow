@@ -19,18 +19,18 @@ test("anchoring time: within a day of the data close passes, late anchoring fail
   const canon = '{"as_of":"2026-11-19","asset":"BTC","nonce":"ab","signal":"RISK_ON"}';
   const c = sha256Hex(canon);
   const chain = (block_time: string) => ({ status: "finalized", data_text: `veriflow:v1:${c}`, block_time });
-  // 11-19 的日 K 在 11-20 00:00 UTC 收盤，期限是 11-21 00:00 UTC
+  // The 11-19 candle closes 11-20 00:00 UTC; the deadline is 11-21 00:00 UTC
   const onTime = verifyCommitment(c, chain("2026-11-20T05:00:42.000Z"), canon);
   assert.equal(onTime.length, 4);
   assert.ok(allOk(onTime));
   assert.ok(allOk(verifyCommitment(c, chain("2026-11-20T23:59:59.000Z"), canon)));
-  // 等結果出來（7 天後）才補寫：不算數
+  // Backfilled after the outcome (7 days later): does not count
   const late = verifyCommitment(c, chain("2026-11-27T01:00:00.000Z"), canon);
   assert.ok(!allOk(late));
   assert.match(late[3].detail, /closed 2026-11-20T00:00:00.000Z/);
-  // 收盤前就上鏈（還不知道收盤價）也不算；時間不明也不算
+  // Anchored before the close (closing price not yet known) does not count either; nor does an unknown time
   assert.ok(!allOk(verifyCommitment(c, chain("2026-11-19T23:59:59.000Z"), canon)));
   assert.ok(!allOk(verifyCommitment(c, { status: "finalized", data_text: `veriflow:v1:${c}` } as never, canon)));
-  // 內容不是 JSON（讀不出 as_of）：不做這一項，也不誤判
+  // Content is not JSON (no as_of to read): this check is skipped, not misjudged
   assert.equal(verifyCommitment(C, { ...CHAIN, block_time: "2030-01-01T00:00:00Z" }, CANON).length, 3);
 });
