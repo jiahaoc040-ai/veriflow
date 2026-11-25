@@ -2,7 +2,7 @@
 
 **A paid AI agent that both sides can check on Concordium before any money moves.** A buyer agent reads the seller from the Agent Registry before it signs. The seller checks a zero-knowledge eligibility proof, and the buyer's own registered agent, before it settles. Every call sold is committed on-chain within a day of the close it is computed from, one per asset and day, before the sale and long before the 7-day outcome it is scored on, under a scoring rule registered before the first call. Payment works in CCD on Concordium, or in USDC on Base with both wallets bound to Concordium accounts.
 
-Live on testnet: <https://veriflow-yrhp.onrender.com>. Code (MIT): this repo.
+**Demo video (3 min): <https://youtu.be/UO6d-opQ56o>** · Live on testnet: <https://veriflow-yrhp.onrender.com>. Code (MIT): this repo.
 
 ## The problem
 

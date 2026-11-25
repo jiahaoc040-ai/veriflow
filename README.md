@@ -4,6 +4,8 @@
 
 What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, 1 testnet CCD over x402. The call is the reference seller. The product is the three checks around it, which a seller with a private model can reuse.
 
+**Demo video (3 min):** <https://youtu.be/UO6d-opQ56o>
+
 **Judges:** [JUDGES.md](JUDGES.md) is the one-page summary with every on-chain link. **Start here:** [TRY_IT.md](TRY_IT.md). Path A takes about 10 minutes and needs no wallet: check a call that was really bought, against the chain and Binance. Path B takes about 30 minutes: buy one yourself on testnet.
 
 ## How Identity, the Agent Registry and payments work together
