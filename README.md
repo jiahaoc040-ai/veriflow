@@ -21,6 +21,15 @@ What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RIS
 3. The buyer's Verify & Access proof was re-checked, and it paid 1 CCD: [`515226b5…`](https://ccdexplorer.io/testnet/transaction/515226b587ccb056f3e1c406fe1a85e12382a6a19c61345ef41c821395289b88).
 4. It received `{"as_of":"2026-11-23","asset":"BTC","momentum_e6":-242523,…,"signal":"RISK_OFF"}`, committed before the sale in [`d9527398…`](https://ccdexplorer.io/testnet/transaction/d952739813664933795fc43b5d2b4a99a5b0f3455472bad28349628a51f9bd03) under BTC, 2026-11-23 on `<13115,0>`.
 
+**Paid in USDC on Base, still tied to Concordium identity (2026-11-25).** The same signal is also sold for 0.01 USDC on Base Sepolia, and both sides of that payment are bound to Concordium accounts through the **CIS-8 External Key Registry** [`<12801,0>`](https://ccdexplorer.io/testnet/contract/12801/0):
+
+1. The seller's Base address `0xdd31…8746` is registered under #1313's owner `4dNM…` ([`registerExternalKey` `64746743…`](https://ccdexplorer.io/testnet/transaction/64746743a948d0d9dbbc0fafbcb8d9c5ee143fb8dbcf210cb6ebbe50627e59ce)); the buyer's `0xAc02…aCb8` under `4Vf4…` ([`21c76e95…`](https://ccdexplorer.io/testnet/transaction/21c76e955cc356c73e2eb3763b8c9841a01dbb1dd44f08f22b71d20da1162a5b)). Each EVM key signed the CIS-8 canonical bytes, which the contract verified on-chain; our bytes were first compared with the official `build_cis8_canonical_bytes` service.
+2. Before signing, the buyer ran the same 5 seller checks, with check 5 replaced: it read CIS-8 from a Concordium node and required `payTo` to be derived from the key in the 402's `extra.cis8`, Active, and bound to #1313's owner.
+3. The seller recovered the payer's public key from the EIP-3009 signature itself (no extra header), read CIS-8 from a node, and mapped the payment to Concordium account `4Vf4…`. It then ran the Verify & Access re-check and the #1478 buyer-agent check on that account, and re-read the binding before settlement.
+4. Paid 0.01 USDC `0xAc02…` → `0xdd31…`: [`0xe48c3357…`](https://sepolia.basescan.org/tx/0xe48c3357d84601a51ab4caf6db73274b1d57ef797c21c9f54f80f02c875cbc44), settled by the public x402 facilitator. Received the BTC 2026-11-24 call, committed before the sale in [`af3fc90c…`](https://ccdexplorer.io/testnet/transaction/af3fc90c65a4deaa9153431018d0ff083a15705f50181626855fa084ffe14ed8).
+
+An EVM key that is not bound, a revoked binding, a Permit2 or smart-wallet signature, or an authorization signed by someone other than its `from` is refused before settlement. Code: `gateway/src/cis8.ts`, `gateway/src/evm-payer.ts`.
+
 ## Trust in both directions
 
 | Who checks | What | How |
