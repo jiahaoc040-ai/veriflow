@@ -14,6 +14,7 @@
     "mcp:config": "tsx src/mcp-config.ts",
     "registry": "tsx src/registry.ts",
     "agent": "tsx src/registry-node.ts",
+    "cis8": "tsx src/cis8-cli.ts",
     "diag": "tsx src/diag.ts",
     "contract": "tsx src/contract.ts",
     "score": "tsx src/score.ts",
@@ -28,12 +29,14 @@
     "@types/pg": "^8.23.1",
     "@x402/concordium": "^2.31.0",
     "@x402/core": "^2.31.0",
+    "@x402/evm": "^2.31.0",
     "@x402/express": "^2.31.0",
     "@x402/fetch": "^2.31.0",
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.5",
     "pg": "^8.23.1",
+    "viem": "^2.58.6",
     "zod": "^4.6.7"
   },
   "devDependencies": {

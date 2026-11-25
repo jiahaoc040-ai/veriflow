@@ -128,7 +128,7 @@ function contractEvents(summary: any): string[] {
   return out;
 }
 
-async function submit(owner: ReturnType<typeof loadAccount>, built: any) {
+export async function submit(owner: ReturnType<typeof loadAccount>, built: any) {
   const grpc = createGrpc();
   const { nonce } = await grpc.getNextAccountNonce(owner.accountAddress);
   const tx = Transaction.updateContract(
