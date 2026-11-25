@@ -44,7 +44,7 @@ const MAX_ID = Number(process.env.CENSUS_MAX_ID ?? 50_000);
 const CONCURRENCY = Number(process.env.CENSUS_CONCURRENCY ?? 4);
 // 時間預算：到了就停止往上讀，照樣寫出報告（標示 partial 與讀到的最高 id）
 const BUDGET_MS = Number(process.env.CENSUS_BUDGET_MIN ?? 150) * 60_000;
-const PROBES = Number(process.env.CENSUS_PROBES_PER_AGENT ?? 3);
+const PROBES = Number(process.env.CENSUS_PROBES_PER_AGENT ?? 5);
 
 // 公開節點會限流（HTTP 429）：退避後重試，最多約 2 分鐘
 const rateLimited = (e: unknown) => /\b429\b|RESOURCE_EXHAUSTED|Too Many Requests/i.test(e instanceof Error ? e.message : String(e));
@@ -70,6 +70,15 @@ export function urlsIn(card: unknown, self: string): string[] {
   };
   walk(card);
   return [...out];
+}
+
+// 文件、規格、程式碼託管與登記服務本身的網址不會是賣方的付費端點：不去打
+const NOT_ENDPOINT = /^https:\/\/([^/]*\.)?(github\.com|githubusercontent\.com|eips\.ethereum\.org|docs\.[^/]+|agent-registry-mcp\.concordium\.com|ccdexplorer\.io|ccdscan\.io|x\.com|twitter\.com|t\.me|discord\.(gg|com)|linkedin\.com|medium\.com|youtube\.com)\//i;
+/** 先打看起來像付費端點的（網址含 x402 / pay / signal / api），再打其他的 */
+export function probeOrder(urls: string[]): string[] {
+  const cand = urls.filter((u) => !NOT_ENDPOINT.test(u) && !/\.(json|md|html?|png|jpe?g|svg|pdf)(\?|#|$)/i.test(u));
+  const score = (u: string) => (/x402/i.test(u) ? 0 : /pay|signal|paid|api|judge|review/i.test(u) ? 1 : 2);
+  return cand.sort((a, b) => score(a) - score(b));
 }
 
 /** 讀一個 x402 的 402：v2 在 PAYMENT-REQUIRED 標頭，v1 在 JSON body */
@@ -131,7 +140,7 @@ async function inspect(id: string, a: AgentOnChain, grpc: ReturnType<typeof crea
   row.mentionsX402 = /x402/i.test(raw.toString("utf8"));
   if (row.mentionsX402) {
     row.x402 = null;
-    for (const u of urlsIn(card, a.agentUri).slice(0, PROBES)) {
+    for (const u of probeOrder(urlsIn(card, a.agentUri)).slice(0, PROBES)) {
       try { const p = await probe(u, a.wallet); if (p) { row.x402 = p; break; } } catch { /* next */ }
     }
   }

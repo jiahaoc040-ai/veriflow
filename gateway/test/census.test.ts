@@ -63,3 +63,11 @@ test("agentOf decodes a CIS-8 external_reference and the fields after it", () =>
   const bad = Buffer.from(buf); bad[2 + 8 + 32 + 2 + 1 + 16] = 7;
   assert.throws(() => decodeAgentOf(bad), /unknown external_reference kind/);
 });
+
+import { probeOrder } from "../src/census.ts";
+test("probe order: skip docs/repos/registry, likely x402 endpoints first", () => {
+  assert.deepEqual(
+    probeOrder(["https://github.com/a/b", "https://docs.concordium.com/x", "https://s.example/a2a", "https://s.example/x402/review", "https://s.example/card.json", "https://s.example/api/pay"]),
+    ["https://s.example/x402/review", "https://s.example/api/pay", "https://s.example/a2a"],
+  );
+});
