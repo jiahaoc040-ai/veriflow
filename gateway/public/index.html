@@ -49,7 +49,7 @@
 
   <div class="grid">
     <div class="card metric"><div class="n" id="issued">–</div><div class="l">signals issued</div></div>
-    <div class="card metric"><div class="n" id="scored">–</div><div class="l" id="scoredLabel">past the 7-day horizon</div></div>
+    <div class="card metric"><div class="n" id="scored">–</div><div class="l" id="scoredLabel">first reveal</div></div>
     <div class="card metric"><div class="n" id="dups">–</div><div class="l" id="dupsLabel">asset-days with more than one commit on contract v2</div></div>
   </div>
 
@@ -123,13 +123,26 @@
       // Show the commitment list first; the record counts need prices (slow right after a restart) and fill in later without blocking the page
       get("/track-record").then((tr) => {
         $("issued").textContent = tr.issued;
-        $("scored").textContent = tr.matured;
-        $("scoredLabel").textContent = `past the ${tr.horizon_days}-day horizon`;
+        if (tr.matured > 0) {
+          $("scored").textContent = tr.matured;
+          $("scoredLabel").textContent = `calls past the ${tr.horizon_days}-day horizon, revealable and scored by the anchored rule`;
+        } else {
+          // Nothing has matured yet: show when the first call can be revealed instead of a bare 0
+          firstReveal.then((d) => {
+            $("scored").textContent = d ? d.toISOString().slice(5, 10).replace("-", "/") : "–";
+            $("scoredLabel").textContent = d ? `${d.toISOString().slice(0, 10)}: the first v2 call becomes revealable (${tr.horizon_days} days after its commit); scoring follows` : "first reveal date unknown";
+          });
+        }
         const byC = tr.duplicate_asset_days_by_contract || {};
         $("dups").textContent = byC.v2 ?? tr.duplicate_asset_days;
         if (byC.v1) $("dupsLabel").textContent = `asset-days with more than one commit on contract v2 (retired v1: ${byC.v1})`;
       }).catch(() => { $("dups").textContent = "?"; });
-      const cs = await get("/commitments");
+      const csP = get("/commitments");
+      var firstReveal = csP.then((cs) => {
+        const t = cs.filter((c) => c.contract !== "v1" && c.issued_at).map((c) => Date.parse(c.issued_at)).filter((x) => !isNaN(x));
+        return t.length ? new Date(Math.min(...t) + 7 * 864e5) : null;
+      }).catch(() => null);
+      const cs = await csP;
       commitments = cs;
       $("issued").textContent = cs.length;
       const rows = [...cs].sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at)));

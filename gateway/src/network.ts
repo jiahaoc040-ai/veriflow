@@ -13,8 +13,8 @@ export type NetworkName = "testnet" | "mainnet";
 
 export const NETWORKS = {
   // evm: the EVM network for cross-chain USDC (testnet = Base Sepolia, mainnet = Base). agentRegistry: the CIS-8004 contract; cis8Registry: the CIS-8 External Key Registry (binds other chains' public keys to Concordium accounts). Testnet values come from the official badge check; mainnet from the Agent Registry page on docs.concordium.com (10082,0)
-  testnet: { name: "testnet", did: "Testnet", caip2: CONCORDIUM_TESTNET_CAIP2, explorer: "https://ccdexplorer.io/testnet", agentRegistry: { index: 12802n, subindex: 0n }, cis8Registry: { index: 12801n, subindex: 0n }, evm: { network: "eip155:84532", explorer: "https://sepolia.basescan.org", rpc: "https://sepolia.base.org" } },
-  mainnet: { name: "mainnet", did: "Mainnet", caip2: CONCORDIUM_MAINNET_CAIP2, explorer: "https://ccdexplorer.io/mainnet", agentRegistry: { index: 10082n, subindex: 0n }, cis8Registry: { index: 10081n, subindex: 0n }, evm: { network: "eip155:8453", explorer: "https://basescan.org", rpc: "https://mainnet.base.org" } },
+  testnet: { name: "testnet", did: "Testnet", caip2: CONCORDIUM_TESTNET_CAIP2, explorer: "https://ccdexplorer.io/testnet", agentRegistry: { index: 12802n, subindex: 0n }, cis8Registry: { index: 12801n, subindex: 0n }, evm: { network: "eip155:84532", explorer: "https://base-sepolia.blockscout.com", rpc: "https://sepolia.base.org" } },
+  mainnet: { name: "mainnet", did: "Mainnet", caip2: CONCORDIUM_MAINNET_CAIP2, explorer: "https://ccdexplorer.io/mainnet", agentRegistry: { index: 10082n, subindex: 0n }, cis8Registry: { index: 10081n, subindex: 0n }, evm: { network: "eip155:8453", explorer: "https://base.blockscout.com", rpc: "https://mainnet.base.org" } },
 } as const;
 
 export function selectNetwork(v = process.env.CONCORDIUM_NETWORK ?? "testnet") {

@@ -54,7 +54,7 @@ the seller checked us: agent #1478 — read from a Concordium node before verifi
 canonical (hash exactly this string): {"as_of":"2026-11-24","asset":"BTC","momentum_e6":-253538,"nonce":"009a59c074e16178fa06adf1c2ef747d","signal":"RISK_OFF"}
 commitment: 9b1014a32b925915cf173f6d8fc53d6191a436f70cc796894b9689419ba4d6fc
 commit tx:  https://ccdexplorer.io/testnet/transaction/af3fc90c65a4deaa9153431018d0ff083a15705f50181626855fa084ffe14ed8
-payment tx: https://sepolia.basescan.org/tx/0xe48c3357d84601a51ab4caf6db73274b1d57ef797c21c9f54f80f02c875cbc44
+payment tx: https://base-sepolia.blockscout.com/tx/0xe48c3357d84601a51ab4caf6db73274b1d57ef797c21c9f54f80f02c875cbc44
 ```
 
 ## 3. CIS-8 bindings: canonical bytes checked against the official service before signing (2026-11-25)
