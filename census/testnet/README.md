@@ -1,8 +1,8 @@
 ## Agent Registry census — testnet <12802,0>
 
-Run 2026-11-25T06:39:53.980Z. Read-only: every agent read from a Concordium node (token ids 1–1501, stopping after 300 empty ids), Agent Cards fetched and hashed, x402 endpoints named in cards probed once with GET. No transactions, no payments.
+Run 2026-11-25T06:51:00.513Z. Read-only: every agent read from a Concordium node (token ids 1–1501, stopping after 300 empty ids), Agent Cards fetched and hashed, x402 endpoints named in cards probed once with GET. No transactions, no payments.
 
-**678 of 1219 Active agents (55.6%) pass the on-chain checks a buyer can make before paying:** a bound `agentWallet`, and an https Agent Card whose SHA-256 equals the on-chain hash.
+**670 of 1219 Active agents (55%) pass the on-chain checks a buyer can make before paying:** a bound `agentWallet`, and an https Agent Card whose SHA-256 equals the on-chain hash.
 
 | | |
 |---|---|
@@ -12,12 +12,12 @@ Run 2026-11-25T06:39:53.980Z. Read-only: every agent read from a Concordium node
 | Could not be decoded | 0 (0%) |
 | Active with an on-chain agentWallet | 1042 (85.5%) |
 | … of which the wallet is the owner account itself | 1011 (82.9%) |
-| Active whose https card loads | 869 (71.3%) |
-| Active whose card cannot be loaded | 167 (13.7%) |
+| Active whose https card loads | 862 (70.7%) |
+| Active whose card cannot be loaded | 174 (14.3%) |
 | Active with no https card | 181 (14.8%) |
-| Active whose card matches the on-chain hash | 811 (66.5%) |
-| Active whose card does NOT match the on-chain hash | 57 (4.7%) |
-| Active declaring a Verified by Concordium badge in the card | 272 (22.3%) |
+| Active whose card matches the on-chain hash | 803 (65.9%) |
+| Active whose card does NOT match the on-chain hash | 58 (4.8%) |
+| Active declaring a Verified by Concordium badge in the card | 276 (22.6%) |
 | Active linking an external (other-chain) key via external_reference | 241 (19.8%) |
 | … key bound in CIS-8 to the agent's owner (read from a node) | 240 (99.6%) |
 | … key bound in CIS-8 to a different account | 1 (0.4%) |
@@ -25,7 +25,7 @@ Run 2026-11-25T06:39:53.980Z. Read-only: every agent read from a Concordium node
 | … CIS-8 binding revoked | 0 (0%) |
 | … points at another contract | 0 (0%) |
 | … CIS-8 read failed | 0 (0%) |
-| Active whose card mentions x402 | 130 (10.7%) |
+| Active whose card mentions x402 | 133 (10.9%) |
 | … with a live x402 402 found at a URL in the card | 2 |
 | … … Concordium payTo = on-chain agentWallet | 1 |
 | … … Concordium payTo ≠ on-chain agentWallet | 1 |
@@ -36,4 +36,4 @@ External key namespaces (Active): `aifleet` 100, `solana:devnet` 30, `concordium
 
 Not checked here: the official badge check (a hosted service), CIS-8 bindings (the registry has no listing by account), endpoints not named in the card or not answering GET.
 
-Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/45561554761 · code at commit 974ab20951ab414fc1e5eef8f683d12c2f516b10 · per-agent rows in latest.json
+Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/45562965554 · code at commit 043680f806404dce2f03c628fe97c15fc4f3ba53 · per-agent rows in latest.json

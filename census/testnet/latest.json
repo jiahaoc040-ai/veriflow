@@ -1,11 +1,11 @@
 {
  "network": "testnet",
  "registry": "<12802,0>",
- "run_at": "2026-11-25T06:39:53.980Z",
+ "run_at": "2026-11-25T06:51:00.513Z",
  "highest_id": 1501,
  "gap_stop": 300,
  "partial": false,
- "minutes": 5.5,
+ "minutes": 5.2,
  "summary": {
   "agents": 1501,
   "active": 1219,
@@ -31,20 +31,20 @@
   },
   "active_with_wallet": 1042,
   "active_wallet_is_owner": 1011,
-  "active_card_ok": 869,
-  "active_card_unreachable": 167,
+  "active_card_ok": 862,
+  "active_card_unreachable": 174,
   "active_no_https_card": 181,
-  "active_hash_match": 811,
-  "active_hash_mismatch": 57,
-  "active_badge_declared": 272,
-  "active_mentions_x402": 130,
+  "active_hash_match": 803,
+  "active_hash_mismatch": 58,
+  "active_badge_declared": 276,
+  "active_mentions_x402": 133,
   "x402_endpoints_found": 2,
   "x402_ccd_payto_matches_wallet": 1,
   "x402_ccd_payto_not_wallet": 1,
   "x402_evm_payto": 0,
   "x402_evm_with_cis8_key": 0,
-  "payable_safely": 678,
-  "payable_safely_pct_of_active": 55.6
+  "payable_safely": 670,
+  "payable_safely_pct_of_active": 55
  },
  "rows": [
   {
@@ -3638,10 +3638,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "345",
@@ -3649,10 +3646,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "346",
@@ -3660,10 +3654,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "347",
@@ -3671,10 +3662,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "348",
@@ -3682,10 +3670,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "349",
@@ -3693,10 +3678,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "350",
@@ -3710,10 +3692,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "352",
@@ -3727,10 +3706,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "354",
@@ -3738,10 +3714,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "355",
@@ -3749,10 +3722,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "356",
@@ -3766,10 +3736,7 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "hashMatch": true,
-   "card": "ok",
-   "badge": false,
-   "mentionsX402": false
+   "card": "unreachable"
   },
   {
    "id": "358",
@@ -10421,7 +10388,11 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "card": "unreachable"
+   "hashMatch": true,
+   "card": "ok",
+   "badge": true,
+   "mentionsX402": true,
+   "x402": null
   },
   {
    "id": "1009",
@@ -10429,7 +10400,11 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "card": "unreachable"
+   "hashMatch": false,
+   "card": "ok",
+   "badge": true,
+   "mentionsX402": true,
+   "x402": null
   },
   {
    "id": "1010",
@@ -13055,7 +13030,10 @@
    "wallet": true,
    "walletIsOwner": true,
    "https": true,
-   "card": "unreachable"
+   "hashMatch": true,
+   "card": "ok",
+   "badge": true,
+   "mentionsX402": false
   },
   {
    "id": "1309",
@@ -14325,7 +14303,11 @@
    "extNs": "skillmark:v1",
    "cis8": "owner",
    "https": true,
-   "card": "unreachable"
+   "hashMatch": true,
+   "card": "ok",
+   "badge": true,
+   "mentionsX402": true,
+   "x402": null
   },
   {
    "id": "1450",
