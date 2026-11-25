@@ -162,6 +162,7 @@ It publishes the mean 7-day return of the calls against always-on and always-off
 Two steps take most of the time: getting a testnet identity, and exporting an account key to a file. Use only a testnet account holding test CCD.
 
 1. **Wallet and identity.**
+   - Use the **browser** wallet; the mobile wallet over WalletConnect fails with "Unsupported method" for these signatures.
    - Install the [Concordium Browser Wallet](https://chromewebstore.google.com/search/concordium%20wallet) in Chrome and switch it to **Testnet**.
    - Create an identity with one of the test identity providers the wallet lists, then create an account under it.
    - If the identity step fails, search the Concordium developer documentation for "browser wallet" setup.
