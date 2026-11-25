@@ -20,7 +20,7 @@ export const EXPECTED = {
     owner: "4dNMXmNKa2i5hvABfbRJ6NebGopaWSPNmMrbvroSzgJF5wjUNt",
     wallet: "3WSAJwTZqVRypnGMkUjW28QDES8h1FUBoCwrzQ1rdN35NGavf8",
     agentUri: "https://raw.githubusercontent.com/jiahaoc040-ai/veriflow/main/agent-card.json",
-    metadataHash: "bfbe4573465a8118706db384d4d636f62aaa32cf2ea33952ba8a21c2d723fd6f",
+    metadataHash: "ee656d25819f55fa5ce9f01ad729e978bd1f15616d1b6e2947fc324972d5fec9",
     status: "Active",
   },
   badge: "JyP9UWYKh54TD2MUJDfqC",

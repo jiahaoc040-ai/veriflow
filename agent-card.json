@@ -79,7 +79,7 @@
     {
       "id": "track_record",
       "name": "Track record",
-      "description": "Hit rate of anchored signals whose 7-day horizon has passed, each asset-day counted once.",
+      "description": "Counts from the public record: calls issued, asset-days committed, duplicates per contract, calls past the 7-day horizon. No hit rate is published; the score comes only from the chain and Binance, by a scoring rule registered on-chain before the first call.",
       "tags": [
         "track-record",
         "transparency"
