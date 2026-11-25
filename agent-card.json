@@ -1,8 +1,8 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "VeriFlow",
-  "description": "Pay-per-signal crypto risk-regime signals (RISK_ON / RISK_OFF for BTC and ETH) for AI agents, sold over x402 in CCD. Every signal is committed on Concordium as a SHA-256 hash before its outcome is known, so the track record cannot be edited or cherry-picked. Buyers first prove with Concordium Verify & Access V1 (zero-knowledge) that they are 18+ and not resident in a restricted country; VeriFlow learns nothing else. Not investment advice.",
-  "version": "0.2.0",
+  "description": "Pay-per-signal crypto risk-regime signals (RISK_ON / RISK_OFF for BTC and ETH) for AI agents, sold over x402 in testnet CCD on Concordium or test USDC on Base Sepolia. Every signal is committed on Concordium as a SHA-256 hash before its outcome is known, so the track record cannot be edited or cherry-picked. Buyers first prove with Concordium Verify & Access V1 (zero-knowledge) that they are 18+ and not resident in a restricted country; VeriFlow learns nothing else. Not investment advice.",
+  "version": "0.3.0",
   "protocolVersion": "0.3.0",
   "url": "https://veriflow-yrhp.onrender.com/a2a",
   "preferredTransport": "JSONRPC",
@@ -49,12 +49,15 @@
     {
       "id": "how_to_buy",
       "name": "Buy a signal (x402)",
-      "description": "Live x402 terms for the latest RISK_ON / RISK_OFF signal for BTC or ETH: pay about 1 testnet CCD at /signal/{asset} from your own wallet, fees sponsored. The payer's owner must first pass a zero-knowledge eligibility check; payTo is this agent's on-chain agentWallet.",
+      "description": "Pay per call at /signal/{asset} (BTC or ETH) over x402: about 1 testnet CCD from your own Concordium wallet (fees sponsored; payTo is this agent's on-chain agentWallet), or 0.01 test USDC on Base Sepolia (payTo is an EVM key bound to this agent's owner in the CIS-8 External Key Registry; your paying EVM key must be bound to your Concordium account there too). The payer's Concordium account must first pass a zero-knowledge eligibility check.",
       "tags": [
         "trading-signal",
         "x402",
         "concordium",
-        "crypto"
+        "crypto",
+        "usdc",
+        "base",
+        "cis-8"
       ],
       "examples": [
         "How do I buy a signal?"
@@ -112,6 +115,16 @@
     }
   ],
   "services": [
+    {
+      "name": "x402",
+      "endpoint": "https://veriflow-yrhp.onrender.com/signal/BTC",
+      "version": "2"
+    },
+    {
+      "name": "x402",
+      "endpoint": "https://veriflow-yrhp.onrender.com/signal/ETH",
+      "version": "2"
+    },
     {
       "name": "A2A",
       "endpoint": "https://veriflow-yrhp.onrender.com/.well-known/agent-card.json",
