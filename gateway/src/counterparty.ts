@@ -79,6 +79,8 @@ export async function verifySeller(opts: {
   /** 402 回應的 concordium-agent 擴充欄位指名的 agent 與 badge（有的話必須一致） */
   expectTokenId?: string;
   expectBadge?: string;
+  /** 收款地址不在 Concordium 上（例如 Base 的 USDC）時，用這個檢查取代「payTo＝agentWallet」；收到節點讀到的擁有者與錢包 */
+  payToCheck?: (agent: { owner?: string; wallet?: string }) => Promise<Check>;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
   const network = opts.network ?? NET.name;
@@ -175,6 +177,14 @@ export async function verifySeller(opts: {
   }
 
   // 5. 收款地址綁定
+  if (opts.payToCheck) {
+    try {
+      checks.push(await opts.payToCheck({ owner: rec.owner_account, wallet: rec.agent_wallet }));
+    } catch (e) {
+      checks.push({ name: "payTo is bound to the agent on-chain", ok: false, detail: err(e) });
+    }
+    return done();
+  }
   checks.push({
     name: "payTo is the agent's on-chain wallet",
     ok: !!rec.agent_wallet && rec.agent_wallet === opts.payTo,
@@ -187,6 +197,6 @@ export async function verifySeller(opts: {
 export function summarize(v: SellerVerdict): string {
   const bad = v.checks.filter((c) => !c.ok);
   return v.ok
-    ? `seller verified: agent #${v.tokenId} (${v.tokenAddress}), owner ${v.owner}, paying its on-chain wallet`
+    ? `seller verified: agent #${v.tokenId} (${v.tokenAddress}), owner ${v.owner}, ${v.checks[4]?.name.includes("CIS-8") ? "paying an EVM address bound to it in CIS-8" : "paying its on-chain wallet"}`
     : `refused to pay: ${bad.map((c) => `${c.name} — ${c.detail}`).join("; ")}`;
 }

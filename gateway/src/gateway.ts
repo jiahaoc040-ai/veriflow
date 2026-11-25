@@ -22,6 +22,10 @@ import { rateLimit as baselineLimit } from "express-rate-limit";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
+import { CIS8_REGISTRY, EVM_KEY_TYPE, checkEvmBinding, evmAddressOf } from "./cis8.js";
+import { concordiumAccountOfEvmPayment, isEvmNetwork } from "./evm-payer.js";
+import { sameAccount } from "./contract-v2.js";
 import { GATEWAY_DIR, NETWORK, env } from "./config.js";
 import { resolve } from "node:path";
 import { createAnchorer } from "./anchor.js";
@@ -51,6 +55,16 @@ const PLT_PRICE = (() => {
 
 const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 
+// 選填：跨鏈收款。SELLER_EVM_PUBLIC_KEY 是賣方收款用的 EVM 公鑰（CIS-8 綁在 #1313 的擁有者底下），payTo 由它推出；
+// EVM_PRICE_USD 是 USDC 價格（預設 0.01）。買方付款前會從 Concordium 節點讀 CIS-8，確認這把金鑰屬於這個 agent。
+const EVM = (() => {
+  const pk = (process.env.SELLER_EVM_PUBLIC_KEY ?? "").trim();
+  if (!pk) return undefined;
+  const price = env("EVM_PRICE_USD", "0.01");
+  if (!/^\d{1,6}(\.\d{1,6})?$/.test(price)) throw new Error("EVM_PRICE_USD must be a decimal like 0.01");
+  return { network: NET.evm.network, publicKey: pk.startsWith("0x") ? pk : `0x${pk}`, payTo: evmAddressOf(pk), price: `$${price}`, facilitator: env("FACILITATOR_EVM_URL", "https://x402.org/facilitator") };
+})();
+
 const eligibility = new EligibilityService(
   { minAge: MIN_AGE, restrictedCountries: parseCountries(process.env.RESTRICTED_COUNTRIES) },
   // 部署時設 DATABASE_URL（Postgres），本機預設 JSON 檔
@@ -75,7 +89,7 @@ if (process.env.VERIFLOW_TEST_AGENT_RECORD) {
 // 必須在建立付款中介層「之前」啟動並等它開始監聽，否則中介層啟動時查詢 /supported 會失敗。
 if (process.env.EMBED_FACILITATOR) await (await import("./facilitator.js")).listening;
 
-const resourceServer = new x402ResourceServer(
+const resourceServer = new x402ResourceServer([
   new HTTPFacilitatorClient({
     url: env("FACILITATOR_URL", "http://localhost:4021"),
     // Concordium 的官方測試網 facilitator 要 API key。金鑰只放環境變數，不進 repo、不進日誌
@@ -90,11 +104,35 @@ const resourceServer = new x402ResourceServer(
         }
       : {}),
   }),
-)
-  .register(NETWORK, new ExactConcordiumScheme())
+  // EVM（Base）付款走公開的 x402 facilitator；它只負責上鏈結算，誰可以買仍由下面的檢查決定
+  ...(EVM ? [new HTTPFacilitatorClient({ url: EVM.facilitator })] : []),
+])
+  .register(NETWORK, new ExactConcordiumScheme());
+if (EVM) resourceServer.register(EVM.network as `${string}:${string}`, new ExactEvmScheme());
+
+/**
+ * 這筆付款屬於哪個 Concordium 帳號：
+ *  - CCD / PLT：付款交易的 sender
+ *  - Base USDC：從 EIP-3009 簽名還原付款人的公鑰，再從節點讀 CIS-8，看它綁在哪個帳號底下
+ */
+async function payerAccount(paymentPayload: { payload: unknown }, requirements: { network: string; asset: string; payTo: string; amount: string; extra?: Record<string, unknown> }) {
+  if (!isEvmNetwork(requirements.network)) {
+    const a = payerOf(paymentPayload.payload);
+    return a ? { ok: true as const, account: a } : { ok: false as const, code: "no_payer", reason: "no payer in the payment" };
+  }
+  const r = await concordiumAccountOfEvmPayment(paymentPayload.payload, requirements);
+  return r.ok ? { ok: true as const, account: r.account, evm: r.from } : r;
+}
+
+resourceServer
   // 付款交易送去結算之前：sender 沒通過資格驗證 → 拒絕（交易不會上鏈，買方不會被扣款）
-  .onBeforeVerify(async ({ paymentPayload, transportContext }) => {
-    const sender = payerOf(paymentPayload.payload);
+  .onBeforeVerify(async ({ paymentPayload, requirements, transportContext }) => {
+    const who = await payerAccount(paymentPayload, requirements);
+    if (!who.ok) {
+      console.log(`refused payment on ${requirements.network}: ${who.reason}`);
+      return { abort: true, reason: who.code, message: who.reason };
+    }
+    const sender = who.account;
     // 雙向驗證：買方若在標頭指名自己的 agent，賣方從節點確認它是 Active，而且付款帳號就是它鏈上的 agentWallet
     const req = (transportContext as { request?: { adapter?: { req?: express.Request } } } | undefined)?.request?.adapter?.req;
     const buyerAgent = await checkBuyerAgent(req?.header(BUYER_AGENT_HEADER), sender, BUYER_AGENT_POLICY, (id) => readAgent(id));
@@ -104,6 +142,7 @@ const resourceServer = new x402ResourceServer(
       return { abort: true, reason: `buyer_agent_check_failed:${buyerAgent.code}`, message: buyerAgent.reason };
     }
     if (buyerAgent.named && req?.res) req.res.locals.buyerAgent = buyerAgent;
+    if (req?.res && "evm" in who) req.res.locals.evmPayer = { address: who.evm, account: who.account };
     if (!REQUIRE_ELIGIBILITY) return;
     // 每一筆付款都重新檢查證明（不只看資料庫有沒有紀錄）；節點連不上也拒絕，不退回只看資料庫
     try {
@@ -121,7 +160,7 @@ const resourceServer = new x402ResourceServer(
   // facilitator 回報結算失敗時：先記錄原因；若它給了交易雜湊，就自己從節點確認錢是否真的付了，付了就照常交貨
   .onSettleFailure(async ({ error, paymentPayload, requirements }) => {
     const e = error as Error & { errorReason?: string; errorMessage?: string; transaction?: string };
-    const payer = payerOf(paymentPayload.payload);
+    const payer = isEvmNetwork(requirements.network) ? undefined : payerOf(paymentPayload.payload);
     console.warn(`settlement reported failure: ${e.errorReason ?? e.message}${e.errorMessage && e.errorMessage !== e.errorReason ? ` (${e.errorMessage})` : ""} tx=${e.transaction || "-"} payer=${payer ?? "-"}`);
     if (!e.transaction || !payer) return;
     const paid = await paidOnChain(e.transaction, payer, requirements.payTo, requirements.amount, requirements.asset);
@@ -133,11 +172,22 @@ const resourceServer = new x402ResourceServer(
     return { recovered: true as const, result: { success: true, transaction: e.transaction, network: requirements.network, payer } };
   })
   // 結算前再讀一次：驗證到結算之間（中間會上鏈）agent 被撤銷或換了錢包，就不收這筆錢
-  .onBeforeSettle(async ({ paymentPayload, transportContext }) => {
+  .onBeforeSettle(async ({ paymentPayload, requirements, transportContext }) => {
     const req = (transportContext as { request?: { adapter?: { req?: express.Request } } } | undefined)?.request?.adapter?.req;
+    // EVM：結算前再讀一次 CIS-8，綁定在這之間被撤銷就不收
+    let account = payerOf(paymentPayload.payload);
+    if (isEvmNetwork(requirements.network)) {
+      const who = await payerAccount(paymentPayload, requirements);
+      const before = req?.res?.locals.evmPayer as { account: string } | undefined;
+      if (!who.ok || !before || who.account !== before.account) {
+        console.log(`refused at settlement, EVM payer: ${who.ok ? "binding changed" : who.reason}`);
+        return { abort: true, reason: who.ok ? "evm_payer_not_bound" : who.code };
+      }
+      account = who.account;
+    }
     const named = req?.res?.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
     if (!named) return;
-    const again = await checkBuyerAgent(named.tokenId, payerOf(paymentPayload.payload), BUYER_AGENT_POLICY, (id) => readAgent(id));
+    const again = await checkBuyerAgent(named.tokenId, account, BUYER_AGENT_POLICY, (id) => readAgent(id));
     if (!again.ok || !again.named || again.wallet !== named.wallet) {
       console.log(`refused at settlement, buyer agent #${named.tokenId}: ${again.ok ? "wallet changed" : again.reason}`);
       return { abort: true, reason: `buyer_agent_check_failed:${again.ok ? "wallet_changed" : again.code}` };
@@ -172,6 +222,16 @@ const limitChallenge = rateLimit([
 const limitVerify = rateLimit([{ limiter: new RateLimiter(10, 10 * MIN), key: ip, what: "per IP" }]);
 const limitRead = rateLimit([{ limiter: new RateLimiter(120, MIN), key: ip, what: "per IP" }]);
 
+// 讓買方 agent 在付款前就知道要先證明資格（格式參考 x402 issue #4182 的 buyerProof 提案）
+const buyerExtra = {
+  buyerProof: ["adult", "region"],
+  buyerProofPolicy: eligibility.describe(),
+  buyerProofUrl: `${PUBLIC_URL}/verify`,
+  // 買方 agent 可以用這個標頭指名自己在 CIS-8004 的 token id；賣方從節點核對付款帳號＝它的 agentWallet
+  buyerAgentHeader: "X-Concordium-Agent",
+  buyerAgentPolicy: BUYER_AGENT_POLICY,
+};
+
 app.use(
   paymentMiddleware(
     {
@@ -183,20 +243,23 @@ app.use(
           scheme: "exact",
           network: NETWORK,
           payTo: PAY_TO,
-          price: {
-            amount: p.amount,
-            asset: p.asset,
-            // 讓買方 agent 在付款前就知道要先證明資格（格式參考 x402 issue #4182 的 buyerProof 提案）
-            extra: {
-              buyerProof: ["adult", "region"],
-              buyerProofPolicy: eligibility.describe(),
-              buyerProofUrl: `${PUBLIC_URL}/verify`,
-              // 買方 agent 可以用這個標頭指名自己在 CIS-8004 的 token id；賣方從節點核對付款帳號＝它的 agentWallet
-              buyerAgentHeader: "X-Concordium-Agent",
-              buyerAgentPolicy: BUYER_AGENT_POLICY,
-            },
-          },
-        })),
+          price: { amount: p.amount, asset: p.asset, extra: buyerExtra },
+        })).concat(
+          // Base Sepolia 的 USDC：payTo 是 CIS-8 綁在本 agent 擁有者底下的 EVM 地址；cis8 欄位告訴買方去哪裡查
+          EVM
+            ? [{
+                scheme: "exact",
+                network: EVM.network,
+                payTo: EVM.payTo,
+                price: EVM.price as unknown as { amount: string; asset: string; extra: typeof buyerExtra },
+                extra: {
+                  ...buyerExtra,
+                  cis8: { registry: `${CIS8_REGISTRY.index}.${CIS8_REGISTRY.subindex}`, concordiumNetwork: NETWORK, namespace: EVM.network, keyType: EVM_KEY_TYPE, publicKey: EVM.publicKey },
+                  buyerEvmBinding: "the paying EVM key must be bound to an eligible Concordium account in the CIS-8 registry",
+                },
+              } as never]
+            : [],
+        ),
         description: "VeriFlow risk-regime signal (RISK_ON / RISK_OFF), committed on-chain",
         mimeType: "application/json",
         // 指名收款的 agent（CIS-8004 的 registry 與 token id）。不放錢包：買方從鏈上讀 agentWallet 再比對 payTo
@@ -264,6 +327,8 @@ app.get("/signal/:asset", async (req, res) => {
     }
     const ba = res.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
     if (ba) body.buyer_agent = { token_id: ba.tokenId, registry: `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`, owner: ba.owner, agent_wallet: ba.wallet, checked: "read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet" };
+    const ep = res.locals.evmPayer as { address: string; account: string } | undefined;
+    if (ep) body.evm_payer = { address: ep.address, concordium_account: ep.account, cis8_registry: `<${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>`, checked: "payer key recovered from the EIP-3009 signature, bound in CIS-8 (read from a Concordium node) before verification and again before settlement" };
     res.json(body);
   } catch (e) {
     res.status(502).json({ error: `VeriFlow API unreachable: ${String(e)}` });
@@ -428,4 +493,12 @@ app.listen(PORT, () => {
   console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD${PLT_PRICE ? ` or ${PLT_PRICE.amount} ${PLT_PRICE.asset} units` : ""}  anchor=${anchorer.address} via ${anchorer.mode}`);
   console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
+  if (EVM) {
+    console.log(`also accepts ${EVM.price} USDC on ${EVM.network} → ${EVM.payTo} via ${EVM.facilitator}`);
+    // 自我檢查：收款金鑰在 CIS-8 綁在本 agent 的擁有者底下嗎？沒有的話買方會拒付（這裡只記錄，不擋啟動）
+    readAgent(AGENT_TOKEN_ID)
+      .then((a) => checkEvmBinding({ address: EVM.payTo, publicKey: EVM.publicKey, namespace: EVM.network, expectOwner: a?.owner ?? "?" }, sameAccount))
+      .then((r) => (r.ok ? console.log(`CIS-8: ${EVM.payTo} is bound to agent #${AGENT_TOKEN_ID}'s owner ${r.owner}`) : console.warn(`CIS-8 self-check failed, buyers will refuse EVM payments: ${r.reason}`)))
+      .catch((e) => console.warn(`CIS-8 self-check could not run: ${e instanceof Error ? e.message : e}`));
+  }
 });

@@ -164,3 +164,18 @@ test("strict decoding and a mandatory node read: illegal tags, wrong id length, 
   const badge = await verifySeller({ gateway: "https://seller.test", payTo: WALLET, ...world(), readAgent: async () => node, expectTokenId: "1313", expectBadge: "SomeOtherBadge123" });
   assert.equal(badge.ok, false);
 });
+
+test("EVM payTo: the CIS-8 check replaces payTo = agentWallet and receives the on-chain owner", async () => {
+  const evm = "0xdd315C4383bC9aedbE18E7bD954be3718a2F8746";
+  let seen: { owner?: string; wallet?: string } | undefined;
+  const ok = await verifySeller({ gateway: "https://seller.test", payTo: evm, ...world(), payToCheck: async (a) => ((seen = a), { name: "payTo is bound to the agent in CIS-8", ok: true, detail: "bound" }) });
+  assert.equal(ok.ok, true, JSON.stringify(ok.checks));
+  assert.equal(seen?.owner, OWNER);
+  assert.match(summarize(ok), /CIS-8/);
+  const bad = await verifySeller({ gateway: "https://seller.test", payTo: evm, ...world(), payToCheck: async () => ({ name: "payTo is bound to the agent in CIS-8", ok: false, detail: "not registered" }) });
+  assert.equal(bad.ok, false);
+  const thrown = await verifySeller({ gateway: "https://seller.test", payTo: evm, ...world(), payToCheck: async () => { throw new Error("node down"); } });
+  assert.equal(thrown.ok, false);
+  // 沒有 CIS-8 檢查時，EVM 地址當然不等於 agentWallet
+  assert.equal((await run({}, evm)).ok, false);
+});

@@ -13,7 +13,7 @@ import { createBuyerAgent } from "./agent.js";
 const asset = (process.argv[2] ?? "BTC").toUpperCase();
 const agent = createBuyerAgent();
 
-console.log(`buyer ${agent.address}${agent.agentTokenId ? ` (agent #${agent.agentTokenId})` : ""} → ${agent.gateway}/signal/${asset}, paying in ${agent.payAsset}`);
+console.log(`buyer ${agent.address}${agent.agentTokenId ? ` (agent #${agent.agentTokenId})` : ""} → ${agent.gateway}/signal/${asset}, paying in ${agent.payAsset}${agent.evmAddress ? ` on ${agent.payNetwork} from ${agent.evmAddress}` : ""}`);
 const r = await agent.buySignal(asset);
 if (r.sellerCheck) {
   console.log(`\nseller check: ${r.sellerCheck.ok ? "passed" : "FAILED — nothing was signed or paid"}`);
@@ -21,8 +21,9 @@ if (r.sellerCheck) {
 }
 if (r.refused) process.exit(1);
 console.log("\nstatus:", r.status);
-const body = r.body as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string } } | string | undefined;
+const body = r.body as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string }; evm_payer?: { address: string; concordium_account: string; checked: string } } | string | undefined;
 if (r.status === 200 && body && typeof body === "object") {
+  if (body.evm_payer) console.log(`the seller mapped our EVM payer ${body.evm_payer.address} to Concordium account ${body.evm_payer.concordium_account} — ${body.evm_payer.checked}`);
   if (body.buyer_agent) console.log(`the seller checked us: agent #${body.buyer_agent.token_id} — ${body.buyer_agent.checked}`);
   console.log("canonical (hash exactly this string):", body.canonical);
   console.log("commitment:", body.commitment);

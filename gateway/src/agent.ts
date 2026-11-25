@@ -10,6 +10,13 @@ import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
 import { AGENT_EXTENSION } from "./counterparty.js";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { privateKeyToAccount } from "viem/accounts";
+import { readFileSync } from "node:fs";
+import { NET } from "./network.js";
+import { checkEvmBinding, EVM_KEY_TYPE, CIS8_REGISTRY } from "./cis8.js";
+import { isEvmNetwork } from "./evm-payer.js";
+import { sameAccount } from "./contract-v2.js";
 import { getExplorerTxUrl } from "@x402/concordium";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { NETWORK, env, loadAccount } from "./config.js";
@@ -21,14 +28,22 @@ export function createBuyerAgent() {
   const buyer = loadAccount(env("BUYER_KEY_FILE"));
   const gateway = env("GATEWAY_URL", PUBLIC_GATEWAY);
   // 用哪一種資產付款：預設 CCD；設 BUYER_PAY_ASSET=VFUSD 之類就用那個 Protocol-Level Token（上限 BUYER_MAX_PAY，最小單位）
-  const payAsset = (process.env.BUYER_PAY_ASSET ?? "CCD").trim() || "CCD";
+  // BUYER_PAY_NETWORK=evm：改用 Base（testnet＝Base Sepolia）上的 USDC 付款，EVM 金鑰在 BUYER_EVM_KEY_FILE（npm run cis8 -- keygen 產生）
+  const payEvm = (process.env.BUYER_PAY_NETWORK ?? "").trim().toLowerCase() === "evm";
+  const payAsset = payEvm ? "USDC" : (process.env.BUYER_PAY_ASSET ?? "CCD").trim() || "CCD";
   if (!/^[A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]$/.test(payAsset)) throw new Error("BUYER_PAY_ASSET must be CCD or a PLT token id");
-  const maxPay = payAsset === "CCD" ? env("MAX_PAY_MICROCCD", "2000000") : env("BUYER_MAX_PAY", "2000000");
+  // 上限都是最小單位：CCD 是 microCCD；USDC 6 位小數（預設 20000＝0.02 USDC）
+  const maxPay = payEvm ? env("BUYER_MAX_PAY", "20000") : payAsset === "CCD" ? env("MAX_PAY_MICROCCD", "2000000") : env("BUYER_MAX_PAY", "2000000");
+  const payNetwork = payEvm ? NET.evm.network : NETWORK;
+  const evmKey = payEvm ? (JSON.parse(readFileSync(env("BUYER_EVM_KEY_FILE", "keys/evm-buyer.json"), "utf8")) as { privateKey: `0x${string}` }) : undefined;
+  const evmAccount = evmKey ? privateKeyToAccount(evmKey.privateKey) : undefined;
   const client = x402Client.fromConfig({
     schemes: [
-      { network: NETWORK, client: new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }) },
+      evmAccount
+        ? { network: payNetwork as `${string}:${string}`, client: new ExactEvmScheme(evmAccount) }
+        : { network: NETWORK, client: new ExactConcordiumScheme({ accountAddress: buyer.accountAddress, signer: buyer.signer }) },
     ],
-    spendControls: { allowedAssets: [{ network: NETWORK, asset: payAsset, maxAmountPerPayment: maxPay }] },
+    spendControls: { allowedAssets: [{ network: payNetwork, asset: payAsset, maxAmountPerPayment: maxPay }] },
   });
   const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
   // 買方自己在 CIS-8004 登記的 agent（選填）。賣方會從節點確認付款帳號就是它的 agentWallet
@@ -37,7 +52,9 @@ export function createBuyerAgent() {
   const agentHeaders: Record<string, string> = buyerAgentId ? { "X-Concordium-Agent": buyerAgentId } : {};
   let lastSellerCheck: SellerVerdict | undefined;
   /** 402 的 concordium-agent 擴充欄位：只是指名（registry、token id），錢包一律從鏈上讀；網路或 registry 不對就當作沒指名 */
-  const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, network: string) => {
+  // 指名的 agent 一定在 Concordium 上；用 EVM 付款時拿 Concordium 網路比對，否則比對所選付款方式的網路
+  const namedAgent = (pr: { extensions?: Record<string, unknown> } | undefined, payNet: string) => {
+    const network = isEvmNetwork(payNet) ? NETWORK : payNet;
     const info = (pr?.extensions?.[AGENT_EXTENSION] as { info?: { network?: string; registry?: string; tokenId?: string; badge?: string } } | undefined)?.info;
     // 這個買方只付給「有指名自己」的賣方：沒有指名就拒絕（協定允許不指名，買方的政策不允許）
     if (!info) return "unnamed";
@@ -45,7 +62,22 @@ export function createBuyerAgent() {
       return "mismatch";
     return `${info.tokenId}|${info.badge ?? ""}`;
   };
-  const checkSeller = async (payTo: string, named?: string) =>
+  /**
+   * EVM 收款地址：402 的 extra.cis8 給出賣方的公鑰。買方自己從 Concordium 節點讀 CIS-8，
+   * 要求公鑰推出的地址＝payTo、綁定是 Active，而且綁在這個 agent 的擁有者（或它的 agentWallet）底下
+   */
+  const cis8PayTo = (req: { network: string; payTo: string; extra?: Record<string, unknown> }) => async (agent: { owner?: string; wallet?: string }) => {
+    const name = "payTo is bound to the agent in CIS-8 (read from a Concordium node)";
+    const c = req.extra?.cis8 as { registry?: string; namespace?: string; keyType?: string; publicKey?: string } | undefined;
+    if (!c?.publicKey) return { name, ok: false, detail: "the 402 offers an EVM payTo without a cis8 public key" };
+    if (c.registry !== `${CIS8_REGISTRY.index}.${CIS8_REGISTRY.subindex}` || c.namespace !== req.network || c.keyType !== EVM_KEY_TYPE)
+      return { name, ok: false, detail: `unexpected cis8 registry/namespace/key type: ${c.registry} ${c.namespace} ${c.keyType}` };
+    const read = (expectOwner: string) => checkEvmBinding({ address: req.payTo, publicKey: c.publicKey!, namespace: req.network, expectOwner }, sameAccount);
+    let r = agent.owner ? await read(agent.owner) : { ok: false as const, reason: "agent has no owner on-chain" };
+    if (!r.ok && agent.wallet && /is bound to/.test(r.reason)) r = await read(agent.wallet);
+    return { name, ok: r.ok, detail: r.ok ? `${req.payTo} is bound to ${r.owner} in CIS-8 <${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>` : r.reason };
+  };
+  const checkSeller = async (payTo: string, named?: string, req?: { network: string; payTo: string; extra?: Record<string, unknown> }) =>
     named === "mismatch" || named === "unnamed"
       ? {
           ok: false,
@@ -66,18 +98,21 @@ export function createBuyerAgent() {
           readAgent: (id) => readAgent(id),
           expectTokenId: named?.split("|")[0],
           expectBadge: named?.split("|")[1] || undefined,
+          payToCheck: req && isEvmNetwork(req.network) ? cis8PayTo(req) : undefined,
         });
 
   // 簽名之前的最後一道關卡：賣方驗證不過就中止，錢包根本不會被叫到
   client.onBeforePaymentCreation(async ({ selectedRequirements, paymentRequired }) => {
     if (!requireSeller) return;
-    lastSellerCheck = await checkSeller(selectedRequirements.payTo, namedAgent(paymentRequired, selectedRequirements.network));
+    lastSellerCheck = await checkSeller(selectedRequirements.payTo, namedAgent(paymentRequired, selectedRequirements.network), selectedRequirements as { network: string; payTo: string; extra?: Record<string, unknown> });
     if (!lastSellerCheck.ok) return { abort: true as const, reason: summarize(lastSellerCheck) };
   });
   const fetchWithPay = wrapFetchWithPayment(fetch, client);
 
   return {
     address: buyer.address,
+    evmAddress: evmAccount?.address,
+    payNetwork,
     agentTokenId: buyerAgentId || undefined,
     payAsset,
     gateway,
@@ -89,9 +124,10 @@ export function createBuyerAgent() {
       const header = res.headers.get("PAYMENT-REQUIRED");
       if (res.status !== 402 || !header) throw new Error(`expected an x402 402 response from ${gateway}, got HTTP ${res.status}`);
       const pr = decodePaymentRequiredHeader(header);
-      const payTo = pr.accepts?.[0]?.payTo;
-      if (!payTo) throw new Error("402 response has no payTo");
-      return checkSeller(payTo, namedAgent(pr, pr.accepts[0].network));
+      // 看「我會用的那一種付款方式」的 payTo
+      const pick = pr.accepts?.find((a) => a.network === payNetwork) ?? pr.accepts?.[0];
+      if (!pick?.payTo) throw new Error("402 response has no payTo");
+      return checkSeller(pick.payTo, namedAgent(pr, pick.network), pick as { network: string; payTo: string; extra?: Record<string, unknown> });
     },
 
     /** 付款買一個訊號。回傳 HTTP 狀態、內容、付款交易（如果有付），以及付款前的賣方驗證 */
@@ -116,7 +152,7 @@ export function createBuyerAgent() {
         status: res.status,
         body,
         payment,
-        paymentExplorer: payment?.transaction ? getExplorerTxUrl(NETWORK, payment.transaction) : undefined,
+        paymentExplorer: payment?.transaction ? (payEvm ? `${NET.evm.explorer}/tx/${payment.transaction}` : getExplorerTxUrl(NETWORK, payment.transaction)) : undefined,
         needsVerification: !res.ok && text.includes("buyer_proof_required"),
         buyerAgentRefused: !res.ok && text.includes("buyer_agent_check_failed"),
         verifyUrl: `${gateway}/verify?account=${buyer.address}`,
