@@ -55,6 +55,13 @@
     <div id="demoOut"></div>
   </div>
 
+  <div class="card" id="guardCard">
+    <h2>Check another team's seller before paying</h2>
+    <p class="muted lead">The same checks our buyer runs, as a guard any x402 agent can wrap around its own client (<a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/gateway/src/guard.ts" target="_blank" rel="noopener">guard.ts</a>). This server calls the seller, reads whom it wants to be paid, and checks that seller on Concordium. Nothing is paid. Results are cached for a minute.</p>
+    <p id="guardButtons"></p>
+    <div id="guardOut"></div>
+  </div>
+
   <div class="grid">
     <div class="card metric"><div class="n" id="issued">–</div><div class="l">signals issued</div></div>
     <div class="card metric"><div class="n" id="scored">–</div><div class="l" id="scoredLabel">first reveal</div></div>
@@ -231,6 +238,31 @@
     }
   });
   demoStatus();
+
+  // "Check another team's seller": GET /guard/check/:id runs the guard on the server against a fixed list of sellers, no payment
+  async function guardPresets() {
+    try {
+      const list = await get("/guard/presets");
+      $("guardButtons").innerHTML = list.map((p, i) => `<button data-id="${esc(p.id)}" ${i === 0 ? 'class="primary"' : ""}>${esc(p.name)}</button>`).join(" ");
+      $("guardButtons").querySelectorAll("button").forEach((b) => (b.onclick = async () => {
+        $("guardButtons").querySelectorAll("button").forEach((x) => (x.disabled = true));
+        $("guardOut").innerHTML = '<p class="muted">Calling the seller and reading Concordium…</p>';
+        try {
+          const j = await get(`/guard/check/${encodeURIComponent(b.dataset.id)}`);
+          if (j.error) { $("guardOut").innerHTML = `<p class="bad">${esc(j.message || j.error)}</p>`; return; }
+          $("guardOut").innerHTML =
+            `<p class="small muted">${esc(j.name)} · ${esc(j.who)} · asks for ${esc(j.asks.asset === "CCD" ? `${Number(j.asks.amount) / 1e6} CCD` : `${j.asks.amount} ${j.asks.asset} (smallest unit)`)} to <span class="mono">${esc(String(j.asks.payTo).slice(0, 14))}…</span> · checked ${esc(j.checked_at)}</p>` +
+            `<ul class="checks">${j.checks.map((c) => step(c.ok, c.name, c.detail)).join("")}</ul>` +
+            `<p class="verdict ${j.ok ? "ok" : "bad"}">${j.ok ? "Would pay: every check passes." : "Would not pay: " + esc(j.summary.replace(/^refused to pay: /, ""))}</p>`;
+        } catch (e) {
+          $("guardOut").innerHTML = `<p class="bad">${esc(e.message)}</p>`;
+        } finally {
+          $("guardButtons").querySelectorAll("button").forEach((x) => (x.disabled = false));
+        }
+      }));
+    } catch (e) { $("guardCard").hidden = true; }
+  }
+  guardPresets();
 
   load();
 </script>

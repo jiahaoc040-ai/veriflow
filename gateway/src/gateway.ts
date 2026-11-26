@@ -34,6 +34,8 @@ import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
 import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.js";
+import { guardPresetRouter } from "./guard-presets.js";
+import { guardDeps } from "./guard-deps.js";
 import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
@@ -398,6 +400,11 @@ app.get("/.well-known/agent-card.json", limitRead, (_req, res) => res.type("appl
 // The demo buyer agent's Agent Card (its SHA-256 is pinned in CIS-8004, so the content must not change)
 const buyerCard = new URL("../../agents/buyer-agent-card.json", import.meta.url);
 app.get("/agents/buyer-agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(buyerCard.pathname, NO_CACHE_FILE));
+
+// "Check another team's seller": the guard on a fixed list of x402 sellers, no payment (guard-presets.ts)
+const limitGuard = rateLimit([{ limiter: new RateLimiter(20, MIN), key: ip, what: "per IP" }]);
+app.use("/guard", limitGuard);
+app.use(guardPresetRouter({ publicUrl: PUBLIC_URL, deps: guardDeps }));
 
 // Live demo button: our buyer agent #1478 buys one call from this seller, on the server (demo-buy.ts). Off unless a key file is configured
 const DEMO_KEY = process.env.DEMO_BUYER_KEY_FILE?.trim();

@@ -21,6 +21,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { wrapFetchWithPayment, type x402Client } from "@x402/fetch";
+import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { AGENT_EXTENSION, summarize as summarizeSeller, verifySeller, type RegistryCall, type SellerVerdict } from "./counterparty.js";
 import type { AgentOnChain } from "./registry-node.js";
 import type { Check } from "./verify.js";
@@ -179,4 +180,27 @@ export function protect(client: x402Client, deps: GuardDeps, policy: GuardPolicy
       }
     },
   };
+}
+
+/**
+ * No payment: ask an x402 endpoint what it wants to be paid, then check the seller behind the chosen option.
+ * `prefer` picks the payment option's network (default: the first Concordium option, else the first).
+ */
+export async function checkSellerAt(
+  url: string,
+  init: RequestInit,
+  deps: GuardDeps,
+  policy: GuardPolicy = {},
+  prefer?: string,
+): Promise<{ verdict: GuardVerdict; options: Requirement[]; picked: Requirement }> {
+  const f = deps.fetch ?? fetch;
+  const res = await f(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15_000) });
+  const header = res.headers.get("PAYMENT-REQUIRED");
+  if (res.status !== 402 || !header) throw new Error(`expected HTTP 402 with a PAYMENT-REQUIRED header from ${url}, got HTTP ${res.status}`);
+  const pr = decodePaymentRequiredHeader(header);
+  const options = (pr.accepts ?? []) as Requirement[];
+  const picked = prefer ? options.find((a) => a.network === prefer) : options.find((a) => a.network.startsWith("ccd:")) ?? options[0];
+  if (!picked) throw new Error(`no payment option${prefer ? ` on ${prefer}` : ""}`);
+  const verdict = await checkSellerFor({ origin: new URL(url).origin, req: picked, paymentRequired: pr }, deps, policy);
+  return { verdict, options, picked };
 }

@@ -134,9 +134,9 @@ test("launch command: absolute node + tsx loader URL + absolute mcp.ts, public g
   assert.ok(!JSON.stringify(e).includes("signKey"), "no key material in the config");
 });
 
-test("server starts from / with a minimal environment and lists the 6 tools with safety hints", async () => {
+test("server starts from / with a minimal environment and lists the 7 tools with safety hints", async () => {
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["check_eligibility", "check_seller", "get_signal", "get_track_record", "list_commitments", "verify_signal"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["check_any_seller", "check_eligibility", "check_seller", "get_signal", "get_track_record", "list_commitments", "verify_signal"]);
   for (const t of tools) assert.equal(t.annotations?.readOnlyHint, t.name !== "get_signal", t.name);
   assert.match(client.getInstructions() ?? "", /zero-knowledge/);
   assert.ok(stderr.includes(`veriflow MCP ready (buyer ${BUYER}, gateway ${gateway})`), stderr);
@@ -167,7 +167,13 @@ test("errors come back as tool errors, not crashes", async () => {
   assert.equal(unknown.isError, true);
   assert.match(text(unknown), /404/);
   // The server is still alive
-  assert.equal((await client.listTools()).tools.length, 6);
+  assert.equal((await client.listTools()).tools.length, 7);
+});
+
+test("check_any_seller checks only https sellers and never pays", async () => {
+  const r = await client.callTool({ name: "check_any_seller", arguments: { url: `${gateway}/signal/BTC` } });
+  assert.equal(r.isError, true);
+  assert.match(text(r), /Only https/);
 });
 
 test("stdout carries only MCP messages (nothing printed into the protocol stream)", () => {

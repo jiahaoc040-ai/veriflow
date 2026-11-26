@@ -13,11 +13,10 @@
 import { readFileSync } from "node:fs";
 import { x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
-import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { getExplorerTxUrl } from "@x402/concordium";
 import { NETWORK, env, loadAccount } from "./config.js";
 import { NET } from "./network.js";
-import { checkSellerFor, protect, summarize, type GuardPolicy, type GuardVerdict, type ReputationMode, type Requirement } from "./guard.js";
+import { checkSellerAt, protect, summarize, type GuardPolicy, type GuardVerdict, type ReputationMode, type Requirement } from "./guard.js";
 import { guardDeps } from "./guard-deps.js";
 
 const USAGE = "usage: npm run guard -- check|buy <url> [--method POST] [--json '<body>' | --json-file <path>] [--reputation off|advisory|block-no|require-go]";
@@ -49,25 +48,14 @@ function show(v: GuardVerdict) {
 }
 
 if (mode === "check") {
-  const res = await fetch(url, init);
-  const header = res.headers.get("PAYMENT-REQUIRED");
-  if (res.status !== 402 || !header) {
-    console.error(`expected HTTP 402 with a PAYMENT-REQUIRED header from ${url}, got HTTP ${res.status}`);
+  const { verdict, options, picked } = await checkSellerAt(url, init, deps, policy, opt("pay-network") ?? undefined).catch((e) => {
+    console.error(e instanceof Error ? e.message : String(e));
     process.exit(1);
-  }
-  const pr = decodePaymentRequiredHeader(header);
-  const options = (pr.accepts ?? []) as Requirement[];
-  console.log(`${url} asks for payment (x402 v${pr.x402Version}): ${options.map((a) => `${a.amount} ${a.asset} on ${a.network} to ${a.payTo}`).join(" | ")}`);
-  const want = opt("pay-network");
-  const pick = want ? options.find((a) => a.network === want) : options.find((a) => a.network === NETWORK) ?? options[0];
-  if (!pick) {
-    console.error(`no payment option${want ? ` on ${want}` : ""}`);
-    process.exit(1);
-  }
-  console.log(`checking the option on ${pick.network}`);
-  const v = await checkSellerFor({ origin: new URL(url).origin, req: pick, paymentRequired: pr }, deps, policy);
-  show(v);
-  process.exit(v.ok ? 0 : 1);
+  });
+  console.log(`${url} asks for payment: ${options.map((a) => `${a.amount} ${a.asset} on ${a.network} to ${a.payTo}`).join(" | ")}`);
+  console.log(`checking the option on ${picked.network}`);
+  show(verdict);
+  process.exit(verdict.ok ? 0 : 1);
 }
 
 // buy

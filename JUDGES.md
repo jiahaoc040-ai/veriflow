@@ -32,6 +32,8 @@ Run by the developer on 2026-11-26 with `npm run guard -- check <url>` (no walle
 | x402 Doctor, agent #5120 | **mainnet** | **all pass** | Its Base payout `0x6B0F…5F25` is derived from the external key on its own agent record and bound to its owner `45R4vB9J…` in CIS-8 `<10081,0>`, read from a mainnet node. No payment made |
 | vet402, agent #1268 (delivery records) | testnet | **refused at check 5** | Checks 1–4 pass, but its 402 asks to be paid at `3ZXiUAM8…`, while its on-chain `agentWallet` is `3spmVDgX…`. A buyer cannot tell from the chain that the money reaches this agent, so the guard does not pay. This says nothing bad about vet402; it is the check doing its job |
 
+Try it without a terminal: the [live site](https://veriflow-yrhp.onrender.com) has a **Check another team's seller** card that runs the guard on MainsMarker, vet402 and our own seller (no payment). In Claude Desktop, the MCP tool `check_any_seller` checks any x402 URL the same way.
+
 Check 6 is optional and comes from another team: vet402's free `/check` tells whether a seller delivered when it was paid. By default only a proven non-delivery blocks; it is off on mainnet because vet402 records testnet only. Try it yourself, no wallet: `cd gateway && npm ci && npm run guard -- check https://mainsmarker.sites.tab.bot/x402/review --json '{"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}'`.
 
 ## Who is who
