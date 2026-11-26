@@ -1,25 +1,4 @@
-remote: Enumerating objects: 27, done.
-remote: Counting objects: 100% (27/27), done.
-remote: Compressing objects: 100% (5/5), done.
-remote: Total 15 (delta 10), reused 15 (delta 10), pack-reused 0 (from 0)
-展開物件中: 100% (15/15), 3.21 KiB | 0 位元組/秒, 完成.
-來自 https://github.com/jiahaoc040-ai/veriflow
-   bc37014..d2a27d7  main          -> origin/main
-   0d19cc8..be0137e  score-reports -> origin/score-reports
-更新 bc37014..d2a27d7
-Fast-forward
- gateway/src/counterparty.ts |  5 +++--
- gateway/src/guard-deps.ts   | 26 ++++++++++++++++++++++++--
- gateway/src/guard.ts        |  2 +-
- gateway/test/guard.test.ts  |  9 +++++++++
- 4 files changed, 37 insertions(+), 5 deletions(-)
-
-added 248 packages, and audited 249 packages in 7s
-
-59 packages are looking for funding
-  run `npm fund` for details
-
-found 0 vulnerabilities
+# npm run guard -- check, run by the developer on 2026-11-26 (Asia/Taipei), testnet and mainnet. Unedited output.
 
 > guard
 > tsx src/guard-cli.ts check https://mainsmarker.sites.tab.bot/x402/review --json {"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}
