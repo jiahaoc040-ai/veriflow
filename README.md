@@ -9,13 +9,13 @@
 The reference seller sells a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, for 1 testnet CCD, 1 `hh-VFUSD` (our Protocol-Level Token test dollar, [paid here](https://ccdexplorer.io/testnet/transaction/ed2a9c298d875f7bb0f94aefa9499227304291c9a3f817d34b75416625f22e13)) or 0.01 USDC on Base, over x402. The product is the checks around it.
 
 ```ts
-import { protect, concordiumGuardDeps } from "concordium-x402-guard"; // packages/concordium-x402-guard
+import { protect, concordiumGuardDeps } from "concordium-x402-guard"; // npm install concordium-x402-guard
 const guarded = protect(client, concordiumGuardDeps({ network: "testnet" })); // wraps your existing @x402/fetch client; "mainnet" works too
 const { response, verdict } = await guarded.fetch("https://seller.example/x402/thing", { method: "POST", body });
 // verdict.checks: badge · Active in CIS-8004 · official badge check · card hash · payTo bound · (optional) delivery record
 ```
 
-Or from a terminal, against any seller: `cd gateway && npm ci && npm run guard -- check <url>` (no wallet), `npm run guard -- buy <url>` (pays only if every check passes).
+The package is on npm: <https://www.npmjs.com/package/concordium-x402-guard> (source in [`packages/concordium-x402-guard`](packages/concordium-x402-guard)). Or from a terminal, against any seller: `cd gateway && npm ci && npm run guard -- check <url>` (no wallet), `npm run guard -- buy <url>` (pays only if every check passes).
 
 **Demo video (3 min):** <https://youtu.be/UO6d-opQ56o>
 
