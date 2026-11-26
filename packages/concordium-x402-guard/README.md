@@ -62,7 +62,9 @@ The site the agent called is the one checked (never the 402's own `resource.url`
 
 - MainsMarker, agent #990 (testnet, another team): all checks pass; paid and received the service.
 - x402 Doctor, agent #5120 (**mainnet**): all checks pass, including its Base `payTo` bound in CIS-8 through its `external_reference`.
-- vet402, agent #1268 (testnet): refused at check 5, because its `payTo` is not its registered wallet.
+- Oracle Scout, agent #1253 (testnet, another team): all checks pass.
+- vet402, agent #1268, and its test sellers S2 and S3 (testnet): refused at check 5, because the `payTo` is not the registered wallet. S3 takes payment and returns nothing.
+- Clear to Pay (testnet): refused at check 1, no Agent Card on its site.
 
 Output of those runs: <https://github.com/jiahaoc040-ai/veriflow/tree/main/docs/evidence>.
 

@@ -1,0 +1,39 @@
+Seller guard on four more sellers we do not run, 2026-11-26 (Asia/Taipei evening)
+Read from the live site's "Check another team's seller" card: GET https://veriflow-yrhp.onrender.com/guard/check/<id>
+(the server runs `checkSellerAt` with no wallet; nothing is paid). Checked in a browser; long hashes cut at the same place in each line.
+
+## oraclescout   https://web-gilt-phi-11.vercel.app/api/packs/rehearsal-btc-150k   (402: 2 CCD on ccd:4221332d…)
+ok: true   agent #1253
+  ✓ 1 badge JyP9YD4TswwGeC8X8An8Z
+  ✓ 2 agent #1253, status Active, owner 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1 (read from a Concordium node)
+  ✓ 3 official badge check: 15 checks passed
+  ✓ 4 sha256 7498c8fc28bd4af1a094652077618b86540f1826e6a5f4a9f15ac4775c861193 vs on-chain 7498c8fc28bd4af1a094652077618b86540f1826e6a5f4a9f15ac4775c861193
+  ✓ 5 payTo 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1, on-chain agentWallet 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1
+  ✓ 6 vet402 delivery record: verdict "unproven" from 0 paid request(s) (does not block under the default "block-no")
+
+## cleartopay   https://cleartopay-concordium.vercel.app/api/preclear?escrow=13161&order=2   (402: 0.01 CCD to 44FcwcyG…)
+ok: false
+  ✗ 1 no badge in https://cleartopay-concordium.vercel.app/.well-known/agent-card.json (HTTP 404)
+  Its home page links a badge check (JyP9U25oUQ6KdnBBHdTYP), but the site serves no Agent Card, so nothing a buyer can read
+  ties this payment endpoint to that badge. Refused before anything else is read.
+
+## vet402-s2   https://vet402-concordium.fly.dev/s2/resource   (402: 0.01 CCD to 4iuMKkWL…)
+ok: false   agent #1268 (the Agent Card served at vet402-concordium.fly.dev)
+  ✓ 1 badge JyP9YVUgrLRC64hDXwZ94
+  ✓ 2 agent #1268, status Active, owner 3spmVDgXK75uWBycTY7kPF7XKqdJR9puqvSYyRtU5DAYDuhjSG (read from a Concordium node)
+  ✓ 3 official badge check: 15 checks passed
+  ✓ 4 sha256 88bdc6c70e7562005b70f8f27d0d3bfd6fc3f0e6fa3614… vs on-chain 88bdc6c70e7562005b70f8f27d0d3bfd6fc3f0e6fa3614…
+  ✗ 5 payTo 4iuMKkWLJSJo2LqKneemPoeNoSeUhTm8RckaXzfZ94De1Bi6Sc, on-chain agentWallet 3spmVDgXK75uWBycTY7kPF7XKqdJR9puqvSYyRtU5DAYDuhjSG
+
+## vet402-s3   https://vet402-concordium.fly.dev/s3/resource   (402: 0.01 CCD to 4not6An1…)
+Its own 402 description: "vet402 S3 demo seller: run by the vet402 operator, takes 0.01 CCD and, after the payment settles,
+returns HTTP 200 with an empty body (0 bytes). It does not deliver."
+ok: false   agent #1268
+  ✓ 1–4 as for S2
+  ✗ 5 payTo 4not6An1LB2UUTeQKRDgYHUdpFPVHZbSUtuWbMAVGRLPXTjsHx, on-chain agentWallet 3spmVDgXK75uWBycTY7kPF7XKqdJR9puqvSYyRtU5DAYDuhjSG
+  The seller that takes money and returns nothing was refused before any signature. S2 and S3 are registered as their own
+  agents (#1310, #1350 per vet402), but their 402s name no agent, so the only identity a buyer can read is the site's card (#1268),
+  whose wallet is not where S2/S3 ask to be paid.
+
+Same run from the developer's Mac (`npx tsx src/guard-cli.ts check <url>`) gave the same check 5 refusals for S2 and S3; that
+network could not reach the two vercel.app sites or the node's port 20000, which is why the table above is from the live site.

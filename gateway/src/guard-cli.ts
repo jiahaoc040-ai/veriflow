@@ -49,7 +49,9 @@ function show(v: GuardVerdict) {
 
 if (mode === "check") {
   const { verdict, options, picked } = await checkSellerAt(url, init, deps, policy, opt("pay-network") ?? undefined).catch((e) => {
-    console.error(e instanceof Error ? e.message : String(e));
+    // Node's fetch says only "fetch failed"; the reason (DNS, refused, TLS, timeout) is in error.cause
+    const why = (x: unknown): string => (x instanceof Error ? `${x.message}${x.cause ? ` (${why(x.cause)})` : ""}` : String(x));
+    console.error(`${url}: ${why(e)}`);
     process.exit(1);
   });
   const human = (a: Requirement) => (a.asset === "CCD" ? `${Number(a.amount) / 1e6} CCD` : `${a.amount} ${a.asset} (smallest unit)`);
