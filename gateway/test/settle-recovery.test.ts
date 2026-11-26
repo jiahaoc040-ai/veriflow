@@ -47,3 +47,32 @@ test("EVM recovery refuses reverted, wrong token, wrong payer, wrong payee, wron
   assert.equal((await paidOnEvm("abc", want, async () => { throw new Error("unused"); })).ok, false);
   assert.equal((await paidOnEvm("0x" + "ab".repeat(32), want, async () => { throw new Error("timeout"); })).ok, false);
 });
+
+import { matchesPayment, pltTransfersOf } from "../src/settle-recovery.ts";
+import { TokenAmount, TokenHolder, TokenId } from "@concordium/web-sdk/plt";
+
+// Shaped like the node's summary of tx 99310359…: 1.000000 hh-VFUSD from 19528 to 19394, a facilitator that reported "transaction not found"
+const pltSummary = (o: { token?: string; from?: string; to?: string; value?: bigint; type?: string } = {}) => ({
+  transactionType: o.type ?? "tokenUpdate",
+  events: [
+    { tag: "TokenTransfer", tokenId: TokenId.fromString(o.token ?? "hh-VFUSD"), from: TokenHolder.fromAccountAddress(AccountAddress.fromBase58(o.from ?? A)),
+      to: TokenHolder.fromAccountAddress(AccountAddress.fromBase58(o.to ?? B)), amount: TokenAmount.create(o.value ?? 1_000_000n, 6) },
+  ],
+});
+
+test("PLT recovery: a finalized token transfer of exactly this token and amount, payer → payTo, counts as paid", () => {
+  assert.deepEqual(pltTransfersOf(pltSummary()).map((t) => [t.tokenId, t.from, t.to, t.amount]), [["hh-VFUSD", A, B, 1_000_000n]]);
+  assert.deepEqual(matchesPayment(pltSummary(), A, B, "1000000", "hh-VFUSD"), { ok: true });
+});
+
+test("PLT recovery refuses another token, amount, payer, payee, or a non-token transaction", () => {
+  for (const [s, why] of [
+    [pltSummary({ token: "EUDemo" }), "token"],
+    [pltSummary({ value: 999_999n }), "amount"],
+    [pltSummary({ from: B }), "payer"],
+    [pltSummary({ to: A }), "payee"],
+    [pltSummary({ type: "transfer" }), "type"],
+  ] as const) assert.equal(matchesPayment(s, A, B, "1000000", "hh-VFUSD").ok, false, why);
+  // and CCD still works as before
+  assert.equal(matchesPayment({ sender: AccountAddress.fromBase58(A), transfer: { to: AccountAddress.fromBase58(B), amount: CcdAmount.fromMicroCcd(1_000_000n) } }, A, B, "1000000", "CCD").ok, true);
+});
