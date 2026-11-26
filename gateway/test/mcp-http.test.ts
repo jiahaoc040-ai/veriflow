@@ -28,7 +28,7 @@ before(async () => {
     if (req.url === "/track-record") return send(200, { issued: 4, signal_days: 2, scored: 0 });
     if (req.url === `/eligibility/${WALLET}`) return send(200, { eligible: true });
     if (req.url === "/signal/BTC") {
-      const required = { x402Version: 2, accepts: [{ scheme: "exact", network: "ccd:test", amount: "1000000", asset: "CCD", payTo: WALLET }] };
+      const required = { x402Version: 2, accepts: [{ scheme: "exact", network: "ccd:4221332d34e1694168c2a0c0b3fd0f27", amount: "1000000", asset: "CCD", payTo: WALLET }] };
       return send(402, {}, { "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(required)).toString("base64") });
     }
     send(404, { error: "not_found" });

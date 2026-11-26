@@ -46,8 +46,8 @@ function fakeGateway(): Promise<string> {
       // Unpaid: x402's 402, with the PAYMENT-REQUIRED header saying whom to pay
       const required = {
         x402Version: 2,
-        accepts: [{ scheme: "exact", network: "ccd:test", amount: "1000000", asset: "CCD", payTo: SELLER_WALLET }],
-        extensions: { "concordium-agent": { info: { network: "ccd:test", registry: "12802.0", badge: TOKEN, tokenId: "1313" } } },
+        accepts: [{ scheme: "exact", network: "ccd:4221332d34e1694168c2a0c0b3fd0f27", amount: "1000000", asset: "CCD", payTo: SELLER_WALLET }],
+        extensions: { "concordium-agent": { info: { network: "ccd:4221332d34e1694168c2a0c0b3fd0f27", registry: "12802.0", badge: TOKEN, tokenId: "1313" } } },
       };
       res.writeHead(402, { "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(required)).toString("base64") });
       return res.end("{}");

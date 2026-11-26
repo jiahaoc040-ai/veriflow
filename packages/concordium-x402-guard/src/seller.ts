@@ -15,6 +15,7 @@
  */
 import type { AgentOnChain } from "./agent-record.js";
 import { createHash } from "node:crypto";
+import { AccountAddress } from "@concordium/web-sdk";
 
 /** One named check with its outcome and the values it compared */
 export type Check = { name: string; ok: boolean; detail: string };
@@ -82,6 +83,8 @@ export async function verifySeller(opts: {
   expectBadge?: string;
   /** When payTo is not on Concordium (e.g. USDC on Base), this replaces the payTo = agentWallet check; it receives the owner and wallet read from the node */
   payToCheck?: (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] | undefined }) => Promise<Check>;
+  /** Tests only: allow an Agent Card at http://127.0.0.1 or http://localhost */
+  allowLocalHttpCards?: boolean;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
   const network = opts.network ?? "testnet";
@@ -155,19 +158,19 @@ export async function verifySeller(opts: {
     const failed = Object.entries(b?.checks ?? {}).filter(([, v]) => v === false).map(([k]) => k);
     checks.push({
       name: "official badge check passes (identity-verified owner)",
-      ok: b?.badge_valid === true,
-      detail: b?.badge_valid ? `${Object.keys(b.checks ?? {}).length} checks passed` : `failed: ${[...failed, ...((b?.issues ?? []) as unknown[]).map((i) => (typeof i === "string" ? i : (i as { field?: string; message?: string })?.message ? `${(i as { field?: string }).field ?? ""}: ${(i as { message: string }).message}` : JSON.stringify(i)))].join(", ") || "badge not valid"}`,
+      // Every sub-check must pass too, not only the summary flag
+      ok: b?.badge_valid === true && failed.length === 0,
+      detail: b?.badge_valid && failed.length === 0 ? `${Object.keys(b.checks ?? {}).length} checks passed` : `failed: ${[...failed, ...((b?.issues ?? []) as unknown[]).map((i) => (typeof i === "string" ? i : (i as { field?: string; message?: string })?.message ? `${(i as { field?: string }).field ?? ""}: ${(i as { message: string }).message}` : JSON.stringify(i)))].join(", ") || "badge not valid"}`,
     });
   } catch (e) {
     checks.push({ name: "official badge check passes (identity-verified owner)", ok: false, detail: `registry unreachable: ${err(e)}` });
   }
 
-  // 4. Download the card and hash it ourselves
+  // 4. Download the card and hash it ourselves (only for a record the node confirmed: never fetch an address from an unconfirmed record)
   try {
+    if (problems.length > 0) throw new Error("skipped: the agent record could not be confirmed (see check 2)");
     if (!rec.agent_uri) throw new Error("no agent_uri on-chain");
-    // https only (plain http allowed only for a local test server)
-    if (!/^https:\/\//.test(rec.agent_uri) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(rec.agent_uri))
-      throw new Error(`agent_uri is not https: ${rec.agent_uri.slice(0, 80)}`);
+    cardUrlAllowed(rec.agent_uri, opts.allowLocalHttpCards === true);
     const r = await f(rec.agent_uri, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const sha = createHash("sha256").update(await readCapped(r, MAX_CARD_BYTES)).digest("hex");
@@ -191,7 +194,8 @@ export async function verifySeller(opts: {
   }
   checks.push({
     name: "payTo is the agent's on-chain wallet",
-    ok: !!rec.agent_wallet && rec.agent_wallet === opts.payTo,
+    // Concordium account aliases (same first 29 bytes) are the same account
+    ok: !!rec.agent_wallet && sameAccountSafe(rec.agent_wallet, opts.payTo),
     detail: `payTo ${opts.payTo}, on-chain agentWallet ${rec.agent_wallet || "not set"}`,
   });
   return done();
@@ -203,4 +207,29 @@ export function summarize(v: SellerVerdict): string {
   return v.ok
     ? `seller verified: agent #${v.tokenId} (${v.tokenAddress}), owner ${v.owner}, ${v.checks[4]?.name.includes("CIS-8") ? "paying an EVM address bound to it in CIS-8" : "paying its on-chain wallet"}`
     : `refused to pay: ${bad.map((c) => `${c.name} — ${c.detail}`).join("; ")}`;
+}
+
+/**
+ * An Agent Card URL the buyer may fetch: https to a public host name or address. Loopback, private and link-local
+ * addresses written as literals are refused (a host name that resolves to one is not checked here).
+ */
+export function cardUrlAllowed(url: string, allowLocalHttp = false): void {
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Error(`agent_uri is not a URL: ${url.slice(0, 80)}`); }
+  const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const local = host === "localhost" || host.endsWith(".localhost") || /^127\./.test(host) || host === "::1";
+  if (allowLocalHttp && u.protocol === "http:" && local) return;
+  if (u.protocol !== "https:") throw new Error(`agent_uri is not https: ${url.slice(0, 80)}`);
+  const privateV4 = /^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(host);
+  const privateV6 = host.includes(":") && (host === "::1" || /^(fc|fd|fe8|fe9|fea|feb)/.test(host) || host.startsWith("::ffff:"));
+  if (local || privateV4 || privateV6) throw new Error(`agent_uri points at a local or private address: ${host}`);
+}
+
+/** Same Concordium account, aliases included; false for anything that is not an account address */
+export function sameAccountSafe(a: string, b: string): boolean {
+  try {
+    return Buffer.from(AccountAddress.fromBase58(a).decodedAddress).subarray(0, 29).equals(Buffer.from(AccountAddress.fromBase58(b).decodedAddress).subarray(0, 29));
+  } catch {
+    return false;
+  }
 }

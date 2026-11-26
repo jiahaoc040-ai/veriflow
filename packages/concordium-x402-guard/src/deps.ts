@@ -13,7 +13,23 @@ import type { Check, RegistryCall } from "./seller.js";
 
 export const DEFAULT_REGISTRY_MCP = "https://agent-registry-mcp.concordium.com/mcp";
 
-/** Call one tool of the hosted Agent Registry MCP service (JSON-RPC over HTTP) */
+/** Read a response body, refusing more than `max` bytes */
+async function textCapped(res: Response, max = 256 * 1024): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { await reader.cancel().catch(() => {}); throw new Error(`registry response over ${max} bytes`); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts).toString("utf8");
+}
+
+/** Call one tool of the hosted Agent Registry MCP service (JSON-RPC over HTTP). No redirects, a capped body, HTTP 429/5xx thrown as such */
 export function registryMcp(url = DEFAULT_REGISTRY_MCP, f: typeof fetch = fetch): RegistryCall {
   return async (name, args) => {
     const res = await f(url, {
@@ -21,8 +37,11 @@ export function registryMcp(url = DEFAULT_REGISTRY_MCP, f: typeof fetch = fetch)
       headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name, arguments: args } }),
       signal: AbortSignal.timeout(20_000),
+      redirect: "error",
     });
-    const text = await res.text();
+    if (res.status === 429 || res.status >= 500) { await res.body?.cancel().catch(() => {}); throw new HttpStatusError(res.status); }
+    if (!res.ok) { await res.body?.cancel().catch(() => {}); throw new Error(`${name}: registry answered HTTP ${res.status}`); }
+    const text = await textCapped(res);
     const jsonText = text.trim().startsWith("{") ? text : (text.match(/^data: (.*)$/m)?.[1] ?? text);
     const msg = JSON.parse(jsonText);
     if (msg.error) throw new Error(`${name}: ${JSON.stringify(msg.error)}`);
@@ -32,15 +51,38 @@ export function registryMcp(url = DEFAULT_REGISTRY_MCP, f: typeof fetch = fetch)
   };
 }
 
-const TRANSIENT = /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|EAI_AGAIN|UNAVAILABLE|DEADLINE_EXCEEDED|deadline|socket hang up|No connection established|\b(429|5\d\d)\b/i;
+/** A retryable HTTP answer (429 or 5xx) */
+export class HttpStatusError extends Error {
+  constructor(readonly status: number) { super(`HTTP ${status}`); }
+}
 
-/** Retry a read on a dropped connection or a 429, three tries in all; anything else is thrown at once */
-export async function retrying<T>(f: () => Promise<T>, tries = 3, waitMs = 1500): Promise<T> {
+/** Socket and gRPC failures that are worth another try. Matched on the error's code and message and on its cause (Node's fetch puts ECONNREFUSED etc. there) */
+const TRANSIENT_TEXT = /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|EAI_AGAIN|UND_ERR_\w+|UNAVAILABLE|DEADLINE_EXCEEDED|deadline|socket hang up|No connection established|aborted due to timeout|TimeoutError/i;
+
+export function isTransient(e: unknown): boolean {
+  if (e instanceof HttpStatusError) return true;
+  const parts: string[] = [];
+  let cur: unknown = e;
+  for (let depth = 0; cur && depth < 4; depth++) {
+    if (cur instanceof Error) parts.push(cur.name, cur.message);
+    else parts.push(String(cur));
+    const c = (cur as { code?: unknown }).code;
+    if (c !== undefined) parts.push(String(c));
+    // gRPC status 14 = UNAVAILABLE, 4 = DEADLINE_EXCEEDED
+    if (c === 14 || c === 4) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return TRANSIENT_TEXT.test(parts.join(" "));
+}
+
+/** Retry a read on a dropped connection, a timeout, a 429 or a 5xx, three tries in all; anything else is thrown at once. `onTransient` runs before each retry (e.g. to drop a dead connection) */
+export async function retrying<T>(f: () => Promise<T>, tries = 3, waitMs = 1500, onTransient?: () => void): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await f();
     } catch (e) {
-      if (i >= tries || !TRANSIENT.test(e instanceof Error ? `${e.message} ${(e as { code?: unknown }).code ?? ""}` : String(e))) throw e;
+      if (i >= tries || !isTransient(e)) throw e;
+      onTransient?.();
       await new Promise((r) => setTimeout(r, waitMs * i));
     }
   }
@@ -54,10 +96,26 @@ export type DepsOptions = {
   fetch?: typeof fetch;
 };
 
+/**
+ * Whom a CIS-8 binding may name: the agent's owner, or its agentWallet (the payout account the owner set on-chain;
+ * an operator may keep its EVM key under that account). Anything else is refused. Alias-aware.
+ */
+export function boundAs(bound: string, agent: { owner?: string; wallet?: string }): "owner" | "agentWallet" | undefined {
+  const same = (a: string, b: string) => { try { return sameAccount(a, b); } catch { return false; } };
+  if (agent.owner && same(bound, agent.owner)) return "owner";
+  if (agent.wallet && same(bound, agent.wallet)) return "agentWallet";
+  return undefined;
+}
+
 export function concordiumGuardDeps(o: DepsOptions = {}): GuardDeps {
-  const net = NETWORKS[o.network ?? "testnet"];
+  const name = o.network ?? "testnet";
+  if (!Object.prototype.hasOwnProperty.call(NETWORKS, name))
+    throw new Error(`concordiumGuardDeps: network must be "testnet" or "mainnet", got ${JSON.stringify(name)} (this is the Concordium network the checks read, not an x402 network id)`);
+  const net = NETWORKS[name as NetworkName];
   let client = o.grpc;
   const grpc = () => (client ??= new ConcordiumGRPCNodeClient(net.grpc.host, net.grpc.port, credentials.createSsl(), { timeout: 20_000 }));
+  // A dead channel is not dialed again: after a transient error the next try gets a new client (unless you passed your own)
+  const resetGrpc = () => { if (!o.grpc) client = undefined; };
   const registryAddr = ContractAddress.create(net.agentRegistry.index, net.agentRegistry.subindex);
   const cis8Addr = ContractAddress.create(net.cis8Registry.index, net.cis8Registry.subindex);
   const cis8Text = `<${net.cis8Registry.index},${net.cis8Registry.subindex}>`;
@@ -82,21 +140,24 @@ export function concordiumGuardDeps(o: DepsOptions = {}): GuardDeps {
         return { name, ok: false, detail: `the agent's external key is not a valid secp256k1 point: ${e instanceof Error ? e.message : e}` };
       }
     }
-    const read = (expectOwner: string) =>
-      checkEvmBinding({ address: req.payTo, publicKey: key.publicKey, namespace: req.network, expectOwner }, (k) => retrying(() => ownerOfKey(grpc(), cis8Addr, k)), sameAccount);
-    let r = agent.owner ? await read(agent.owner) : { ok: false as const, reason: "agent has no owner on-chain" };
-    if (!r.ok && agent.wallet && /is bound to/.test(r.reason)) r = await read(agent.wallet);
-    return { name, ok: r.ok, detail: r.ok ? `${req.payTo} is bound to ${r.owner} in CIS-8 ${cis8Text} (key from ${key.from})` : `${r.reason} (key from ${key.from})` };
+    // Read who the key is bound to, then require that account to be the agent's owner, or its agentWallet (the account the agent
+    // is paid into, which the owner set on-chain). Compared in code, never by matching an error message
+    const r = await checkEvmBinding({ address: req.payTo, publicKey: key.publicKey, namespace: req.network }, (k) => retrying(() => ownerOfKey(grpc(), cis8Addr, k), 3, 1500, resetGrpc), sameAccount);
+    if (!r.ok) return { name, ok: false, detail: `${r.reason} (key from ${key.from})` };
+    const as = boundAs(r.owner, agent);
+    if (!as) return { name, ok: false, detail: `${req.payTo} is bound to ${r.owner}, which is neither the agent's owner ${agent.owner ?? "(none)"} nor its agentWallet ${agent.wallet ?? "(none)"} (key from ${key.from})` };
+    return { name, ok: true, detail: `${req.payTo} is bound to ${r.owner} (the agent's ${as}) in CIS-8 ${cis8Text} (key from ${key.from})` };
   };
 
   return {
     registryNetwork: net.name,
     concordiumNetwork: net.caip2,
     registryAddress: `${net.agentRegistry.index}.${net.agentRegistry.subindex}`,
-    registry: (name, args) => retrying(() => call(name, args)),
-    readAgent: (id) => retrying(() => readAgent(grpc(), registryAddr, id)),
+    registry: (tool, args) => retrying(() => call(tool, args)),
+    readAgent: (id) => retrying(() => readAgent(grpc(), registryAddr, id), 3, 1500, resetGrpc),
     evmPayToCheck,
     isEvmNetwork: (n) => n.startsWith("eip155:"),
+    evmNetworks: [net.evmNetwork],
     fetch: o.fetch,
   };
 }

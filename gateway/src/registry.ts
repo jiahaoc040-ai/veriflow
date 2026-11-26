@@ -23,6 +23,7 @@
 import { NET, checkGenesis, txLink } from "./network.js";
 import { BlockHash } from "@concordium/web-sdk";
 import { createHash } from "node:crypto";
+import { readCapped } from "./counterparty.js";
 import {
   AccountAddress,
   CcdAmount,
@@ -49,8 +50,13 @@ export async function registryTool(name: string, args: Record<string, unknown>):
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
     body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name, arguments: args } }),
+    signal: AbortSignal.timeout(20_000),
+    redirect: "error",
   });
-  const text = await res.text();
+  // 429/5xx are retryable as such (retrying() matches "HTTP 5xx"); a body is read up to 256 KB
+  if (res.status === 429 || res.status >= 500) throw new Error(`${name}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`${name}: registry answered HTTP ${res.status}`);
+  const text = (await readCapped(res, 256 * 1024)).toString("utf8");
   // The server may answer with JSON or with SSE (data: {...})
   const jsonText = text.trim().startsWith("{") ? text : (text.match(/^data: (.*)$/m)?.[1] ?? text);
   const msg = JSON.parse(jsonText);

@@ -7,6 +7,7 @@ import { checkEvmBinding, EVM_KEY_TYPE, CIS8_REGISTRY } from "./cis8.js";
 import { isEvmNetwork } from "./evm-payer.js";
 import { sameAccount } from "./contract-v2.js";
 import { NETWORK } from "./config.js";
+import { NET } from "./network.js";
 import { isTransient } from "./grpc.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { REGISTRY_NETWORK, registryTool } from "./registry.js";
@@ -20,6 +21,17 @@ import type { GuardDeps, Requirement } from "./guard.js";
 export function uncompressed(hex: string): string {
   const h = hex.replace(/^0x/i, "").toLowerCase();
   return Buffer.from(secp256k1.ProjectivePoint.fromHex(h).toRawBytes(false)).toString("hex");
+}
+
+/**
+ * Whom a CIS-8 binding may name: the agent's owner, or its agentWallet (the payout account the owner set on-chain;
+ * an operator may keep its EVM key under that account). Anything else is refused. Alias-aware.
+ */
+export function boundAs(bound: string, agent: { owner?: string; wallet?: string }): "owner" | "agentWallet" | undefined {
+  const same = (a: string, b: string) => { try { return sameAccount(a, b); } catch { return false; } };
+  if (agent.owner && same(bound, agent.owner)) return "owner";
+  if (agent.wallet && same(bound, agent.wallet)) return "agentWallet";
+  return undefined;
 }
 
 export const cis8PayTo = (req: Requirement) => async (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] }) => {
@@ -44,10 +56,12 @@ export const cis8PayTo = (req: Requirement) => async (agent: { owner?: string; w
     try { pk = uncompressed(r.publicKey); } catch (e) { return { name, ok: false, detail: `the agent's external key is not a valid secp256k1 point: ${e instanceof Error ? e.message : e}` }; }
     key = { publicKey: pk, keyType: EVM_KEY_TYPE, from: "the agent's on-chain external_reference" };
   }
-  const read = (expectOwner: string) => checkEvmBinding({ address: req.payTo, publicKey: key.publicKey, namespace: req.network, keyType: key.keyType, expectOwner }, sameAccount);
-  let r = agent.owner ? await read(agent.owner) : { ok: false as const, reason: "agent has no owner on-chain" };
-  if (!r.ok && agent.wallet && /is bound to/.test(r.reason)) r = await read(agent.wallet);
-  return { name, ok: r.ok, detail: r.ok ? `${req.payTo} is bound to ${r.owner} in CIS-8 <${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}> (key from ${key.from})` : `${r.reason} (key from ${key.from})` };
+  // Who is the key bound to? Then require that account to be the agent's owner, or its agentWallet; compared in code
+  const r = await checkEvmBinding({ address: req.payTo, publicKey: key.publicKey, namespace: req.network, keyType: key.keyType }, sameAccount);
+  if (!r.ok) return { name, ok: false, detail: `${r.reason} (key from ${key.from})` };
+  const as = boundAs(r.owner, agent);
+  if (!as) return { name, ok: false, detail: `${req.payTo} is bound to ${r.owner}, which is neither the agent's owner ${agent.owner ?? "(none)"} nor its agentWallet ${agent.wallet ?? "(none)"} (key from ${key.from})` };
+  return { name, ok: true, detail: `${req.payTo} is bound to ${r.owner} (the agent's ${as}) in CIS-8 <${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}> (key from ${key.from})` };
 };
 
 /**
@@ -58,13 +72,28 @@ export function readAgentRetrying(id: string, tries = 3, read: (id: string) => P
   return retrying(() => read(id), tries);
 }
 
-export async function retrying<T>(f: () => Promise<T>, tries = 3): Promise<T> {
+/** Transient: a gRPC/socket failure (also when Node's fetch hides it in error.cause), a timeout, or an HTTP 429/5xx */
+export function transient(e: unknown): boolean {
+  const parts: string[] = [];
+  let cur: unknown = e;
+  for (let d = 0; cur && d < 4; d++) {
+    if (isTransient(cur)) return true;
+    if (cur instanceof Error) parts.push(cur.name, cur.message);
+    else parts.push(String(cur));
+    const c = (cur as { code?: unknown; status?: unknown }).code;
+    if (c !== undefined) parts.push(String(c));
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|EAI_AGAIN|UND_ERR_\w+|socket hang up|No connection established|aborted due to timeout|TimeoutError|^HTTP (429|5\d\d)$|\bHTTP (429|5\d\d)\b/i.test(parts.join(" "));
+}
+
+export async function retrying<T>(f: () => Promise<T>, tries = 3, waitMs = 1500): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await f();
     } catch (e) {
-      if (i >= tries || !(isTransient(e) || /\b(429|5\d\d)\b|No connection established/i.test(e instanceof Error ? e.message : String(e)))) throw e;
-      await new Promise((r) => setTimeout(r, 1500 * i));
+      if (i >= tries || !transient(e)) throw e;
+      await new Promise((r) => setTimeout(r, waitMs * i));
     }
   }
 }
@@ -79,5 +108,8 @@ export function guardDeps(): GuardDeps {
     readAgent: (id) => readAgentRetrying(id),
     evmPayToCheck: cis8PayTo,
     isEvmNetwork,
+    evmNetworks: [NET.evm.network],
+    // Tests run a local Agent Card server on http://127.0.0.1; a real deployment never sets this variable
+    allowLocalHttpCards: !!process.env.VERIFLOW_TEST_AGENT_RECORD,
   };
 }

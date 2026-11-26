@@ -6,10 +6,10 @@
  *   const { response, verdict } = await guarded.fetch(url, init);
  */
 export { protect, checkSellerFor, checkSellerAt, summarize, namedAgentOf, deliveryRecord, reputationPasses, DEFAULT_REPUTATION_URL } from "./guard.js";
-export type { GuardDeps, GuardPolicy, GuardVerdict, Requirement, ReputationMode, PaymentRequiredLike } from "./guard.js";
-export { verifySeller, badgeTokenAddress, BADGE_EXTENSION, AGENT_EXTENSION } from "./seller.js";
+export type { GuardDeps, GuardableClient, GuardPolicy, GuardVerdict, Requirement, ReputationMode, PaymentRequiredLike } from "./guard.js";
+export { verifySeller, badgeTokenAddress, cardUrlAllowed, sameAccountSafe, BADGE_EXTENSION, AGENT_EXTENSION } from "./seller.js";
 export type { Check, SellerVerdict, RegistryCall } from "./seller.js";
-export { concordiumGuardDeps, registryMcp, retrying, DEFAULT_REGISTRY_MCP } from "./deps.js";
+export { concordiumGuardDeps, registryMcp, retrying, isTransient, boundAs, HttpStatusError, DEFAULT_REGISTRY_MCP } from "./deps.js";
 export type { DepsOptions } from "./deps.js";
 export { NETWORKS } from "./networks.js";
 export type { ConcordiumNetwork, NetworkName } from "./networks.js";

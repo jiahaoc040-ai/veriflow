@@ -36,7 +36,10 @@ export function encodeExternalKey(k: ExternalKey): Buffer {
 /** Same key: same namespace and type, and for secp256k1 the same point in either form */
 export function sameExternalKey(got: ExternalKey, asked: ExternalKey): boolean {
   if (got.namespace !== asked.namespace) return false;
-  if (/^secp256k1/.test(got.keyType) && /^secp256k1/.test(asked.keyType)) {
+  // Only the two secp256k1 key types are compared as points; any other "secp256k1…" name is not one of them
+  const SECP = ["secp256k1-compressed", "secp256k1-uncompressed"];
+  if (SECP.includes(got.keyType) || SECP.includes(asked.keyType)) {
+    if (!SECP.includes(got.keyType) || !SECP.includes(asked.keyType)) return false;
     try { return compressed(got.publicKey).equals(compressed(asked.publicKey)); } catch { return false; }
   }
   return got.keyType === asked.keyType && got.publicKey.replace(/^0x/i, "").toLowerCase() === asked.publicKey.replace(/^0x/i, "").toLowerCase();

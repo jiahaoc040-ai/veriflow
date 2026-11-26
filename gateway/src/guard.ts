@@ -16,13 +16,14 @@
  *   6. (optional) an independent delivery record: vet402, another team's service, says whether the seller delivered when paid
  *
  * If a check fails the wallet is never asked to sign. Checks 1–5 fail closed: an unreachable node or registry means no payment.
- * Check 6 is a third party's opinion, not chain state, so the policy decides how much it counts (default: only a proven
- * non-delivery, verdict "no", blocks; "unproven" and an unreachable service do not).
+ * Check 6 is a third party's opinion, not chain state, so the policy decides how much it counts. Default on testnet "block-no":
+ * only a proven non-delivery (verdict "no") blocks; "unproven" or an unreachable service does NOT block, so check 6 is not
+ * fail-closed (use "require-go" for that). Default off on mainnet (the service records testnet only).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { wrapFetchWithPayment, type x402Client } from "@x402/fetch";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
-import { AGENT_EXTENSION, summarize as summarizeSeller, verifySeller, type RegistryCall, type SellerVerdict } from "./counterparty.js";
+import { AGENT_EXTENSION, readCapped, summarize as summarizeSeller, verifySeller, type RegistryCall, type SellerVerdict } from "./counterparty.js";
 import type { AgentOnChain } from "./registry-node.js";
 import type { Check } from "./verify.js";
 
@@ -53,6 +54,10 @@ export type GuardDeps = {
   /** EVM payTo: check that it is bound to the agent in CIS-8 (agent.ts supplies a node-backed version) */
   evmPayToCheck?: (req: Requirement) => (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] | undefined }) => Promise<Check>;
   isEvmNetwork?: (network: string) => boolean;
+  /** EVM networks a payout may be on (e.g. Base for this Concordium network); any other EVM network is refused */
+  evmNetworks?: string[];
+  /** Tests only: allow Agent Cards on http://127.0.0.1 */
+  allowLocalHttpCards?: boolean;
   fetch?: typeof fetch;
 };
 
@@ -74,12 +79,12 @@ export async function deliveryRecord(tokenId: string, base: string, f: typeof fe
   try {
     const r = await f(`${base.replace(/\/$/, "")}/check?agent=${encodeURIComponent(tokenId)}`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!r.ok) return { verdict: "unreachable", detail: `HTTP ${r.status}` };
-    const j = (await r.json()) as { vet402?: { verdict?: string; reason?: string; N?: number }; trust_summary?: { line?: string } };
-    const verdict = typeof j?.vet402?.verdict === "string" ? j.vet402.verdict : "unreadable";
+    const j = JSON.parse((await readCapped(r, 64 * 1024)).toString("utf8")) as { vet402?: { verdict?: string; reason?: string; N?: number }; trust_summary?: { line?: string } };
+    const verdict = typeof j?.vet402?.verdict === "string" ? j.vet402.verdict.trim().toLowerCase() : "unreadable";
     const why = j?.trust_summary?.line ?? j?.vet402?.reason ?? "";
     return { verdict, detail: `verdict "${verdict}"${typeof j?.vet402?.N === "number" ? ` from ${j.vet402.N} paid request(s)` : ""}${why ? `: ${why}` : ""}` };
   } catch (e) {
-    return { verdict: "unreachable", detail: e instanceof Error ? e.message : String(e) };
+    return { verdict: "unreachable", detail: `no usable answer from the delivery record service: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
@@ -101,6 +106,11 @@ export async function checkSellerFor(
 ): Promise<GuardVerdict> {
   const { origin, req } = target;
   const evm = deps.isEvmNetwork?.(req.network) ?? req.network.startsWith("eip155:");
+  // The payment must be on the network these checks read: a testnet agent proves nothing about a mainnet or other-chain payout
+  const wrongNetwork = evm
+    ? deps.evmNetworks && !deps.evmNetworks.includes(req.network) ? `this guard checks EVM payouts on ${deps.evmNetworks.join(", ")}, not ${req.network}` : undefined
+    : req.network !== deps.concordiumNetwork ? `this guard reads Concordium ${deps.registryNetwork} (${deps.concordiumNetwork}); the 402 asks for a payment on ${req.network}` : undefined;
+  if (wrongNetwork) return { origin, ok: false, payTo: req.payTo, checks: [{ name: "payment is on the network the guard checks", ok: false, detail: wrongNetwork }] };
   // The agent always lives on Concordium: when paying on EVM, the 402 names it on the Concordium network
   const named = namedAgentOf(target.paymentRequired, evm ? deps.concordiumNetwork : req.network, deps.registryAddress);
   if (named === "mismatch" || (named === "unnamed" && policy.requireNamedAgent)) {
@@ -130,6 +140,7 @@ export async function checkSellerFor(
     expectTokenId: named.includes("|") ? named.split("|")[0] : undefined,
     expectBadge: named.includes("|") ? named.split("|")[1] || undefined : undefined,
     payToCheck: evm ? deps.evmPayToCheck!(req) : undefined,
+    allowLocalHttpCards: deps.allowLocalHttpCards,
   });
   const out: GuardVerdict = { ...base, origin };
   // vet402 records testnet only: on another network its answer would be about a different agent with the same number
@@ -158,7 +169,10 @@ export function summarize(v: GuardVerdict): string {
  * Wrap an x402 client: every payment it would make through the returned fetch is checked first.
  * Payments attempted outside the guarded fetch (no known origin) are refused.
  */
-export function protect(client: x402Client, deps: GuardDeps, policy: GuardPolicy = {}, onVerdict?: (v: GuardVerdict) => void) {
+/** The part of an x402 client the guard needs (any @x402/fetch x402Client, ESM or CommonJS build) */
+export type GuardableClient = { onBeforePaymentCreation: (hook: (ctx: { paymentRequired: any; selectedRequirements: any }) => Promise<void | { abort: true; reason: string }>) => unknown };
+
+export function protect(client: GuardableClient, deps: GuardDeps, policy: GuardPolicy = {}, onVerdict?: (v: GuardVerdict) => void) {
   const als = new AsyncLocalStorage<{ origin: string; verdict?: GuardVerdict }>();
   client.onBeforePaymentCreation(async ({ selectedRequirements, paymentRequired }) => {
     const store = als.getStore();
@@ -167,7 +181,7 @@ export function protect(client: x402Client, deps: GuardDeps, policy: GuardPolicy
     onVerdict?.(store.verdict);
     if (!store.verdict.ok) return { abort: true as const, reason: summarize(store.verdict) };
   });
-  const paying = wrapFetchWithPayment(deps.fetch ?? fetch, client);
+  const paying = wrapFetchWithPayment(deps.fetch ?? fetch, client as unknown as x402Client);
   return {
     /** fetch that pays only checked sellers. Returns the response (if any), the verdict (if a payment was needed) and the error (if any) */
     async fetch(url: string, init?: RequestInit): Promise<{ response?: Response; verdict?: GuardVerdict; error?: unknown }> {
