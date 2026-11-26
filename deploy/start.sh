@@ -3,6 +3,7 @@
 #   FACILITATOR_KEY_JSON  contents of the sponsor/anchor account's .export file (testnet)
 #   SELLER_ADDRESS, GATEWAY_SECRET, DATABASE_URL (Postgres), PUBLIC_URL
 #   optional: REGISTRY_CONTRACT, RESTRICTED_COUNTRIES, PRICE_MICROCCD
+#   optional: DEMO_BUYER_KEY_JSON  contents of buyer agent #1478's .export file: turns on the site's "watch an agent buy" button
 set -eu
 
 : "${FACILITATOR_KEY_JSON:?set FACILITATOR_KEY_JSON (testnet .export contents) as a secret}"
@@ -13,6 +14,11 @@ set -eu
 umask 077
 printf '%s' "$FACILITATOR_KEY_JSON" > /app/gateway/keys/facilitator.export
 export FACILITATOR_KEY_FILE=/app/gateway/keys/facilitator.export
+if [ -n "${DEMO_BUYER_KEY_JSON:-}" ]; then
+  printf '%s' "$DEMO_BUYER_KEY_JSON" > /app/gateway/keys/demo-buyer.export
+  export DEMO_BUYER_KEY_FILE=/app/gateway/keys/demo-buyer.export
+  unset DEMO_BUYER_KEY_JSON
+fi
 export GATEWAY_PORT="${PORT:-7860}"
 
 cd /app
