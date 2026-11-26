@@ -39,12 +39,20 @@
 <body>
 <main>
   <h1>VeriFlow</h1>
-  <p class="tag">Crypto risk-regime signals for AI agents — sold over x402 only to verified buyers, with a track record anyone can check on Concordium.</p>
+  <p class="tag">Trust checks for AI agents that pay each other, on Concordium. This is the reference seller: agent #1313 sells a daily BTC or ETH call (<code>RISK_ON</code> / <code>RISK_OFF</code>) for 1 testnet CCD over x402, only to verified buyers, and commits every call on-chain before its outcome.</p>
 
   <div class="badges" id="badges">
     <a class="badge" href="/verify">Buyer verification (Verify &amp; Access V1)</a>
     <a class="badge" id="badge" href="https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC" target="_blank" rel="noopener">Verified by Concordium · agent #1313</a>
     <a class="badge" href="https://github.com/jiahaoc040-ai/veriflow" target="_blank" rel="noopener">Source &amp; MCP server</a>
+  </div>
+
+
+  <div class="card" id="demo" hidden>
+    <h2>Watch an agent buy one call</h2>
+    <p class="muted lead">Our buyer agent <b>#1478</b> runs on this server. It checks this seller, agent <b>#1313</b>, on Concordium before signing anything, pays 1 testnet CCD over x402, and the seller checks it back. You pay nothing. Then your browser checks the call it bought against the chain. <span id="demoLeft"></span></p>
+    <p><button class="primary" data-asset="BTC">Buy a BTC call</button> <button data-asset="ETH">Buy an ETH call</button></p>
+    <div id="demoOut"></div>
   </div>
 
   <div class="grid">
@@ -180,6 +188,48 @@
     const onchain = await get(`/onchain/${match.anchor_tx}`);
     $("pastedOut").innerHTML = `<p class="mono"><a href="${EXPLORER}${esc(match.anchor_tx)}" target="_blank" rel="noopener">${esc(match.anchor_tx)}</a></p>` + render(await check(h, onchain, text));
   };
+
+  // Live demo: POST /demo/buy runs our buyer agent on the server; every step it reports is shown, then the call is checked here
+  async function demoStatus() {
+    try {
+      const st = await get("/demo/status");
+      if (!st.enabled) return;
+      $("demo").hidden = false;
+      $("demoLeft").textContent = `(${st.left_today} of ${st.daily_limit} demo purchases left today, UTC.)`;
+    } catch (e) { /* demo stays hidden */ }
+  }
+  const step = (ok, text, detail) => `<li class="${ok === null ? "muted" : ok ? "ok" : "bad"}">${ok === null ? "…" : ok ? "✅" : "❌"} ${esc(text)}${detail ? ` <span class="muted mono">${esc(String(detail).slice(0, 140))}</span>` : ""}</li>`;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  document.querySelectorAll("#demo button").forEach((b) => b.onclick = async () => {
+    const asset = b.dataset.asset;
+    document.querySelectorAll("#demo button").forEach((x) => (x.disabled = true));
+    const out = $("demoOut");
+    out.innerHTML = `<ul class="checks">${step(null, `Agent #1478 asks for the ${asset} call, gets HTTP 402, and checks the seller on Concordium before signing…`)}</ul>`;
+    try {
+      const r = await fetch("/demo/buy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ asset }) });
+      const j = await r.json();
+      if (!r.ok) { out.innerHTML = `<p class="bad">${esc(j.message || j.error || ("HTTP " + r.status))}</p>`; return; }
+      const lines = [];
+      const show = () => (out.innerHTML = `<ul class="checks">${lines.join("")}</ul>`);
+      lines.push(step(true, `Buyer: agent #${j.buyer.agent}, account ${j.buyer.account.slice(0, 8)}…`)); show();
+      for (const c of (j.seller_check ? j.seller_check.checks : [])) { await sleep(350); lines.push(step(c.ok, c.name, c.detail)); show(); }
+      await sleep(350);
+      if (j.refused || !j.seller_check || !j.seller_check.ok) { lines.push(step(false, "Seller failed a check: nothing was signed or paid")); show(); return; }
+      if (j.seller_checked_buyer) { lines.push(step(true, `The seller checked us back: agent #${j.seller_checked_buyer.token_id}`, j.seller_checked_buyer.checked)); show(); await sleep(350); }
+      if (j.status !== 200) { lines.push(step(false, `Seller answered HTTP ${j.status}`, j.error)); show(); return; }
+      lines.push(`<li class="ok">✅ Paid 1 testnet CCD: <a class="mono" href="${esc(j.payment_tx)}" target="_blank" rel="noopener">payment transaction</a></li>`); show(); await sleep(350);
+      lines.push(`<li class="ok">✅ Received the call: <span class="mono">${esc(j.canonical)}</span></li>`); show(); await sleep(350);
+      lines.push(`<li class="muted">Now your browser checks it: SHA-256 of the call, the commit transaction on Concordium, and when it was committed…</li>`); show();
+      const onchain = await get(`/onchain/${j.anchor_tx}`);
+      out.innerHTML = `<ul class="checks">${lines.slice(0, -1).join("")}</ul><p class="mono small">Committed in <a href="${esc(j.commit_tx_url)}" target="_blank" rel="noopener">${esc(j.anchor_tx)}</a></p>` + render(await check(j.commitment, onchain, j.canonical));
+      $("demoLeft").textContent = `(${j.left_today} demo purchases left today, UTC.)`;
+    } catch (e) {
+      out.innerHTML = `<p class="bad">${esc(e.message)}</p>`;
+    } finally {
+      document.querySelectorAll("#demo button").forEach((x) => (x.disabled = false));
+    }
+  });
+  demoStatus();
 
   load();
 </script>

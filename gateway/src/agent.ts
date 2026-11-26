@@ -20,13 +20,14 @@ import type { SellerVerdict } from "./counterparty.js";
 import { checkSellerFor, summarize, type GuardPolicy, type GuardVerdict, type PaymentRequiredLike, type ReputationMode, type Requirement } from "./guard.js";
 import { guardDeps } from "./guard-deps.js";
 
-export function createBuyerAgent() {
-  const buyer = loadAccount(env("BUYER_KEY_FILE"));
-  const gateway = env("GATEWAY_URL", PUBLIC_GATEWAY);
+/** Options override the environment: the live site's demo button uses its own key file, agent id and CCD only */
+export function createBuyerAgent(opts: { keyFile?: string; gateway?: string; agentTokenId?: string; ccdOnly?: boolean } = {}) {
+  const buyer = loadAccount(opts.keyFile ?? env("BUYER_KEY_FILE"));
+  const gateway = opts.gateway ?? env("GATEWAY_URL", PUBLIC_GATEWAY);
   // Which asset to pay in: CCD by default; BUYER_PAY_ASSET=VFUSD (etc.) pays in that Protocol-Level Token (cap BUYER_MAX_PAY, smallest unit)
   // BUYER_PAY_NETWORK=evm: pay in USDC on Base (testnet = Base Sepolia); the EVM key is in BUYER_EVM_KEY_FILE (create with npm run cis8 -- keygen)
-  const payEvm = (process.env.BUYER_PAY_NETWORK ?? "").trim().toLowerCase() === "evm";
-  const payAsset = payEvm ? "USDC" : (process.env.BUYER_PAY_ASSET ?? "CCD").trim() || "CCD";
+  const payEvm = !opts.ccdOnly && (process.env.BUYER_PAY_NETWORK ?? "").trim().toLowerCase() === "evm";
+  const payAsset = payEvm ? "USDC" : opts.ccdOnly ? "CCD" : (process.env.BUYER_PAY_ASSET ?? "CCD").trim() || "CCD";
   if (!/^[A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]$/.test(payAsset)) throw new Error("BUYER_PAY_ASSET must be CCD or a PLT token id");
   // Caps are in the smallest unit: microCCD for CCD; USDC has 6 decimals (default 20000 = 0.02 USDC)
   const maxPay = payEvm ? env("BUYER_MAX_PAY", "20000") : payAsset === "CCD" ? env("MAX_PAY_MICROCCD", "2000000") : env("BUYER_MAX_PAY", "2000000");
@@ -43,7 +44,7 @@ export function createBuyerAgent() {
   });
   const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
   // The buyer's own CIS-8004 agent (optional). The seller checks from a node that the paying account is its agentWallet
-  const buyerAgentId = (process.env.BUYER_AGENT_TOKEN_ID ?? "").trim();
+  const buyerAgentId = (opts.agentTokenId ?? process.env.BUYER_AGENT_TOKEN_ID ?? "").trim();
   if (buyerAgentId && !/^\d{1,20}$/.test(buyerAgentId)) throw new Error("BUYER_AGENT_TOKEN_ID must be a CIS-8004 token id (digits)");
   const agentHeaders: Record<string, string> = buyerAgentId ? { "X-Concordium-Agent": buyerAgentId } : {};
   let lastSellerCheck: GuardVerdict | undefined;

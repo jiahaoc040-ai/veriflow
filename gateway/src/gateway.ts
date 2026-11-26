@@ -33,6 +33,7 @@ import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
+import { demoBuyRouter, demoDisabledRouter } from "./demo-buy.js";
 import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
@@ -397,6 +398,18 @@ app.get("/.well-known/agent-card.json", limitRead, (_req, res) => res.type("appl
 // The demo buyer agent's Agent Card (its SHA-256 is pinned in CIS-8004, so the content must not change)
 const buyerCard = new URL("../../agents/buyer-agent-card.json", import.meta.url);
 app.get("/agents/buyer-agent-card.json", limitRead, (_req, res) => res.type("application/json").sendFile(buyerCard.pathname, NO_CACHE_FILE));
+
+// Live demo button: our buyer agent #1478 buys one call from this seller, on the server (demo-buy.ts). Off unless a key file is configured
+const DEMO_KEY = process.env.DEMO_BUYER_KEY_FILE?.trim();
+app.use(
+  DEMO_KEY
+    ? demoBuyRouter({
+        makeAgent: async () => (await import("./agent.js")).createBuyerAgent({ keyFile: DEMO_KEY, gateway: PUBLIC_URL, agentTokenId: env("DEMO_BUYER_AGENT", "1478"), ccdOnly: true }),
+        dailyLimit: Number(env("DEMO_DAILY_LIMIT", "20")),
+        perIpPerHour: Number(env("DEMO_PER_IP_PER_HOUR", "3")),
+      })
+    : demoDisabledRouter(),
+);
 
 app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
   try {
