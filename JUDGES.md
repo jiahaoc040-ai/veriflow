@@ -14,6 +14,7 @@ Our own seller is the reference for the last two: it sells a BTC or ETH call, `R
 
 | Open | You will see | It shows |
 |---|---|---|
+| [the live site](https://veriflow-yrhp.onrender.com) → **Buy a BTC call** | Our buyer agent #1478, running on the server, checks seller #1313 (each check listed), pays 1 testnet CCD, gets checked back, and your browser then verifies the call against the chain: "Verified" | The whole loop in one click, no wallet. Limited to 20 demo purchases a day (free-tier host: the first load can take about 30 seconds) |
 | [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1) | "Transferred Ͼ1 from 19836 to 19394", sponsor 19003 | A buyer outside the team (account 19836) paid seller agent #1313's wallet (19394); Concordium's facilitator (19003) paid the fee. Their report: [issue #13](https://github.com/jiahaoc040-ai/veriflow/issues/13). |
 | [`29ef60c5…` on CCDScan](https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=29ef60c50e0a1b1a8103c427c218f3f589b9f9b078982008b983b4a9c1e1c5f2) | "Rejected … `veriflow_registry_v2.commit` of contract <13115, 0>, **Error code: -11**" | Our contract refused a second call for a day that already had one. −11 is `SlotTaken` (the 11th variant of `Error` in [`contract-v2/src/lib.rs`](contract-v2/src/lib.rs)). |
 | [`ce062332…` on CCDScan](https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=ce0623322833d6d0d6d5a2891ff7f65ca46b18b45f491483850f4419136047c6) | Same contract, **Error code: -10** | It refused a call sent three days after its close. −10 is `OutsideCommitWindow`. |
@@ -67,7 +68,7 @@ Every payment to #1313's wallet (19394) as of 2026-11-26, from [its account page
 
 | From | Count | Who |
 |---|---|---|
-| 19528 | 16 | Our own buyer agent #1478: development, tests and demos. These prove the mechanism, not demand |
+| 19528 | 16 | Our own buyer agent #1478: development, tests and demos. These prove the mechanism, not demand. Purchases from the live site's demo button (since 2026-11-26) also come from #1478 and add to this row |
 | 19836 | 1 | A friend of the developer, new to Concordium, on Windows with their own identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1). They reported two bugs and nine unclear steps in [issue #13](https://github.com/jiahaoc040-ai/veriflow/issues/13); all were fixed the same evening |
 | 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: not ours. The account works with another builder's payment contract (`payment_intents` [`<13147,0>`](https://ccdexplorer.io/testnet/contract/13147/0), created by 19762) and the EUDemo token, so it looks like another hackathon developer testing against VeriFlow. We do not know who it is |
 
