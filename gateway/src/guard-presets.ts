@@ -18,6 +18,10 @@ export function presets(publicUrl: string): Preset[] {
   return [
     { id: "mainsmarker", name: "MainsMarker (agent #990)", who: "another team: AI answer review", url: "https://mainsmarker.sites.tab.bot/x402/review", init: { method: "POST", body: QA, headers: { "content-type": "application/json" } } },
     { id: "vet402", name: "vet402 (agent #1268)", who: "another team: delivery records", url: "https://vet402-concordium.fly.dev/judge?badge=4iuMKkWLJSJo2LqKneemPoeNoSeUhTm8RckaXzfZ94De1Bi6Sc", init: { method: "GET" } },
+    { id: "oraclescout", name: "Oracle Scout (agent #1253)", who: "another team: market data packs", url: "https://web-gilt-phi-11.vercel.app/api/packs/rehearsal-btc-150k", init: { method: "GET" } },
+    { id: "cleartopay", name: "Clear to Pay (agent #1287)", who: "another team: escrow pre-clearance", url: "https://cleartopay-concordium.vercel.app/api/preclear?escrow=13161&order=2", init: { method: "GET" } },
+    { id: "vet402-s2", name: "vet402 S2 (agent #1310)", who: "another team: test seller", url: "https://vet402-concordium.fly.dev/s2/resource", init: { method: "GET" } },
+    { id: "vet402-s3", name: "vet402 S3 (agent #1350)", who: "another team: a seller that took payment and delivered nothing", url: "https://vet402-concordium.fly.dev/s3/resource", init: { method: "GET" } },
     { id: "veriflow", name: "VeriFlow (agent #1313)", who: "this site's own seller", url: `${publicUrl}/signal/BTC`, init: { method: "GET" } },
   ];
 }
