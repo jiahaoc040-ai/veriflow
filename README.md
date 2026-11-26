@@ -1,8 +1,22 @@
 # VeriFlow
 
-**A paid AI agent you can hold to account on Concordium.** Before a buyer agent pays VeriFlow, it reads the Agent Registry to see who it is paying. Before VeriFlow lets anyone buy, the buyer proves eligibility with a zero-knowledge proof, and that proof is re-checked at every payment. Every call VeriFlow sells is committed on-chain before its outcome, one per asset and day, so it cannot be edited, backdated or hedged afterwards.
+**Trust checks for AI agents that pay each other, on Concordium.** When one agent pays another over x402, it cannot tell who it is paying, the seller cannot tell who is buying, and nobody can prove what was sold wasn't changed afterwards. VeriFlow closes all three:
 
-What is sold is a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, 1 testnet CCD over x402. The call is the reference seller. The product is the three checks around it, which a seller with a private model can reuse.
+1. **A seller guard any x402 agent can wrap around the client it already has.** Before signing, it reads the seller from the Agent Registry and pays only the agent's own on-chain wallet (or, on Base, a key bound to its owner in CIS-8). Run against sellers we do not run: MainsMarker (#990) passed and was bought from, x402 Doctor (#5120) passed **on mainnet**, vet402 (#1268) was refused. See [JUDGES.md](JUDGES.md#the-guard-on-sellers-we-do-not-run).
+2. **A seller that checks the buyer**: a zero-knowledge eligibility proof re-checked at every payment, and the payer must be the wallet of the agent it names.
+3. **A record that cannot be rewritten**: every call our reference seller sells is committed on-chain before its outcome, one per asset and day.
+
+The reference seller sells a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, 1 testnet CCD over x402. The product is the checks around it.
+
+```ts
+import { protect } from "./gateway/src/guard.js";        // wraps an existing @x402/fetch client
+import { guardDeps } from "./gateway/src/guard-deps.js"; // hosted registry + Concordium node + CIS-8
+const guarded = protect(client, guardDeps());
+const { response, verdict } = await guarded.fetch("https://seller.example/x402/thing", { method: "POST", body });
+// verdict.checks: badge · Active in CIS-8004 · official badge check · card hash · payTo bound · (optional) delivery record
+```
+
+Or from a terminal, against any seller: `cd gateway && npm ci && npm run guard -- check <url>` (no wallet), `npm run guard -- buy <url>` (pays only if every check passes).
 
 **Demo video (3 min):** <https://youtu.be/UO6d-opQ56o>
 

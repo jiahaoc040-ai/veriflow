@@ -2,11 +2,11 @@
 
 **When one AI agent pays another, it cannot tell who it is paying, the seller cannot tell who is buying, and nobody can prove what was sold wasn't changed afterwards. VeriFlow closes all three with Concordium, and every claim on this page is a transaction you can open.**
 
-- **The buyer checks the seller before signing.** It reads the seller from the Concordium Agent Registry and pays only if the payout address is that agent's own on-chain wallet. A copycat seller with a stolen card and badge is refused before any signature.
+- **Any x402 agent can check the seller before it signs.** `protect(client)` wraps the `@x402/fetch` client an agent already has ([`guard.ts`](gateway/src/guard.ts)). It reads the seller from the Concordium Agent Registry and pays only if the payout address is that agent's own on-chain wallet, or, for a USDC payout on Base, a key bound to the agent's owner in CIS-8. A copycat seller with a stolen card and badge is refused before any signature. **We ran it on three sellers we do not run** ([below](#the-guard-on-sellers-we-do-not-run)): it passed MainsMarker (#990, another team) and bought from it, passed x402 Doctor (#5120) **on mainnet** including its Base payout, and refused vet402 (#1268), whose payout address is not its registered wallet.
 - **The seller checks the buyer before settling.** A zero-knowledge proof (18+, not in a restricted country, nothing else revealed) is re-checked at every payment, and the payer must be the wallet of the agent it claims to be.
 - **What was sold cannot be rewritten.** Each call is committed on-chain before its outcome, one per asset per day, under a scoring rule registered before the first commit.
 
-What is sold, as a reference: a BTC or ETH call, `RISK_ON` or `RISK_OFF`, from Binance's 30-day momentum, for 1 testnet CCD (or 0.01 USDC on Base) over x402. The rule is deliberately simple and public. The product is the checks around it, which any x402 seller or buyer can reuse.
+Our own seller is the reference for the last two: it sells a BTC or ETH call, `RISK_ON` or `RISK_OFF`, from Binance's 30-day momentum, for 1 testnet CCD (or 0.01 USDC on Base) over x402. The rule is deliberately simple and public. The product is the checks around it.
 
 **Demo video (3 min): <https://youtu.be/UO6d-opQ56o>** · Live on testnet: <https://veriflow-yrhp.onrender.com> · Code (MIT): this repo
 
@@ -20,6 +20,18 @@ What is sold, as a reference: a BTC or ETH call, `RISK_ON` or `RISK_OFF`, from B
 | [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) then [`6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) | 2026-11-22 **07:06:10**, then **07:33:20** | The scoring rule was registered before the committer, the only account that can commit, even existed. The first page's data is hex; it decodes to `veriflow:scoring:v2:13115:08e3b49e…:6c862bfe…:babc11e5…` (contract, module, SHA-256 of [SCORING-v2.md](docs/SCORING-v2.md), SHA-256 of [score-v2.ts](gateway/src/score-v2.ts)). |
 
 CCDExplorer does not show a contract's reject code, which is why the two rejections link to CCDScan. CCDScan shows your local time; CCDExplorer shows UTC.
+
+## The guard on sellers we do not run
+
+Run by the developer on 2026-11-26 with `npm run guard -- check <url>` (no wallet, pays nothing) and once with `buy`. Unedited output: [checks](docs/evidence/guard-2026-11-26-checks.txt), [purchase](docs/evidence/guard-2026-11-26-buy-mainsmarker.txt).
+
+| Seller (not ours) | Network | Result | Why |
+|---|---|---|---|
+| MainsMarker, agent #990 (AI answer review) | testnet | **6/6 pass, then bought** | Badge, Active, official check, card hash, `payTo` = its on-chain wallet, and vet402's delivery record says it delivered. Our buyer #1478 paid 0.5 CCD and got the review: [`e8db49aa…`](https://ccdexplorer.io/testnet/transaction/e8db49aae07b4b7a40886ba7d142bbd639b9c047e0856048a1163c377ea301fd) ("Transferred Ͼ0.5 from 19528 to 19330", 19330 = #990's wallet `4J2SFgeV…`; sponsor 19329 is MainsMarker's own facilitator) |
+| x402 Doctor, agent #5120 | **mainnet** | **all pass** | Its Base payout `0x6B0F…5F25` is derived from the external key on its own agent record and bound to its owner `45R4vB9J…` in CIS-8 `<10081,0>`, read from a mainnet node. No payment made |
+| vet402, agent #1268 (delivery records) | testnet | **refused at check 5** | Checks 1–4 pass, but its 402 asks to be paid at `3ZXiUAM8…`, while its on-chain `agentWallet` is `3spmVDgX…`. A buyer cannot tell from the chain that the money reaches this agent, so the guard does not pay. This says nothing bad about vet402; it is the check doing its job |
+
+Check 6 is optional and comes from another team: vet402's free `/check` tells whether a seller delivered when it was paid. By default only a proven non-delivery blocks; it is off on mainnet because vet402 records testnet only. Try it yourself, no wallet: `cd gateway && npm ci && npm run guard -- check https://mainsmarker.sites.tab.bot/x402/review --json '{"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}'`.
 
 ## Who is who
 
@@ -59,7 +71,7 @@ Every payment to #1313's wallet (19394) as of 2026-11-26, from [its account page
 | 19836 | 1 | A friend of the developer, new to Concordium, on Windows with their own identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1). They reported two bugs and nine unclear steps in [issue #13](https://github.com/jiahaoc040-ai/veriflow/issues/13); all were fixed the same evening |
 | 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: not ours. The account works with another builder's payment contract (`payment_intents` [`<13147,0>`](https://ccdexplorer.io/testnet/contract/13147/0), created by 19762) and the EUDemo token, so it looks like another hackathon developer testing against VeriFlow. We do not know who it is |
 
-Plus one USDC purchase on Base by #1478 (above).
+Plus one USDC purchase on Base by #1478 (above). In the other direction, our buyer #1478 bought once from another team's agent (MainsMarker #990, [above](#the-guard-on-sellers-we-do-not-run)).
 
 ## The same checks across mainnet
 
