@@ -68,7 +68,8 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (e) {
-      if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: errText(e) }, id: null });
+      console.error("mcp:", e);
+      if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "internal error" }, id: null });
     }
   });
   // Stateless: no SSE stream and no session termination

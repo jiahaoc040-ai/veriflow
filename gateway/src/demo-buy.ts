@@ -9,8 +9,9 @@
  * per visitor (default 3) and DEMO_DAILY_LIMIT per UTC day for the whole site (default 20). The buyer's balance bounds the rest.
  */
 import express from "express";
-import { RateLimiter } from "./security.js";
+import { RateLimiter, scrubDetail } from "./security.js";
 import { NET } from "./network.js";
+import { pgSsl } from "./once.js";
 
 type Agent = {
   address: string;
@@ -54,7 +55,7 @@ export function postgresCounter(url: string): DailyCounter {
   const db = async () => {
     if (!pool) {
       const { default: pg } = await import("pg");
-      pool = new pg.Pool({ connectionString: url, max: 2, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
+      pool = new pg.Pool({ connectionString: url, max: 2, ssl: pgSsl(url) });
       await pool.query("CREATE TABLE IF NOT EXISTS demo_buys (day TEXT PRIMARY KEY, n INTEGER NOT NULL)");
     }
     return pool;
@@ -130,7 +131,7 @@ export function demoBuyRouter(o: DemoOptions) {
       const body = (b.body && typeof b.body === "object" ? b.body : {}) as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string } };
       res.json({
         buyer: { account: agent.address, agent: agent.agentTokenId },
-        seller_check: b.sellerCheck ? { ok: b.sellerCheck.ok, agent: b.sellerCheck.tokenId, payTo: b.sellerCheck.payTo, checks: b.sellerCheck.checks } : null,
+        seller_check: b.sellerCheck ? { ok: b.sellerCheck.ok, agent: b.sellerCheck.tokenId, payTo: b.sellerCheck.payTo, checks: b.sellerCheck.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })) } : null,
         refused: b.refused,
         status: b.status,
         payment_tx: b.paymentExplorer ?? null,

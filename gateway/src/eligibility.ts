@@ -23,6 +23,7 @@
  *
  * At payment (x402 onBeforeVerify): if the payment's sender is not allow-listed, refuse; the buyer is not charged.
  */
+import { pgSsl } from "./once.js";
 import { NET } from "./network.js";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -186,7 +187,7 @@ export function postgresPersistence(url: string): Persistence {
   const db = async () => {
     if (!pool) {
       const { default: pg } = await import("pg");
-      pool = new pg.Pool({ connectionString: url, max: 3, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
+      pool = new pg.Pool({ connectionString: url, max: 3, ssl: pgSsl(url) });
       await pool.query("CREATE TABLE IF NOT EXISTS eligibility (account TEXT PRIMARY KEY, record JSONB NOT NULL)");
     }
     return pool;
@@ -275,6 +276,8 @@ export class EligibilityStore {
 /** On-chain dependencies (replaced by fakes in tests) */
 export type Chain = {
   identityProviders(): Promise<number[]>;
+  /** Does this account exist on-chain? (A challenge costs an on-chain anchor, so a made-up address is refused first.) Optional for test chains */
+  accountExists?(account: string): Promise<boolean>;
   /** Build a verification request and anchor its hash on-chain (VRA), waiting for finalization */
   anchorRequest(nonce: Uint8Array, id: string, resource: string, note: string, claims: VerificationRequestV1.SubjectClaims[]): Promise<AnchoredRequest>;
   parsePresentation(json: string): ParsedPresentation;
@@ -297,6 +300,17 @@ export function concordiumChain(anchorKeyFile: string): Chain {
   let ipsAt = 0;
 
   return {
+    async accountExists(account) {
+      try {
+        await grpc.getAccountInfo(AccountAddress.fromBase58(account));
+        return true;
+      } catch (e) {
+        // NOT_FOUND = no such account; anything else (node down) is thrown so the caller does not anchor blindly
+        if (/NOT_FOUND|not found/i.test(e instanceof Error ? `${e.message} ${(e as { code?: unknown }).code ?? ""}` : String(e))) return false;
+        throw e;
+      }
+    },
+
     async identityProviders() {
       // Cache only a non-empty list, refreshed hourly: a node that briefly returns nothing cannot make every later verification fail
       if (!ips || Date.now() - ipsAt > 3_600_000) {
@@ -397,6 +411,8 @@ export class EligibilityService {
   /** Build and anchor a verification request bound to this account */
   async challenge(account: string) {
     AccountAddress.fromBase58(account); // throws on a malformed address
+    if (this.chain.accountExists && !(await withTimeout(this.chain.accountExists(account), "looking up the account")))
+      throw new Error("no such account on this network: create it in the Concordium wallet first");
     const claims = buildClaims(this.policy, await this.chain.identityProviders());
     const nonce = randomBytes(32);
     const id = nonce.toString("hex");

@@ -170,6 +170,7 @@ export async function verifySeller(opts: {
     if (problems.length > 0) throw new Error("skipped: the agent record could not be confirmed (see check 2)");
     if (!rec.agent_uri) throw new Error("no agent_uri on-chain");
     cardUrlAllowed(rec.agent_uri, opts.allowLocalHttpCards === true);
+    if (opts.allowLocalHttpCards !== true) await cardHostIsPublic(rec.agent_uri);
     const r = await f(rec.agent_uri, { redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const sha = createHash("sha256").update(await readCapped(r, MAX_CARD_BYTES)).digest("hex");
@@ -208,9 +209,17 @@ export function summarize(v: SellerVerdict): string {
     : `refused to pay: ${bad.map((c) => `${c.name} — ${c.detail}`).join("; ")}`;
 }
 
+/** A loopback, private, carrier-grade NAT, link-local or unique-local address (IPv4 or IPv6, literal) */
+export function isPrivateAddress(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  if (h === "localhost" || h.endsWith(".localhost") || h === "::1" || h === "::" || h === "0.0.0.0") return true;
+  if (/^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)) return true;
+  return h.includes(":") && (/^(fc|fd|fe8|fe9|fea|feb)/.test(h) || h.startsWith("::ffff:"));
+}
+
 /**
  * An Agent Card URL the buyer may fetch: https to a public host name or address. Loopback, private and link-local
- * addresses written as literals are refused (a host name that resolves to one is not checked here).
+ * addresses written as literals are refused here; `cardHostIsPublic` also checks what a host name resolves to.
  */
 export function cardUrlAllowed(url: string, allowLocalHttp = false): void {
   let u: URL;
@@ -219,9 +228,20 @@ export function cardUrlAllowed(url: string, allowLocalHttp = false): void {
   const local = host === "localhost" || host.endsWith(".localhost") || /^127\./.test(host) || host === "::1";
   if (allowLocalHttp && u.protocol === "http:" && local) return;
   if (u.protocol !== "https:") throw new Error(`agent_uri is not https: ${url.slice(0, 80)}`);
-  const privateV4 = /^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(host);
-  const privateV6 = host.includes(":") && (host === "::1" || /^(fc|fd|fe8|fe9|fea|feb)/.test(host) || host.startsWith("::ffff:"));
-  if (local || privateV4 || privateV6) throw new Error(`agent_uri points at a local or private address: ${host}`);
+  if (isPrivateAddress(host)) throw new Error(`agent_uri points at a local or private address: ${host}`);
+}
+
+/**
+ * A host name in an on-chain agent_uri must not resolve to a private address either (the owner can point its name anywhere).
+ * A name that does not resolve is left to the fetch, which then fails. (DNS can still change between this lookup and the fetch.)
+ */
+export async function cardHostIsPublic(url: string): Promise<void> {
+  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+  if (/^[\d.]+$/.test(host) || host.includes(":")) return; // literals were checked by cardUrlAllowed
+  let addrs: { address: string }[];
+  try { addrs = await (await import("node:dns/promises")).lookup(host, { all: true, verbatim: true }); } catch { return; }
+  const bad = addrs.find((a) => isPrivateAddress(a.address));
+  if (bad) throw new Error(`agent_uri host ${host} resolves to a private address`);
 }
 
 /** Same Concordium account, aliases included; false for anything that is not an account address */

@@ -164,3 +164,11 @@ test("protect accepts any client with onBeforePaymentCreation (structural type)"
   assert.equal(typeof g.fetch, "function");
   assert.equal(hooks.length, 1);
 });
+
+test("a card host name that resolves to a private address is refused", async () => {
+  const { cardHostIsPublic, isPrivateAddress } = await import("../src/seller.ts");
+  await assert.rejects(cardHostIsPublic("https://localhost/card"), /resolves to a private address/);
+  await cardHostIsPublic("https://name-that-does-not-resolve.invalid/card");
+  assert.equal(isPrivateAddress("100.64.0.1"), true);
+  assert.equal(isPrivateAddress("8.8.8.8"), false);
+});

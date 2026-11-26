@@ -10,6 +10,7 @@
  *
  *   npm run daily2      (needs REGISTRY_V2_CONTRACT, COMMITTER_KEY_FILE, DATABASE_URL)
  */
+import { pgSsl } from "./once.js";
 import { createHash } from "node:crypto";
 import { env } from "./config.js";
 import { createV2Writer, RejectedError, v2Address, HORIZON_MS, type SlotV2 } from "./contract-v2.js";
@@ -119,7 +120,7 @@ async function main() {
   // Accept only a file path: if someone puts the key JSON itself in this variable, a read error would print it into the log
   if (keyFile.trim().startsWith("{") || keyFile.length > 512) throw new Error("COMMITTER_KEY_FILE must be a path to the key file, not its contents");
   const { default: pg } = await import("pg");
-  const pool = new pg.Pool({ connectionString: url, max: 2, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
+  const pool = new pg.Pool({ connectionString: url, max: 2, ssl: pgSsl(url) });
   let w: ReturnType<typeof createV2Writer>;
   try {
     w = createV2Writer(keyFile, address);

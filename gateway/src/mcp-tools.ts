@@ -4,6 +4,7 @@
  * Free tools (both versions): get_track_record, list_commitments, verify_signal, check_eligibility
  * Local only: get_signal (pays) and check_seller (buyer verifies seller before paying) — they need the buyer's own wallet; the public server touches nobody's keys
  */
+import { publicMessage } from "./security.js";
 import { NET } from "./network.js";
 import { ContractAddress } from "@concordium/web-sdk";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -18,7 +19,8 @@ import { AGENT_REGISTRY_TEXT } from "./registry-node.js";
 export const EXPLORER = `${NET.explorer}/transaction/`;
 export const json = (x: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(x, null, 2) }] });
 export const fail = (msg: string) => ({ content: [{ type: "text" as const, text: msg }], isError: true });
-export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Error text for a tool result: the public MCP and A2A servers show it to anyone, so no URLs, hosts or paths (security.ts) */
+export const errText = (e: unknown) => publicMessage(e);
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
 export const ABOUT =

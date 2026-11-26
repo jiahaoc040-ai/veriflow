@@ -2,11 +2,24 @@
 
 Check an x402 seller on Concordium **before your agent pays it**. Wrap the `@x402/fetch` client your agent already uses; any payment it would make is checked first, and if a check fails the wallet is never asked to sign.
 
+**No code, just a look** (Node 22+, nothing is paid, no wallet):
+
 ```bash
-npm install concordium-x402-guard @x402/fetch @x402/concordium
+npx concordium-x402-guard check https://web-gilt-phi-11.vercel.app/api/packs/rehearsal-btc-150k
+npx concordium-x402-guard check https://mainsmarker.sites.tab.bot/x402/review --json '{"question":"Why is the sky blue?","answer":"Rayleigh scattering.","marks":10}'
 ```
 
-The package is **ESM only** (Node 22+): use a `.mjs` file or `"type": "module"` in your package.json. `require()` is not supported. In TypeScript, add `@types/node` (the public types use `Buffer`).
+Exit code 0 means every check passed, 1 means refused, 2 means it could not run. Add `--network mainnet` for mainnet agents, `--json-out` for machine-readable output.
+
+**In your agent:**
+
+```bash
+npm install concordium-x402-guard @x402/fetch @x402/core @x402/concordium
+```
+
+`@x402/fetch` and `@x402/core` are peer dependencies, so the guard wraps the very `x402Client` your agent already has (one copy, your version). `@x402/concordium` is only for the payment scheme in the example below.
+
+The package is **ESM only** and needs Node 22 or newer: use a `.mjs` file or `"type": "module"` in your package.json. `require()` is not supported. In TypeScript, add `@types/node` (the public types use `Buffer`).
 
 ```ts
 import { x402Client } from "@x402/fetch";
@@ -70,7 +83,11 @@ Output of those runs: <https://github.com/jiahaoc040-ai/veriflow/tree/main/docs/
 
 ## Changes
 
+0.2.0: `npx concordium-x402-guard check <url>`; `@x402/fetch` and `@x402/core` are peer dependencies; Node 22+ declared; an Agent Card host name that resolves to a private address is refused.
+
 0.1.1: payment network pinned to the configured network; badge sub-checks enforced; Agent Card fetched only from public https hosts and only after the record is confirmed; payTo compared alias-aware; CIS-8 owner compared in code (owner or agentWallet); strict secp256k1 key types; retries see `error.cause`, timeouts and HTTP status; registry responses capped, no redirects; clear error for a wrong `network`; delivery verdicts case-insensitive and capped. Thanks to an outside review for every one of these.
+
+Tests: 28 unit tests (`npm test`, no network: fake registry, node, cards and delivery records), run in CI.
 
 ## Networks
 

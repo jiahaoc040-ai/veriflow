@@ -11,19 +11,24 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { NextFunction, Request, Response } from "express";
 
-/** Fixed-window counter (in memory; enough for a single-container deployment) */
+/** Fixed-window counter (in memory; enough for a single-container deployment). Memory is bounded: past `maxKeys` live keys,
+ *  new keys are refused (they get a 429) until old windows expire, and expired keys are swept at most once a second */
 export class RateLimiter {
   private hits = new Map<string, { count: number; resetAt: number }>();
+  private sweptAt = 0;
 
-  constructor(private limit: number, private windowMs: number, private now: () => number = Date.now) {}
+  constructor(private limit: number, private windowMs: number, private now: () => number = Date.now, private maxKeys = 50_000) {}
 
   /** true = allow; false = over the limit */
   take(key: string): boolean {
     const t = this.now();
     const h = this.hits.get(key);
     if (!h || h.resetAt <= t) {
+      if (!h && this.hits.size >= this.maxKeys) {
+        this.sweep(t);
+        if (this.hits.size >= this.maxKeys) return false;
+      }
       this.hits.set(key, { count: 1, resetAt: t + this.windowMs });
-      if (this.hits.size > 10_000) this.sweep(t);
       return true;
     }
     if (h.count >= this.limit) return false;
@@ -36,9 +41,55 @@ export class RateLimiter {
     return h ? Math.max(1, Math.ceil((h.resetAt - this.now()) / 1000)) : 1;
   }
 
+  get size() {
+    return this.hits.size;
+  }
+
   private sweep(t: number) {
+    if (t - this.sweptAt < 1000) return;
+    this.sweptAt = t;
     for (const [k, v] of this.hits) if (v.resetAt <= t) this.hits.delete(k);
   }
+}
+
+/** The rate-limit key for a client address: IPv4 as is, IPv6 by its /64 (one household or server usually owns a whole /64) */
+export function clientKey(ip: string | undefined): string {
+  if (!ip) return "unknown";
+  const v4 = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4) return v4[1];
+  if (!ip.includes(":")) return ip;
+  // Expand "::" and keep the first four groups
+  const [head, tail = ""] = ip.toLowerCase().split("%")[0].split("::");
+  const h = head ? head.split(":") : [];
+  const tl = ip.includes("::") ? (tail ? tail.split(":") : []) : [];
+  const groups = ip.includes("::") ? [...h, ...Array(Math.max(0, 8 - h.length - tl.length)).fill("0"), ...tl] : h;
+  return `${groups.slice(0, 4).map((g) => g || "0").join(":")}::/64`;
+}
+
+/** TRUST_PROXY read literally: unset, "0" or "false" = off; a number = that many proxy hops; "true" = trust all (not advised) */
+export function trustProxySetting(v: string | undefined): number | boolean | undefined {
+  if (v === undefined || v.trim() === "" || v === "0" || /^false$/i.test(v)) return undefined;
+  if (/^true$/i.test(v)) return true;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`TRUST_PROXY must be a number of proxy hops, got ${JSON.stringify(v)}`);
+  return n;
+}
+
+/** This process calling itself (MCP and A2A tools read the gateway's own routes): not a visitor, so not rate-limited per IP */
+export function isSelfCall(req: { socket?: { remoteAddress?: string }; headers: Record<string, unknown> }): boolean {
+  const a = req.socket?.remoteAddress ?? "";
+  return (a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1") && !req.headers["x-forwarded-for"];
+}
+
+/** An error message safe to show a visitor: no URLs, hosts, ports or file paths, at most 200 characters */
+export function publicMessage(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return m
+    .replace(/https?:\/\/\S+/g, "[url]")
+    .replace(/\b[\w.-]+\.(?:com|software|io|dev|app|net|org|eu|bot|tech|cloud|internal|local)(?::\d+)?\b/gi, "[host]")
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "[address]")
+    .replace(/(?:\/[\w.@-]+){2,}/g, "[path]")
+    .slice(0, 200);
 }
 
 type KeyFn = (req: Request) => string | undefined;
@@ -106,4 +157,9 @@ export function securityHeaders(scriptHashes: string[], walletPaths: string[] = 
     if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     next();
   };
+}
+
+/** A check's detail for a public page: what was compared stays, but the raw error after "unreachable:" or "could not read …:" does not */
+export function scrubDetail(d: string): string {
+  return d.replace(/((?:node |registry |service )?unreachable|could not read [^:]{1,60}|no usable answer from [^:]{1,60}): .*$/i, "$1 (details in the server log)");
 }

@@ -117,7 +117,8 @@ export function mountA2A(app: Express, opts: { selfUrl: string; publicUrl: strin
         },
       });
     } catch (e) {
-      error(-32603, `Internal error: ${errText(e)}`);
+      console.error("a2a:", e);
+      error(-32603, "Internal error");
     }
   });
   app.get("/a2a", (_req, res) => res.status(405).set("Allow", "POST").json({ error: "POST a JSON-RPC 2.0 message/send request; the Agent Card is at /.well-known/agent-card.json" }));

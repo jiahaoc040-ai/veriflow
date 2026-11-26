@@ -243,3 +243,10 @@ test("settlement checks the stored proof against the current policy, not the sto
   };
   await assert.rejects(svc.recheck(BUYER), /current policy/);
 });
+
+test("challenge: an account that does not exist on-chain is refused before anything is anchored", async () => {
+  const chain = fakeChain();
+  const svc = new EligibilityService(POLICY, new EligibilityStore(), { ...chain, accountExists: async () => false });
+  await assert.rejects(svc.challenge(BUYER), /no such account/);
+  assert.equal(chain.requests, 0);
+});

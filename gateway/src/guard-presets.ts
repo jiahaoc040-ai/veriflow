@@ -5,6 +5,7 @@
  */
 import express from "express";
 import { checkSellerAt, summarize, type GuardDeps, type GuardVerdict } from "./guard.js";
+import { scrubDetail } from "./security.js";
 
 export type Preset = { id: string; name: string; who: string; url: string; init: RequestInit };
 
@@ -51,7 +52,10 @@ export function guardPresetRouter(o: { publicUrl: string; deps: () => GuardDeps;
           return body;
         } catch (e) {
           (o.log ?? console.error)(`guard preset ${p.id}: ${e instanceof Error ? e.message : e}`);
-          return { id: p.id, name: p.name, error: "check_failed", message: "Could not reach that seller or a Concordium node just now. Nothing was paid; try again in a minute." };
+          const body = { id: p.id, name: p.name, error: "check_failed", message: "Could not reach that seller or a Concordium node just now. Nothing was paid; try again in a minute." };
+          // Failures are cached too (shorter), so a seller that is down is not asked again on every click
+          cache.set(p.id, { at: now() - ttl + Math.min(ttl, 30_000), body });
+          return body;
         } finally {
           inflight.delete(p.id);
         }
@@ -67,6 +71,6 @@ function shape(p: Preset, v: GuardVerdict, picked: { amount?: string; asset?: st
   return {
     id: p.id, name: p.name, who: p.who, url: p.url, checked_at: new Date(at).toISOString(),
     asks: { amount: picked.amount, asset: picked.asset, network: picked.network, payTo: picked.payTo },
-    agent: v.tokenId ?? null, ok: v.ok, summary: summarize(v), checks: v.checks, paid: false,
+    agent: v.tokenId ?? null, ok: v.ok, summary: scrubDetail(summarize(v)), checks: v.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })), paid: false,
   };
 }

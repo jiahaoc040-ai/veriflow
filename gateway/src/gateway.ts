@@ -20,7 +20,9 @@ import { BlockHash } from "@concordium/web-sdk";
 import express from "express";
 import { rateLimit as baselineLimit } from "express-rate-limit";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
-import { HTTPFacilitatorClient } from "@x402/core/server";
+import { AfterSettleAbortError, HTTPFacilitatorClient } from "@x402/core/server";
+import { AccountAddress } from "@concordium/web-sdk";
+import { memoryLedger, postgresLedger, singleFlight } from "./once.js";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { CIS8_REGISTRY, EVM_KEY_TYPE, checkEvmBinding, evmAddressOf } from "./cis8.js";
@@ -32,7 +34,7 @@ import { createAnchorer } from "./anchor.js";
 import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
-import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
+import { RateLimiter, clientKey, inlineScriptHashes, isSelfCall, publicMessage, rateLimit, securityHeaders, trustProxySetting } from "./security.js";
 import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.js";
 import { guardPresetRouter } from "./guard-presets.js";
 import { guardDeps } from "./guard-deps.js";
@@ -92,6 +94,10 @@ if (process.env.VERIFLOW_TEST_AGENT_RECORD) {
 // It must start and be listening before the payment middleware is created, or the middleware's /supported query fails at startup.
 if (process.env.EMBED_FACILITATOR) await (await import("./facilitator.js")).listening;
 
+// Set once a node has confirmed the chain (checkNetwork below); payments are refused before that
+let networkConfirmed = false;
+// Each settlement transaction is delivered against once (see once.ts): a recovered "failed" settlement must not re-deliver a paid one
+const ledger = process.env.DATABASE_URL ? postgresLedger(process.env.DATABASE_URL) : memoryLedger();
 const resourceServer = new x402ResourceServer([
   new HTTPFacilitatorClient({
     url: env("FACILITATOR_URL", "http://localhost:4021"),
@@ -130,6 +136,8 @@ async function payerAccount(paymentPayload: { payload: unknown }, requirements: 
 resourceServer
   // Before the payment is sent for settlement: if the sender is not eligible, refuse (the transaction never reaches the chain, the buyer is not charged)
   .onBeforeVerify(async ({ paymentPayload, requirements, transportContext }) => {
+    // Until a node has confirmed it is on the expected chain, take no payment (the site stays up, the shop is closed)
+    if (!networkConfirmed) return { abort: true, reason: "node_unconfirmed", message: "This seller has not yet reached a Concordium node; no payment is taken. Try again in a minute." };
     const who = await payerAccount(paymentPayload, requirements);
     if (!who.ok) {
       console.log(`refused payment on ${requirements.network}: ${who.reason}`);
@@ -175,8 +183,24 @@ resourceServer
       console.warn(`not recovered: ${paid.why}`);
       return;
     }
+    // The same signed payment sent many times at once: only one request may be delivered against this transaction
+    if (!(await ledger.claim(e.transaction).catch(() => false))) {
+      console.warn(`not recovered: ${e.transaction} was already delivered against`);
+      return;
+    }
     console.log(`recovered: ${e.transaction} is finalized and pays ${requirements.amount} to ${requirements.payTo}`);
     return { recovered: true as const, result: { success: true, transaction: e.transaction, network: requirements.network, payer } };
+  })
+  // A successful settlement whose transaction was already delivered against (by a recovery above) is not delivered again
+  .onAfterSettle(async ({ result }) => {
+    if (!result.transaction) return;
+    let first: boolean;
+    try { first = await ledger.claim(result.transaction); } catch (err) {
+      // The money has moved: a buyer who paid gets the call even if the ledger is down (the ledger only stops duplicates)
+      console.error(`payment ledger unavailable, delivering ${result.transaction}: ${err instanceof Error ? err.message : err}`);
+      return;
+    }
+    if (!first) throw new AfterSettleAbortError("already_delivered", "this payment was already delivered");
   })
   // Read again before settling: if the agent was revoked or its wallet changed between verify and settle (the handler anchors in between), do not take the money
   .onBeforeSettle(async ({ paymentPayload, requirements, transportContext }) => {
@@ -204,9 +228,12 @@ resourceServer
 const app = express();
 app.disable("x-powered-by");
 // Behind a reverse proxy (Hugging Face / Render): take the real IP from X-Forwarded-For and HTTPS from X-Forwarded-Proto
-if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+// TRUST_PROXY is read literally: "0" turns it off; the image sets 1, right for Render and Hugging Face (one proxy in front)
+const trustProxy = trustProxySetting(process.env.TRUST_PROXY);
+if (trustProxy !== undefined) app.set("trust proxy", trustProxy);
 // Site-wide limit (per IP per minute); individual routes have stricter limits (e.g. /eligibility/challenge, which spends CCD)
-app.use(baselineLimit({ windowMs: 60_000, limit: Number(env("REQUESTS_PER_MIN", "300")), standardHeaders: "draft-8", legacyHeaders: false }));
+// The gateway's own MCP/A2A tools call its routes over localhost: those calls are limited where they enter (/mcp, /a2a), not here
+app.use(baselineLimit({ windowMs: 60_000, limit: Number(env("REQUESTS_PER_MIN", "300")), standardHeaders: "draft-8", legacyHeaders: false, skip: (req) => isSelfCall(req) }));
 // sendFile sets Cache-Control: public, max-age=0 by default, which would override the no-store security header
 const NO_CACHE_FILE = { cacheControl: false, lastModified: false } as const;
 const pages = [new URL("../public/index.html", import.meta.url).pathname, new URL("../public/verify.html", import.meta.url).pathname];
@@ -215,10 +242,13 @@ app.use(express.json({ limit: "256kb" }));
 
 // Rate limits: each challenge spends CCD on-chain, so it is the strictest; the site-wide cap cannot be bypassed by switching IPs
 const MIN = 60_000;
-const ip = (req: express.Request) => req.ip ?? "unknown";
+// Per-visitor key: IPv6 by /64; the process calling itself is not a visitor
+const ip = (req: express.Request) => (isSelfCall(req) ? undefined : clientKey(req.ip));
 const validAccount = (req: express.Request) => {
   const a = String(req.body?.account ?? "");
-  return /^[1-9A-HJ-NP-Za-km-z]{50}$/.test(a) ? a : null;
+  // A real address (checksum included), so made-up strings cannot use up the per-account or site-wide quota
+  if (!/^[1-9A-HJ-NP-Za-km-z]{50}$/.test(a)) return null;
+  try { AccountAddress.fromBase58(a); return a; } catch { return null; }
 };
 const limitChallenge = rateLimit([
   { limiter: new RateLimiter(5, 10 * MIN), key: ip, what: "per IP" },
@@ -305,12 +335,15 @@ async function forward(path: string, res: express.Response, paid: boolean) {
     });
     res.status(r.status).type("application/json").send(await r.text());
   } catch (e) {
-    res.status(502).json({ error: `VeriFlow API unreachable: ${String(e)}` });
+    console.error(`API ${path}:`, e);
+    res.status(502).json({ error: "api_unreachable" });
   }
 }
 
 // Payment succeeded → fetch the signal from the Python API → anchor the commitment hash → tell the API the transaction hash → return it to the buyer
 const anchorer = createAnchorer(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE")));
+// Requests arriving together for the same not-yet-anchored signal share one anchor transaction
+const anchorOnce = singleFlight<string>();
 
 app.get("/signal/:asset", async (req, res) => {
   try {
@@ -323,11 +356,14 @@ app.get("/signal/:asset", async (req, res) => {
     // Today's official signal is already on-chain (daily job or an earlier buyer): sell that same one, do not anchor again
     if (!body.anchor_tx) {
       try {
-        const tx = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
-        await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
-          method: "POST",
-          headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
-          body: JSON.stringify({ anchor_tx: tx }),
+        const tx = await anchorOnce(String(body.commitment), async () => {
+          const t = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
+          await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
+            method: "POST",
+            headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
+            body: JSON.stringify({ anchor_tx: t }),
+          });
+          return t;
         });
         body.anchor_tx = tx;
         console.log(`anchored ${body.commitment.slice(0, 12)}… → ${tx}`);
@@ -343,7 +379,8 @@ app.get("/signal/:asset", async (req, res) => {
     if (ep) body.evm_payer = { address: ep.address, concordium_account: ep.account, cis8_registry: `<${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>`, checked: "payer key recovered from the EIP-3009 signature, bound in CIS-8 (read from a Concordium node) before verification and again before settlement" };
     res.json(body);
   } catch (e) {
-    res.status(502).json({ error: `VeriFlow API unreachable: ${String(e)}` });
+    console.error("signal:", e);
+    res.status(502).json({ error: "api_unreachable" });
   }
 });
 app.get("/track-record", (_req, res) => forward("/track-record", res, false));
@@ -356,7 +393,8 @@ app.get("/onchain/:tx", limitRead, async (req, res) => {
   try {
     res.json(await anchorer.read(String(req.params.tx)));
   } catch (e) {
-    res.status(502).json({ error: `Concordium node error: ${String(e)}` });
+    console.error("onchain read:", e);
+    res.status(502).json({ error: "node_unreachable" });
   }
 });
 // Operator account balance: daily commits, automatic reveals and sponsored buyer fees are paid from it; if it runs dry the record stops
@@ -384,7 +422,8 @@ app.get("/health", limitRead, async (_req, res) => {
     const api = (await r.json()) as Record<string, unknown>;
     res.status(r.status).json({ ...api, operator });
   } catch (e) {
-    res.status(502).json({ ok: false, error: `VeriFlow API unreachable: ${String(e)}`, operator });
+    console.error("health:", e);
+    res.status(502).json({ ok: false, error: "api_unreachable", operator });
   }
 });
 
@@ -415,6 +454,7 @@ app.use(
         counter: process.env.DATABASE_URL ? postgresCounter(process.env.DATABASE_URL) : undefined,
         dailyLimit: Number(env("DEMO_DAILY_LIMIT", "20")),
         perIpPerHour: Number(env("DEMO_PER_IP_PER_HOUR", "3")),
+        ipOf: (q) => clientKey(q.ip),
       })
     : demoDisabledRouter(),
 );
@@ -426,7 +466,7 @@ app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
     res.json(r);
   } catch (e) {
     console.error("challenge failed:", e);
-    res.status(400).json({ error: String(e instanceof Error ? e.message : e) });
+    res.status(400).json({ error: publicMessage(e) });
   }
 });
 
@@ -440,7 +480,7 @@ app.post("/eligibility/verify", limitVerify, async (req, res) => {
     res.json({ eligible: true, ...out });
   } catch (e) {
     console.log("eligibility refused:", e instanceof Error ? e.message : e);
-    res.status(403).json({ eligible: false, error: String(e instanceof Error ? e.message : e) });
+    res.status(403).json({ eligible: false, error: publicMessage(e) });
   }
 });
 
@@ -454,6 +494,9 @@ app.get("/eligibility/:account", (req, res) => {
 
 // Public MCP (Streamable HTTP): free tools + buying instructions, never touches anyone's keys
 const SELF_URL = `http://127.0.0.1:${env("GATEWAY_PORT", "4020")}`;
+// Each MCP/A2A call can make several reads of this gateway and a node: limit them where they come in, per visitor
+const limitAgentApi = rateLimit([{ limiter: new RateLimiter(Number(env("AGENT_API_PER_MIN", "60")), MIN), key: ip, what: "per IP" }]);
+app.use(["/mcp", "/a2a"], limitAgentApi);
 mountRemoteMcp(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
 // A2A (the Agent Card's url points here): read-only skills as well
 mountA2A(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
@@ -500,12 +543,16 @@ setInterval(refreshOperatorBalance, 10 * 60_000);
 process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 
 // The node must belong to the chain CONCORDIUM_NETWORK selects: check before accepting connections, then every minute.
-// If the node is unreachable, only warn (a temporary outage should not take the site down); if it is the wrong chain, stop.
+// If the node is unreachable, the site starts but takes no payment until a check succeeds (fail closed); if it is the wrong chain, stop.
 const checkNetwork = (): Promise<boolean> =>
     createGrpc()
       .getConsensusStatus()
       .then((c) => checkGenesis(BlockHash.toHexString(c.genesisBlock)))
-      .then(() => (console.log(`network: ${NET.name} (${NET.caip2})`), true))
+      .then(() => {
+        if (!networkConfirmed) console.log(`network: ${NET.name} (${NET.caip2})`);
+        networkConfirmed = true;
+        return true;
+      })
       .catch((e) => {
         if (/is not (testnet|mainnet)/.test(String(e))) {
           console.error(`❌ ${e instanceof Error ? e.message : e}`);
@@ -515,7 +562,7 @@ const checkNetwork = (): Promise<boolean> =>
         return false;
       });
 // Before accepting connections, try up to 3 times (20 s gRPC timeout each) to get the node's genesis; stop on the wrong chain.
-// Only if all 3 fail, start anyway (payments cannot work without a node either way) and check again every minute.
+// If all 3 fail, start without taking payments, and check again every minute.
 for (let i = 0; i < 3 && !(await Promise.race([checkNetwork(), new Promise<boolean>((r) => setTimeout(() => r(false), 25_000))])); i++);
 setInterval(checkNetwork, 60_000).unref();
 
