@@ -80,7 +80,7 @@ export async function verifySeller(opts: {
   expectTokenId?: string;
   expectBadge?: string;
   /** When payTo is not on Concordium (e.g. USDC on Base), this replaces the payTo = agentWallet check; it receives the owner and wallet read from the node */
-  payToCheck?: (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] }) => Promise<Check>;
+  payToCheck?: (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] | undefined }) => Promise<Check>;
 }): Promise<SellerVerdict> {
   const f = opts.fetch ?? fetch;
   const network = opts.network ?? NET.name;
@@ -107,7 +107,8 @@ export async function verifySeller(opts: {
 
   // 2. The Registry record
   let rec: { token_id?: string; owner_account?: string; agent_uri?: string; metadata_hash_hex?: string; agent_wallet?: string; status?: string };
-  let externalRef: AgentOnChain["externalRef"] = null;
+  // undefined = not read (no node answer), null = read, and the agent has none
+  let externalRef: AgentOnChain["externalRef"] | undefined = undefined;
   try {
     rec = await opts.registry("agent_by_token_address", { network, token_address: tokenAddress });
   } catch (e) {

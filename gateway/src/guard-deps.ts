@@ -7,6 +7,7 @@ import { checkEvmBinding, EVM_KEY_TYPE, CIS8_REGISTRY } from "./cis8.js";
 import { isEvmNetwork } from "./evm-payer.js";
 import { sameAccount } from "./contract-v2.js";
 import { NETWORK } from "./config.js";
+import { isTransient } from "./grpc.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { REGISTRY_NETWORK, registryTool } from "./registry.js";
 import type { GuardDeps, Requirement } from "./guard.js";
@@ -34,6 +35,7 @@ export const cis8PayTo = (req: Requirement) => async (agent: { owner?: string; w
     key = { publicKey: c.publicKey, keyType: EVM_KEY_TYPE, from: "the 402's extra.cis8" };
   } else {
     const r = agent.externalRef;
+    if (r === undefined) return { name, ok: false, detail: "the 402 names no CIS-8 key, and the agent's external_reference could not be read (no answer from a Concordium node)" };
     if (!r) return { name, ok: false, detail: "the 402 names no CIS-8 key and the agent has no external_reference on-chain" };
     if (r.contract !== `<${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>` || r.namespace !== req.network || r.keyType !== EVM_KEY_TYPE)
       return { name, ok: false, detail: `the agent's external_reference is ${r.namespace} ${r.keyType} in ${r.contract}, not an EVM key for ${req.network} in CIS-8 <${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>` };
@@ -48,13 +50,33 @@ export const cis8PayTo = (req: Requirement) => async (agent: { owner?: string; w
   return { name, ok: r.ok, detail: r.ok ? `${req.payTo} is bound to ${r.owner} in CIS-8 <${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}> (key from ${key.from})` : `${r.reason} (key from ${key.from})` };
 };
 
+/**
+ * Public nodes sometimes drop a connection or rate-limit a burst. Try three times with a fresh connection before giving up;
+ * after that the guard still fails closed (no node answer, no payment)
+ */
+export function readAgentRetrying(id: string, tries = 3, read: (id: string) => Promise<AgentOnChain | null> = (i) => readAgent(i)): Promise<AgentOnChain | null> {
+  return retrying(() => read(id), tries);
+}
+
+export async function retrying<T>(f: () => Promise<T>, tries = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await f();
+    } catch (e) {
+      if (i >= tries || !(isTransient(e) || /\b(429|5\d\d)\b|No connection established/i.test(e instanceof Error ? e.message : String(e)))) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * i));
+    }
+  }
+}
+
 export function guardDeps(): GuardDeps {
   return {
     registryNetwork: REGISTRY_NETWORK,
     concordiumNetwork: NETWORK,
     registryAddress: `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}`,
-    registry: registryTool,
-    readAgent: (id) => readAgent(id),
+    // The hosted service reads its own node and can pass on a 429: retry it the same way
+    registry: (name, args) => retrying(() => registryTool(name, args)),
+    readAgent: (id) => readAgentRetrying(id),
     evmPayToCheck: cis8PayTo,
     isEvmNetwork,
   };

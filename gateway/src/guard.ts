@@ -50,7 +50,7 @@ export type GuardDeps = {
   registry: RegistryCall;
   readAgent: (tokenId: string) => Promise<AgentOnChain | null>;
   /** EVM payTo: check that it is bound to the agent in CIS-8 (agent.ts supplies a node-backed version) */
-  evmPayToCheck?: (req: Requirement) => (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] }) => Promise<Check>;
+  evmPayToCheck?: (req: Requirement) => (agent: { owner?: string; wallet?: string; externalRef?: AgentOnChain["externalRef"] | undefined }) => Promise<Check>;
   isEvmNetwork?: (network: string) => boolean;
   fetch?: typeof fetch;
 };

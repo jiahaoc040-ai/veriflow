@@ -110,3 +110,12 @@ test("uncompressed(): compressed and uncompressed forms give the same 65-byte ke
   assert.equal(uncompressed("0x" + pub), pub);
   assert.throws(() => uncompressed("02" + "00".repeat(32)));
 });
+
+test("node reads are retried on a dropped connection or a 429, not on other errors", async () => {
+  const { retrying } = await import("../src/guard-deps.ts");
+  let n = 0;
+  assert.equal(await retrying(async () => { if (++n < 3) throw new Error("No connection established. Last error: read ECONNRESET"); return "ok"; }, 3), "ok");
+  n = 0;
+  await assert.rejects(retrying(async () => { n++; throw new Error("agentOf: illegal option tag 7"); }, 3), /illegal/);
+  assert.equal(n, 1);
+});
