@@ -1,0 +1,86 @@
+remote: Enumerating objects: 27, done.
+remote: Counting objects: 100% (27/27), done.
+remote: Compressing objects: 100% (5/5), done.
+remote: Total 15 (delta 10), reused 15 (delta 10), pack-reused 0 (from 0)
+展開物件中: 100% (15/15), 3.21 KiB | 0 位元組/秒, 完成.
+來自 https://github.com/jiahaoc040-ai/veriflow
+   bc37014..d2a27d7  main          -> origin/main
+   0d19cc8..be0137e  score-reports -> origin/score-reports
+更新 bc37014..d2a27d7
+Fast-forward
+ gateway/src/counterparty.ts |  5 +++--
+ gateway/src/guard-deps.ts   | 26 ++++++++++++++++++++++++--
+ gateway/src/guard.ts        |  2 +-
+ gateway/test/guard.test.ts  |  9 +++++++++
+ 4 files changed, 37 insertions(+), 5 deletions(-)
+
+added 248 packages, and audited 249 packages in 7s
+
+59 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+
+> guard
+> tsx src/guard-cli.ts check https://mainsmarker.sites.tab.bot/x402/review --json {"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}
+
+https://mainsmarker.sites.tab.bot/x402/review asks for payment (x402 v2): 500000 CCD on ccd:4221332d34e1694168c2a0c0b3fd0f27 to 4J2SFgeVrLHVqPkb3dczpYKP99wFMm7FDFp3fEPwXMff3ieLi2
+checking the option on ccd:4221332d34e1694168c2a0c0b3fd0f27
+
+Seller behind https://mainsmarker.sites.tab.bot: agent #990
+  ✓ 1. seller advertises a Verified by Concordium badge
+       badge JyP9Y5PqyaZge2fzDzyQa
+  ✓ 2. registered and Active in the CIS-8004 Agent Registry
+       agent #990, status Active, owner 4J2SFgeVrLHVqPkb3dczpYKP99wFMm7FDFp3fEPwXMff3ieLi2 (read from a Concordium node)
+  ✓ 3. official badge check passes (identity-verified owner)
+       15 checks passed
+  ✓ 4. Agent Card unchanged since pinned on-chain (own SHA-256)
+       sha256 9a395ff415ca59f5fb7a8324affc830db063d4fce211d8e7ec2f06fccc6ed6b9 vs on-chain 9a395ff415ca59f5fb7a8324affc830db063d4fce211d8e7ec2f06fccc6ed6b9
+  ✓ 5. payTo is the agent's on-chain wallet
+       payTo 4J2SFgeVrLHVqPkb3dczpYKP99wFMm7FDFp3fEPwXMff3ieLi2, on-chain agentWallet 4J2SFgeVrLHVqPkb3dczpYKP99wFMm7FDFp3fEPwXMff3ieLi2
+  ✓ 6. independent delivery record (vet402, another team's service)
+       verdict "go" from 1 paid request(s): Seller ID: not proven (neutral) + delivered (policy block-no)
+
+✅ seller verified: agent #990 (JyP9Y5PqyaZge2fzDzyQa), owner 4J2SFgeVrLHVqPkb3dczpYKP99wFMm7FDFp3fEPwXMff3ieLi2, paying its on-chain wallet; delivery record: go
+
+> guard
+> tsx src/guard-cli.ts check https://vet402-concordium.fly.dev/judge?badge=4iuMKkWLJSJo2LqKneemPoeNoSeUhTm8RckaXzfZ94De1Bi6Sc
+
+https://vet402-concordium.fly.dev/judge?badge=4iuMKkWLJSJo2LqKneemPoeNoSeUhTm8RckaXzfZ94De1Bi6Sc asks for payment (x402 v2): 10000 CCD on ccd:4221332d34e1694168c2a0c0b3fd0f27 to 3ZXiUAM8TYs1c9RfocVN6fude9vUnETLVGg3Tdk5vgSQhFi63D | 10000 CCD on ccd:4221332d34e1694168c2a0c0b3fd0f27 to 3ZXiUAM8TYs1c9RfocVN6fude9vUnETLVGg3Tdk5vgSQhFi63D
+checking the option on ccd:4221332d34e1694168c2a0c0b3fd0f27
+
+Seller behind https://vet402-concordium.fly.dev: agent #1268
+  ✓ 1. seller advertises a Verified by Concordium badge
+       badge JyP9YVUgrLRC64hDXwZ94
+  ✓ 2. registered and Active in the CIS-8004 Agent Registry
+       agent #1268, status Active, owner 3spmVDgXK75uWBycTY7kPF7XKqdJR9puqvSYyRtU5DAYDuhjSG (read from a Concordium node)
+  ✓ 3. official badge check passes (identity-verified owner)
+       15 checks passed
+  ✓ 4. Agent Card unchanged since pinned on-chain (own SHA-256)
+       sha256 88bdc6c70e7562005b70f8f27d0d3bfd6fc3f0e6fa3614ce3ccff2afcbc25bfe vs on-chain 88bdc6c70e7562005b70f8f27d0d3bfd6fc3f0e6fa3614ce3ccff2afcbc25bfe
+  ✗ 5. payTo is the agent's on-chain wallet
+       payTo 3ZXiUAM8TYs1c9RfocVN6fude9vUnETLVGg3Tdk5vgSQhFi63D, on-chain agentWallet 3spmVDgXK75uWBycTY7kPF7XKqdJR9puqvSYyRtU5DAYDuhjSG
+
+⛔ refused to pay: payTo is the agent's on-chain wallet — payTo 3ZXiUAM8TYs1c9RfocVN6fude9vUnETLVGg3Tdk5vgSQhFi63D, on-chain agentWallet 3spmVDgXK75uWBycTY7kPF7XKqdJR9puqvSYyRtU5DAYDuhjSG
+
+> guard
+> tsx src/guard-cli.ts check https://x402-doctor.fizzl.eu/api/v1/preflight --pay-network eip155:8453
+
+https://x402-doctor.fizzl.eu/api/v1/preflight asks for payment (x402 v2): 1000 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 on eip155:8453 to 0x6B0F4651eD42893ab58139938175E4a69f175F25 | 1000 EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v on solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp to ATWJ82T8nRdQwZnaysB68N5EpaSvLRsQP4h6eWmaJBH9 | 0.001 524C555344000000000000000000000000000000 on xrpl:0 to r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw | 1070 XRP on xrpl:0 to r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw | 1000 31566704 on algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k to LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4 | 10000 CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 on stellar:pubnet to GCH2J5UAY24YNKA65MPAATVKWRCZZRZNF3JZKYYS5MIBZPG6U7WJ6CDQ | 1000 0x779ded0c9e1022225f8e0630b35a9b54be713736 on eip155:196 to 0x6B0F4651eD42893ab58139938175E4a69f175F25 | 1000 0x754704Bc059F8C67012fEd69BC8A327a5aafb603 on eip155:143 to 0x6B0F4651eD42893ab58139938175E4a69f175F25 | 1000 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359 on eip155:137 to 0x6B0F4651eD42893ab58139938175E4a69f175F25 | 1000 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 on eip155:42161 to 0x6B0F4651eD42893ab58139938175E4a69f175F25 | 1000 0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E on eip155:43114 to 0x6B0F4651eD42893ab58139938175E4a69f175F25 | 1000 17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1 on near:mainnet to x402fizzl.near
+checking the option on eip155:8453
+
+Seller behind https://x402-doctor.fizzl.eu: agent #5120
+  ✓ 1. seller advertises a Verified by Concordium badge
+       badge Mf22oVsbu3vf4Jb1cga49
+  ✓ 2. registered and Active in the CIS-8004 Agent Registry
+       agent #5120, status Active, owner 45R4vB9JnXDUkYVNBrQE8yyg6o2qH32g7fX5N7i9yWxHxnFP7J (read from a Concordium node)
+  ✓ 3. official badge check passes (identity-verified owner)
+       15 checks passed
+  ✓ 4. Agent Card unchanged since pinned on-chain (own SHA-256)
+       sha256 ee319cbb1b7a63e2fdec687674c80463150c786ca158aea53f662236ae5b9d4f vs on-chain ee319cbb1b7a63e2fdec687674c80463150c786ca158aea53f662236ae5b9d4f
+  ✓ 5. payTo is bound to the agent in CIS-8 (read from a Concordium node)
+       0x6B0F4651eD42893ab58139938175E4a69f175F25 is bound to 45R4vB9JnXDUkYVNBrQE8yyg6o2qH32g7fX5N7i9yWxHxnFP7J in CIS-8 <10081,0> (key from the agent's on-chain external_reference)
+  ✓ 6. independent delivery record (vet402, another team's service)
+       verdict "unproven" from 0 paid request(s): Seller ID: not proven (neutral) + delivery unproven (policy block-no)
+
+✅ seller verified: agent #5120 (Mf22oVsbu3vf4Jb1cga49), owner 45R4vB9JnXDUkYVNBrQE8yyg6o2qH32g7fX5N7i9yWxHxnFP7J, paying an EVM address bound to it in CIS-8; delivery record: unproven

@@ -50,7 +50,8 @@ export function createBuyerAgent() {
   // Seller checks are the guard's (guard.ts): the same code any x402 client can wrap around its own payments.
   // This buyer's own policy: pay only sellers that name their agent in the 402; a third party's proven non-delivery also blocks
   const deps = guardDeps();
-  const reputation = env("BUYER_REPUTATION", "block-no") as ReputationMode;
+  // vet402 records testnet deliveries only, so it is off by default on mainnet
+  const reputation = env("BUYER_REPUTATION", NET.name === "testnet" ? "block-no" : "off") as ReputationMode;
   if (!["off", "advisory", "block-no", "require-go"].includes(reputation)) throw new Error("BUYER_REPUTATION must be off, advisory, block-no or require-go");
   const policy: GuardPolicy = { requireNamedAgent: true, reputation };
   const checkSeller = (req: Requirement, pr?: PaymentRequiredLike) => checkSellerFor({ origin: gateway, req, paymentRequired: pr }, deps, policy);

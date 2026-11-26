@@ -4,7 +4,7 @@
  *   npm run guard -- check <url> [--method POST] [--json '<body>']   no wallet: read the 402 and check the seller, pay nothing
  *   npm run guard -- buy   <url> [--method POST] [--json '<body>']   pay with BUYER_KEY_FILE (testnet CCD, at most MAX_PAY_MICROCCD),
  *                                                                    only if every check passes
- * Options: --reputation off|advisory|block-no|require-go (default block-no) · --json-file <path> instead of --json
+ * Options: --reputation off|advisory|block-no|require-go (default block-no on testnet, off on mainnet: vet402 is testnet-only) · --json-file <path> instead of --json
  *          --pay-network <caip2> (check mode: which payment option to check; default this Concordium network, else the first)
  * Mainnet: CONCORDIUM_NETWORK=mainnet npm run guard -- check <url> (read-only)
  *
@@ -16,6 +16,7 @@ import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { getExplorerTxUrl } from "@x402/concordium";
 import { NETWORK, env, loadAccount } from "./config.js";
+import { NET } from "./network.js";
 import { checkSellerFor, protect, summarize, type GuardPolicy, type GuardVerdict, type ReputationMode, type Requirement } from "./guard.js";
 import { guardDeps } from "./guard-deps.js";
 
@@ -31,7 +32,8 @@ const opt = (name: string) => {
 };
 const body = opt("json") ?? (opt("json-file") ? readFileSync(opt("json-file")!, "utf8") : undefined);
 const method = (opt("method") ?? (body ? "POST" : "GET")).toUpperCase();
-const reputation = (opt("reputation") ?? "block-no") as ReputationMode;
+// vet402 records testnet deliveries only: on mainnet its answer would be about a different agent with the same number, so it is off by default
+const reputation = (opt("reputation") ?? (NET.name === "testnet" ? "block-no" : "off")) as ReputationMode;
 if (!["off", "advisory", "block-no", "require-go"].includes(reputation)) {
   console.error(USAGE);
   process.exit(2);
