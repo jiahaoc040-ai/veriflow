@@ -1,0 +1,31 @@
+{
+  "name": "concordium-x402-guard",
+  "version": "0.1.0",
+  "description": "Check an x402 seller on Concordium before your agent pays it: Agent Registry badge, Active, Agent Card hash, payTo bound to the agent on-chain (CIS-8004 / CIS-8).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/jiahaoc040-ai/veriflow.git", "directory": "packages/concordium-x402-guard" },
+  "keywords": ["concordium", "x402", "ai-agents", "agent-registry", "cis-8004", "cis-8", "payments"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@concordium/web-sdk": "^12.0.2",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@x402/core": "^2.31.0",
+    "@x402/fetch": "^2.31.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

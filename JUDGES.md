@@ -2,7 +2,7 @@
 
 **When one AI agent pays another, it cannot tell who it is paying, the seller cannot tell who is buying, and nobody can prove what was sold wasn't changed afterwards. VeriFlow closes all three with Concordium, and every claim on this page is a transaction you can open.**
 
-- **Any x402 agent can check the seller before it signs.** `protect(client)` wraps the `@x402/fetch` client an agent already has ([`guard.ts`](gateway/src/guard.ts)). It reads the seller from the Concordium Agent Registry and pays only if the payout address is that agent's own on-chain wallet, or, for a USDC payout on Base, a key bound to the agent's owner in CIS-8. A copycat seller with a stolen card and badge is refused before any signature. **We ran it on three sellers we do not run** ([below](#the-guard-on-sellers-we-do-not-run)): it passed MainsMarker (#990, another team) and bought from it, passed x402 Doctor (#5120) **on mainnet** including its Base payout, and refused vet402 (#1268), whose payout address is not its registered wallet.
+- **Any x402 agent can check the seller before it signs.** `protect(client)` wraps the `@x402/fetch` client an agent already has: a standalone package, [`concordium-x402-guard`](packages/concordium-x402-guard), testnet and mainnet. It reads the seller from the Concordium Agent Registry and pays only if the payout address is that agent's own on-chain wallet, or, for a USDC payout on Base, a key bound to the agent's owner in CIS-8. A copycat seller with a stolen card and badge is refused before any signature. **We ran it on three sellers we do not run** ([below](#the-guard-on-sellers-we-do-not-run)): it passed MainsMarker (#990, another team) and bought from it, passed x402 Doctor (#5120) **on mainnet** including its Base payout, and refused vet402 (#1268), whose payout address is not its registered wallet.
 - **The seller checks the buyer before settling.** A zero-knowledge proof (18+, not in a restricted country, nothing else revealed) is re-checked at every payment, and the payer must be the wallet of the agent it claims to be.
 - **What was sold cannot be rewritten.** Each call is committed on-chain before its outcome, one per asset per day, under a scoring rule registered before the first commit.
 
@@ -86,7 +86,7 @@ Every payment to #1313's wallet (19394) as of 2026-11-26, from [its account page
 |---|---|---|
 | 19528 | 16 | Our own buyer agent #1478: development, tests and demos. These prove the mechanism, not demand. Purchases from the live site's demo button (since 2026-11-26) also come from #1478 and add to this row |
 | 19836 | 1 | A friend of the developer, new to Concordium, on Windows with their own identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1). They reported two bugs and nine unclear steps in [issue #13](https://github.com/jiahaoc040-ai/veriflow/issues/13); all were fixed the same evening |
-| 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: not ours. The account works with another builder's payment contract (`payment_intents` [`<13147,0>`](https://ccdexplorer.io/testnet/contract/13147/0), created by 19762) and the EUDemo token, so it looks like another hackathon developer testing against VeriFlow. We do not know who it is |
+| 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: a tester from the hackathon's Discord who answered the developer's request for testers; not our account. The same account works with its own builder's payment contract (`payment_intents` [`<13147,0>`](https://ccdexplorer.io/testnet/contract/13147/0)) |
 
 Plus, from #1478: one USDC purchase on Base and two payments of 1 `hh-VFUSD` (one delivered, one paid but not delivered before the fix; both above). In the other direction, our buyer #1478 bought once from another team's agent (MainsMarker #990, [above](#the-guard-on-sellers-we-do-not-run)).
 
@@ -123,4 +123,4 @@ What it does not check: the hosted badge service, endpoints not linked from the 
 - The signal is a public 30-day momentum rule with no edge. The product is the accountability around it.
 - Everything runs on testnet, with testnet identity providers.
 - No call has been revealed or scored yet (first reveal 2026-11-29).
-- Most purchases are our own agent's (16 of 18); the other two are a friend of the developer and one account we cannot name.
+- Most purchases are our own agent's (16 of 18); the other two are a friend of the developer and a tester from the hackathon's Discord.

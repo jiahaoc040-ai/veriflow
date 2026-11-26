@@ -9,9 +9,8 @@
 The reference seller sells a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, for 1 testnet CCD, 1 `hh-VFUSD` (our Protocol-Level Token test dollar, [paid here](https://ccdexplorer.io/testnet/transaction/ed2a9c298d875f7bb0f94aefa9499227304291c9a3f817d34b75416625f22e13)) or 0.01 USDC on Base, over x402. The product is the checks around it.
 
 ```ts
-import { protect } from "./gateway/src/guard.js";        // wraps an existing @x402/fetch client
-import { guardDeps } from "./gateway/src/guard-deps.js"; // hosted registry + Concordium node + CIS-8
-const guarded = protect(client, guardDeps());
+import { protect, concordiumGuardDeps } from "concordium-x402-guard"; // packages/concordium-x402-guard
+const guarded = protect(client, concordiumGuardDeps({ network: "testnet" })); // wraps your existing @x402/fetch client; "mainnet" works too
 const { response, verdict } = await guarded.fetch("https://seller.example/x402/thing", { method: "POST", body });
 // verdict.checks: badge · Active in CIS-8004 · official badge check · card hash · payTo bound · (optional) delivery record
 ```
