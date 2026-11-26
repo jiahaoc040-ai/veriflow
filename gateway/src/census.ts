@@ -170,7 +170,7 @@ export function summarize(rows: Row[]) {
     active_ext_revoked: n((r) => r.status === "Active" && r.cis8 === "revoked"),
     active_ext_other_contract: n((r) => r.status === "Active" && r.cis8 === "other-contract"),
     active_ext_read_error: n((r) => r.status === "Active" && r.cis8 === "error"),
-    ext_namespaces: Object.fromEntries(Object.entries(rows.filter((r) => r.status === "Active" && r.extNs).reduce((m, r) => ((m[r.extNs!] = (m[r.extNs!] ?? 0) + 1), m), {} as Record<string, number>)).sort((a, b) => b[1] - a[1]).slice(0, 8)),
+    ext_namespaces: Object.fromEntries(Object.entries(rows.filter((r) => r.status === "Active" && r.extNs).reduce((m, r) => ((m[r.extNs!] = (m[r.extNs!] ?? 0) + 1), m), {} as Record<string, number>)).sort((a, b) => b[1] - a[1])),
     active_with_wallet: n((r) => r.status === "Active" && !!r.wallet),
     active_wallet_is_owner: n((r) => r.status === "Active" && !!r.walletIsOwner),
     active_card_ok: cardOk.length,
@@ -185,9 +185,62 @@ export function summarize(rows: Row[]) {
     x402_ccd_payto_not_wallet: x.filter((r) => r.x402!.ccdPayToMatchesWallet === false).length,
     x402_evm_payto: x.filter((r) => r.x402!.evmPayTo).length,
     x402_evm_with_cis8_key: x.filter((r) => r.x402!.cis8Key).length,
+    // Why the others fail, each agent counted once (first reason in this order), so these add up to active − payable
+    fail_no_wallet_card_fails: n((r) => r.status === "Active" && !r.wallet && !(r.card === "ok" && r.hashMatch === true)),
+    fail_no_wallet_card_ok: n((r) => r.status === "Active" && !r.wallet && r.card === "ok" && r.hashMatch === true),
+    fail_wallet_no_https_card: n((r) => r.status === "Active" && !!r.wallet && (r.card === "none" || r.https === false)),
+    fail_wallet_card_unreachable: n((r) => r.status === "Active" && !!r.wallet && r.https !== false && r.card === "unreachable"),
+    fail_wallet_hash_mismatch: n((r) => r.status === "Active" && !!r.wallet && r.card === "ok" && r.hashMatch === false),
     payable_safely: payable,
     payable_safely_pct_of_active: pct(payable, active.length),
   };
+}
+
+/** The README of a census run, from its report (also used to re-render an old report after a wording fix) */
+export function censusMarkdown(report: { run_at: string; highest_id: number; gap_stop: number; partial: boolean; summary: Summary }): string {
+  const s = report.summary;
+  const line = (k: string, v: number, of?: number) => `| ${k} | ${v}${of ? ` (${Math.round((1000 * v) / of) / 10}%)` : ""} |`;
+  return [
+    `## Agent Registry census — ${NET.name} ${AGENT_REGISTRY_TEXT}`,
+    "",
+    ...(report.partial ? [`**Partial:** stopped at the ${BUDGET_MS / 60_000}-minute budget; agents above id ${report.highest_id} were not read.`, ""] : []),
+    `Run ${report.run_at}. Read-only: every agent read from a Concordium node (token ids 1–${report.highest_id}${report.partial ? "" : `, stopping after ${report.gap_stop} empty ids`}), Agent Cards fetched and hashed, x402 endpoints named in cards probed once with GET. No transactions, no payments.`,
+    "",
+    `**${s.payable_safely} of ${s.active} Active agents (${s.payable_safely_pct_of_active}%) pass the on-chain checks a buyer can make before paying:** a bound \`agentWallet\`, and an https Agent Card whose SHA-256 equals the on-chain hash.`,
+    "",
+    "| | |", "|---|---|",
+    line("Agents read", s.agents),
+    line("Active", s.active, s.agents),
+    line("Revoked", s.revoked, s.agents),
+    line("Could not be decoded", s.unreadable, s.agents),
+    line("Active with an on-chain agentWallet", s.active_with_wallet, s.active),
+    line("… of which the wallet is the owner account itself", s.active_wallet_is_owner, s.active),
+    line("Active whose https card loads", s.active_card_ok, s.active),
+    line("Active whose card cannot be loaded", s.active_card_unreachable, s.active),
+    line("Active with no https card", s.active_no_https_card, s.active),
+    line("Active whose card matches the on-chain hash", s.active_hash_match, s.active),
+    line("Active whose card does NOT match the on-chain hash", s.active_hash_mismatch, s.active),
+    line("Active declaring a Verified by Concordium badge in the card", s.active_badge_declared, s.active),
+    line("Active linking an external (other-chain) key via external_reference", s.active_with_external_reference, s.active),
+    line("… key bound in CIS-8 to the agent's owner (read from a node)", s.active_ext_bound_to_owner, s.active_with_external_reference),
+    line("… key bound in CIS-8 to a different account", s.active_ext_bound_to_other, s.active_with_external_reference),
+    line("… key not registered in CIS-8", s.active_ext_not_registered, s.active_with_external_reference),
+    line("… CIS-8 binding revoked", s.active_ext_revoked, s.active_with_external_reference),
+    line("… points at another contract", s.active_ext_other_contract, s.active_with_external_reference),
+    line("… CIS-8 read failed", s.active_ext_read_error, s.active_with_external_reference),
+    line("Active whose card mentions x402", s.active_mentions_x402, s.active),
+    line("… with a live x402 402 found at a URL in the card", s.x402_endpoints_found),
+    line("… … Concordium payTo = on-chain agentWallet", s.x402_ccd_payto_matches_wallet),
+    line("… … Concordium payTo ≠ on-chain agentWallet", s.x402_ccd_payto_not_wallet),
+    line("… … offering an EVM payTo", s.x402_evm_payto),
+    line("… … EVM offer naming a CIS-8 key in `extra`", s.x402_evm_with_cis8_key),
+    "",
+    `Why the other ${s.active - s.payable_safely} fail, each agent counted once: no agentWallet, and the card also fails ${s.fail_no_wallet_card_fails}; no agentWallet, card fine ${s.fail_no_wallet_card_ok}; wallet bound but no https card ${s.fail_wallet_no_https_card}; wallet bound but the card does not load ${s.fail_wallet_card_unreachable}; wallet bound but the card changed since it was pinned ${s.fail_wallet_hash_mismatch}.`,
+    "",
+    `External key namespaces (Active): ${Object.entries(s.ext_namespaces).map(([k, v]) => `\`${k}\` ${v}`).join(", ") || "none"}.`,
+    "",
+    "Not checked here: the official badge check (a hosted service); CIS-8 keys an agent does not link through external_reference (CIS-8 has no listing by account); endpoints not named in the card or not answering GET.",
+  ].join("\n");
 }
 
 async function main() {
@@ -222,46 +275,7 @@ async function main() {
   const s = summarize(rows);
   const report = { network: NET.name, registry: AGENT_REGISTRY_TEXT, run_at: new Date().toISOString(), highest_id: lastFound, gap_stop: GAP, partial, minutes: Math.round((Date.now() - started) / 6000) / 10, summary: s, rows };
   writeFileSync("census-report.json", JSON.stringify(report, null, 1));
-  const line = (k: string, v: number, of?: number) => `| ${k} | ${v}${of ? ` (${Math.round((1000 * v) / of) / 10}%)` : ""} |`;
-  const md = [
-    `## Agent Registry census — ${NET.name} ${AGENT_REGISTRY_TEXT}`,
-    "",
-    ...(partial ? [`**Partial:** stopped at the ${BUDGET_MS / 60_000}-minute budget; agents above id ${lastFound} were not read.`, ""] : []),
-    `Run ${report.run_at}. Read-only: every agent read from a Concordium node (token ids 1–${lastFound}${partial ? "" : `, stopping after ${GAP} empty ids`}), Agent Cards fetched and hashed, x402 endpoints named in cards probed once with GET. No transactions, no payments.`,
-    "",
-    `**${s.payable_safely} of ${s.active} Active agents (${s.payable_safely_pct_of_active}%) pass the on-chain checks a buyer can make before paying:** a bound \`agentWallet\`, and an https Agent Card whose SHA-256 equals the on-chain hash.`,
-    "",
-    "| | |", "|---|---|",
-    line("Agents read", s.agents),
-    line("Active", s.active, s.agents),
-    line("Revoked", s.revoked, s.agents),
-    line("Could not be decoded", s.unreadable, s.agents),
-    line("Active with an on-chain agentWallet", s.active_with_wallet, s.active),
-    line("… of which the wallet is the owner account itself", s.active_wallet_is_owner, s.active),
-    line("Active whose https card loads", s.active_card_ok, s.active),
-    line("Active whose card cannot be loaded", s.active_card_unreachable, s.active),
-    line("Active with no https card", s.active_no_https_card, s.active),
-    line("Active whose card matches the on-chain hash", s.active_hash_match, s.active),
-    line("Active whose card does NOT match the on-chain hash", s.active_hash_mismatch, s.active),
-    line("Active declaring a Verified by Concordium badge in the card", s.active_badge_declared, s.active),
-    line("Active linking an external (other-chain) key via external_reference", s.active_with_external_reference, s.active),
-    line("… key bound in CIS-8 to the agent's owner (read from a node)", s.active_ext_bound_to_owner, s.active_with_external_reference),
-    line("… key bound in CIS-8 to a different account", s.active_ext_bound_to_other, s.active_with_external_reference),
-    line("… key not registered in CIS-8", s.active_ext_not_registered, s.active_with_external_reference),
-    line("… CIS-8 binding revoked", s.active_ext_revoked, s.active_with_external_reference),
-    line("… points at another contract", s.active_ext_other_contract, s.active_with_external_reference),
-    line("… CIS-8 read failed", s.active_ext_read_error, s.active_with_external_reference),
-    line("Active whose card mentions x402", s.active_mentions_x402, s.active),
-    line("… with a live x402 402 found at a URL in the card", s.x402_endpoints_found),
-    line("… … Concordium payTo = on-chain agentWallet", s.x402_ccd_payto_matches_wallet),
-    line("… … Concordium payTo ≠ on-chain agentWallet", s.x402_ccd_payto_not_wallet),
-    line("… … offering an EVM payTo", s.x402_evm_payto),
-    line("… … EVM offer naming a CIS-8 key in `extra`", s.x402_evm_with_cis8_key),
-    "",
-    `External key namespaces (Active): ${Object.entries(s.ext_namespaces).map(([k, v]) => `\`${k}\` ${v}`).join(", ") || "none"}.`,
-    "",
-    "Not checked here: the official badge check (a hosted service), CIS-8 bindings (the registry has no listing by account), endpoints not named in the card or not answering GET.",
-  ].join("\n");
+  const md = censusMarkdown(report);
   writeFileSync("census-summary.md", md + "\n");
   console.log(md);
   process.exit(0);

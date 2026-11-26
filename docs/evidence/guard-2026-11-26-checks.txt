@@ -1,4 +1,6 @@
 # npm run guard -- check, run by the developer on 2026-11-26 (Asia/Taipei), testnet and mainnet. Unedited output.
+# Notes added later: amounts on the "asks for payment" lines are in the smallest unit (500000 = 0.5 CCD; the CLI now prints
+# 0.5 CCD). These runs predate two later defaults: check 6 (vet402) is now off on mainnet, and the payment network is pinned.
 
 > guard
 > tsx src/guard-cli.ts check https://mainsmarker.sites.tab.bot/x402/review --json {"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}
