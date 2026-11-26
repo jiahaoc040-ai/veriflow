@@ -1,7 +1,7 @@
 {
   "rule": "v2",
   "contract": "<13115,0>",
-  "run_at": "2026-11-26T01:57:15.890Z",
+  "run_at": "2026-11-26T17:21:19.621Z",
   "complete": true,
   "problems": [],
   "integrity": {
@@ -29,7 +29,7 @@
       "2026-11-24"
     ]
   },
-  "valid_until": "2026-11-27T03:57:15.890Z",
+  "valid_until": "2026-11-27T19:21:19.621Z",
   "hashes": {
     "spec": "6c862bfec9a427da83bd4cb1482e0a61f938e4c1fc54a07861ef36fb0a93b1c0",
     "script": "babc11e585bfdd9e54e64832540d36669c1a1641446fb3bb3b5947922c4f6f88",
