@@ -131,7 +131,8 @@ export async function checkSellerFor(
     payToCheck: evm ? deps.evmPayToCheck!(req) : undefined,
   });
   const out: GuardVerdict = { ...base, origin };
-  const mode = policy.reputation ?? "block-no";
+  // vet402 records testnet only: on another network its answer would be about a different agent with the same number
+  const mode = policy.reputation ?? (deps.registryNetwork === "testnet" ? "block-no" : "off");
   // Only ask the third party about a seller that already passed the chain checks
   if (mode === "off" || !base.ok || !base.tokenId) return out;
   const src = policy.reputationUrl ?? DEFAULT_REPUTATION_URL;

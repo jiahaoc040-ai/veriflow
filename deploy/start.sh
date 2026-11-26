@@ -14,6 +14,8 @@ set -eu
 umask 077
 printf '%s' "$FACILITATOR_KEY_JSON" > /app/gateway/keys/facilitator.export
 export FACILITATOR_KEY_FILE=/app/gateway/keys/facilitator.export
+# Secrets stay in files only: child processes (Python API, gateway) must not inherit them through the environment
+unset FACILITATOR_KEY_JSON
 if [ -n "${DEMO_BUYER_KEY_JSON:-}" ]; then
   printf '%s' "$DEMO_BUYER_KEY_JSON" > /app/gateway/keys/demo-buyer.export
   export DEMO_BUYER_KEY_FILE=/app/gateway/keys/demo-buyer.export

@@ -26,8 +26,70 @@ type Agent = {
   }>;
 };
 
+/** The site-wide daily budget. In memory by default; Postgres when deployed, so a restart does not reset it */
+export type DailyCounter = {
+  /** Count one purchase for this UTC day if fewer than `limit` were counted; false = limit reached */
+  reserve(day: string, limit: number): Promise<boolean>;
+  used(day: string): Promise<number>;
+};
+
+export function memoryCounter(): DailyCounter {
+  const m = new Map<string, number>();
+  return {
+    async reserve(day, limit) {
+      const n = m.get(day) ?? 0;
+      if (n >= limit) return false;
+      m.clear();
+      m.set(day, n + 1);
+      return true;
+    },
+    async used(day) {
+      return m.get(day) ?? 0;
+    },
+  };
+}
+
+export function postgresCounter(url: string): DailyCounter {
+  let pool: import("pg").Pool | undefined;
+  const db = async () => {
+    if (!pool) {
+      const { default: pg } = await import("pg");
+      pool = new pg.Pool({ connectionString: url, max: 2, ssl: /sslmode=require|neon\.tech/.test(url) ? { rejectUnauthorized: true } : undefined });
+      await pool.query("CREATE TABLE IF NOT EXISTS demo_buys (day TEXT PRIMARY KEY, n INTEGER NOT NULL)");
+    }
+    return pool;
+  };
+  return {
+    async reserve(day, limit) {
+      // One atomic statement: insert the day's first purchase, or add one only while under the limit
+      const { rows } = await (await db()).query(
+        "INSERT INTO demo_buys (day, n) VALUES ($1, 1) ON CONFLICT (day) DO UPDATE SET n = demo_buys.n + 1 WHERE demo_buys.n < $2 RETURNING n",
+        [day, limit],
+      );
+      return rows.length === 1 && limit > 0;
+    },
+    async used(day) {
+      const { rows } = await (await db()).query("SELECT n FROM demo_buys WHERE day = $1", [day]);
+      return rows[0]?.n ?? 0;
+    },
+  };
+}
+
+const validLimit = (n: number, what: string) => {
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${what} must be a whole number ≥ 0, got ${n}`);
+  return n;
+};
+
+/** A short error code from the seller's JSON body, never the body itself */
+export function safeErrorCode(body: unknown): string | null {
+  const e = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+  return typeof e === "string" && /^[a-z0-9_:.-]{1,60}$/i.test(e) ? e : null;
+}
+
 export type DemoOptions = {
   makeAgent: () => Agent | Promise<Agent>;
+  counter?: DailyCounter;
+  log?: (msg: string) => void;
   dailyLimit?: number;
   perIpPerHour?: number;
   now?: () => number;
@@ -37,29 +99,32 @@ export type DemoOptions = {
 export function demoBuyRouter(o: DemoOptions) {
   const r = express.Router();
   const now = o.now ?? Date.now;
-  const daily = o.dailyLimit ?? 20;
-  const perIp = new RateLimiter(o.perIpPerHour ?? 3, 60 * 60_000, now);
+  const daily = validLimit(o.dailyLimit ?? 20, "DEMO_DAILY_LIMIT");
+  const ipLimit = validLimit(o.perIpPerHour ?? 3, "DEMO_PER_IP_PER_HOUR");
+  const perIp = new RateLimiter(ipLimit, 60 * 60_000, now);
+  const counter = o.counter ?? memoryCounter();
+  const log = o.log ?? ((m: string) => console.error(m));
   let busy = false;
-  let day = "";
-  let used = 0;
   let agent: Agent | undefined;
   const today = () => new Date(now()).toISOString().slice(0, 10);
-  const left = () => (day === today() ? Math.max(0, daily - used) : daily);
+  const left = async () => Math.max(0, daily - (await counter.used(today()).catch(() => daily)));
 
-  r.get("/demo/status", (_req, res) => res.json({ enabled: true, left_today: left(), daily_limit: daily, busy }));
+  r.get("/demo/status", async (_req, res) => res.json({ enabled: true, left_today: await left(), daily_limit: daily, busy }));
 
   r.post("/demo/buy", async (req, res) => {
-    const asset = String(req.body?.asset ?? "BTC").toUpperCase();
+    // Only the page itself may press the button: a JSON body (a plain cross-site form cannot send one) and no cross-site fetch
+    if (!req.is("application/json") || req.get("sec-fetch-site") === "cross-site") return res.status(403).json({ error: "same_origin_json_only" });
+    const asset = String(req.body?.asset ?? "").toUpperCase();
     if (asset !== "BTC" && asset !== "ETH") return res.status(400).json({ error: "asset must be BTC or ETH" });
     if (busy) return res.status(429).json({ error: "busy", message: "Another visitor's purchase is running. Try again in a few seconds." });
-    if (left() <= 0) return res.status(429).json({ error: "daily_limit", message: `The demo buys at most ${daily} calls per UTC day. Try again tomorrow, or buy one yourself (TRY_IT.md, Path B).` });
     const key = (o.ipOf ?? ((q) => q.ip ?? "unknown"))(req);
-    if (!perIp.take(key)) return res.status(429).json({ error: "per_ip_limit", message: `At most ${o.perIpPerHour ?? 3} demo purchases per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) });
+    if (!perIp.take(key)) return res.status(429).json({ error: "per_ip_limit", message: `At most ${ipLimit} demo purchases per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) });
     busy = true;
-    if (day !== today()) { day = today(); used = 0; }
-    used++;
     const started = now();
     try {
+      let ok: boolean;
+      try { ok = await counter.reserve(today(), daily); } catch (e) { log(`demo: daily counter failed: ${e instanceof Error ? e.message : e}`); ok = false; }
+      if (!ok) return res.status(429).json({ error: "daily_limit", message: `The demo buys at most ${daily} calls per UTC day. Try again tomorrow, or buy one yourself (TRY_IT.md, Path B).` });
       agent ??= await o.makeAgent();
       const b = await agent.buySignal(asset);
       const body = (b.body && typeof b.body === "object" ? b.body : {}) as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string } };
@@ -74,12 +139,15 @@ export function demoBuyRouter(o: DemoOptions) {
         commitment: body.commitment ?? null,
         anchor_tx: body.anchor_tx ?? null,
         commit_tx_url: body.anchor_tx ? `${NET.explorer}/transaction/${body.anchor_tx}` : null,
-        error: b.status !== 200 && !b.refused ? (typeof b.body === "string" ? b.body.slice(0, 300) : JSON.stringify(b.body ?? null).slice(0, 300)) : null,
+        // Only a short error code from the seller, never its body
+        error: b.status !== 200 && !b.refused ? safeErrorCode(b.body) ?? `http_${b.status}` : null,
         ms: now() - started,
-        left_today: left(),
+        left_today: await left(),
       });
     } catch (e) {
-      res.status(502).json({ error: "demo_failed", message: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300) });
+      // The real reason goes to the server log only (it can name files or hosts)
+      log(`demo: purchase failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
+      res.status(502).json({ error: "demo_failed", message: "The demo purchase failed. Nothing more is shown here; please try again later." });
     } finally {
       busy = false;
     }

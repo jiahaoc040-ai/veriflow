@@ -214,7 +214,8 @@
       lines.push(step(true, `Buyer: agent #${j.buyer.agent}, account ${j.buyer.account.slice(0, 8)}…`)); show();
       for (const c of (j.seller_check ? j.seller_check.checks : [])) { await sleep(350); lines.push(step(c.ok, c.name, c.detail)); show(); }
       await sleep(350);
-      if (j.refused || !j.seller_check || !j.seller_check.ok) { lines.push(step(false, "Seller failed a check: nothing was signed or paid")); show(); return; }
+      if (j.refused || (j.seller_check && !j.seller_check.ok)) { lines.push(step(false, "Seller failed a check: nothing was signed or paid")); show(); return; }
+      if (!j.seller_check) { lines.push(step(false, "No seller check was reported", j.payment_tx ? "a payment was made anyway" : "")); show(); if (!j.payment_tx) return; }
       if (j.seller_checked_buyer) { lines.push(step(true, `The seller checked us back: agent #${j.seller_checked_buyer.token_id}`, j.seller_checked_buyer.checked)); show(); await sleep(350); }
       if (j.status !== 200) { lines.push(step(false, `Seller answered HTTP ${j.status}`, j.error)); show(); return; }
       lines.push(`<li class="ok">✅ Paid 1 testnet CCD: <a class="mono" href="${esc(j.payment_tx)}" target="_blank" rel="noopener">payment transaction</a></li>`); show(); await sleep(350);

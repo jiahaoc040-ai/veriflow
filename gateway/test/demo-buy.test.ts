@@ -4,7 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
-import { demoBuyRouter, demoDisabledRouter } from "../src/demo-buy.ts";
+import { demoBuyRouter, demoDisabledRouter, memoryCounter, safeErrorCode } from "../src/demo-buy.ts";
+import { readFileSync } from "node:fs";
 
 function serve(router: express.Router) {
   const app = express(); app.use(express.json()); app.use(router);
@@ -41,7 +42,7 @@ test("limits: unknown asset, per visitor per hour, site-wide per day, one at a t
   assert.equal((await post(s.url)).status, 200);
   assert.equal((await post(s.url)).status, 200);
   assert.equal((await post(s.url)).status, 429); // third from the same visitor this hour
-  const other = (ip: string) => fetch(`${s.url}/demo/buy`, { method: "POST", headers: { "content-type": "application/json", "x-test-ip": ip }, body: "{}" });
+  const other = (ip: string) => fetch(`${s.url}/demo/buy`, { method: "POST", headers: { "content-type": "application/json", "x-test-ip": ip }, body: JSON.stringify({ asset: "BTC" }) });
   assert.equal((await other("b")).status, 200);
   const r = await other("c");
   assert.equal(r.status, 429); // site-wide daily limit reached
@@ -67,4 +68,50 @@ test("not configured: status says disabled and buying is refused", async () => {
   assert.deepEqual(await (await fetch(`${s.url}/demo/status`)).json(), { enabled: false });
   assert.equal((await post(s.url)).status, 503);
   s.close();
+});
+
+test("only the page can press the button: JSON body required, cross-site fetch refused, asset required", async () => {
+  const calls: string[] = [];
+  const s = await serve(demoBuyRouter({ makeAgent: () => okAgent(calls), ipOf: () => String(Math.random()) }));
+  assert.equal((await fetch(`${s.url}/demo/buy`, { method: "POST" })).status, 403);
+  assert.equal((await fetch(`${s.url}/demo/buy`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "asset=BTC" })).status, 403);
+  assert.equal((await fetch(`${s.url}/demo/buy`, { method: "POST", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: '{"asset":"BTC"}' })).status, 403);
+  assert.equal((await fetch(`${s.url}/demo/buy`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status, 400);
+  s.close();
+  assert.equal(calls.length, 0);
+});
+
+test("limits that are not whole numbers refuse to start (NaN would disable them)", () => {
+  assert.throws(() => demoBuyRouter({ makeAgent: () => okAgent([]), dailyLimit: Number("lots") }), /DEMO_DAILY_LIMIT/);
+  assert.throws(() => demoBuyRouter({ makeAgent: () => okAgent([]), perIpPerHour: -1 }), /DEMO_PER_IP_PER_HOUR/);
+});
+
+test("errors never reach the visitor: exceptions are logged, seller bodies reduced to a short code", async () => {
+  const logged: string[] = [];
+  const boom = { address: "x", buySignal: async () => { throw new Error("ENOENT: open '/app/gateway/keys/demo-buyer.export'"); } };
+  let s = await serve(demoBuyRouter({ makeAgent: () => boom, log: (m) => logged.push(m), ipOf: () => "a" }));
+  let j = await (await post(s.url)).json(); s.close();
+  assert.doesNotMatch(JSON.stringify(j), /ENOENT|keys/);
+  assert.match(logged.join(" "), /ENOENT/);
+  const leaky = { address: "x", buySignal: async () => ({ status: 500, refused: false, body: "postgres://app:SECRET@db.internal/veriflow" }) };
+  s = await serve(demoBuyRouter({ makeAgent: () => leaky, ipOf: () => "b" }));
+  j = await (await post(s.url)).json(); s.close();
+  assert.equal(j.error, "http_500");
+  assert.equal(safeErrorCode({ error: "buyer_proof_required" }), "buyer_proof_required");
+  assert.equal(safeErrorCode({ error: "postgres://app:SECRET@db" }), null);
+});
+
+test("the daily budget is shared through the counter (Postgres in production survives restarts)", async () => {
+  const counter = memoryCounter();
+  const make = () => serve(demoBuyRouter({ makeAgent: () => okAgent([]), counter, dailyLimit: 1, ipOf: () => String(Math.random()) }));
+  let s = await make(); assert.equal((await post(s.url)).status, 200); s.close();
+  s = await make(); assert.equal((await post(s.url)).status, 429); s.close(); // "restarted" router, same counter
+});
+
+test("start.sh does not leave key contents in the environment of the processes it starts", () => {
+  const sh = readFileSync(new URL("../../deploy/start.sh", import.meta.url), "utf8");
+  for (const v of ["FACILITATOR_KEY_JSON", "DEMO_BUYER_KEY_JSON"]) {
+    const write = sh.indexOf(`"$${v}"`), unset = sh.indexOf(`unset ${v}`), start = sh.indexOf("uvicorn");
+    assert.ok(write > 0 && unset > write && unset < start, `${v} must be unset after it is written and before any process starts`);
+  }
 });

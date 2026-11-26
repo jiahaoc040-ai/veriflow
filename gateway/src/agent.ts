@@ -21,7 +21,7 @@ import { checkSellerFor, summarize, type GuardPolicy, type GuardVerdict, type Pa
 import { guardDeps } from "./guard-deps.js";
 
 /** Options override the environment: the live site's demo button uses its own key file, agent id and CCD only */
-export function createBuyerAgent(opts: { keyFile?: string; gateway?: string; agentTokenId?: string; ccdOnly?: boolean } = {}) {
+export function createBuyerAgent(opts: { keyFile?: string; gateway?: string; agentTokenId?: string; ccdOnly?: boolean; requireSeller?: boolean } = {}) {
   const buyer = loadAccount(opts.keyFile ?? env("BUYER_KEY_FILE"));
   const gateway = opts.gateway ?? env("GATEWAY_URL", PUBLIC_GATEWAY);
   // Which asset to pay in: CCD by default; BUYER_PAY_ASSET=VFUSD (etc.) pays in that Protocol-Level Token (cap BUYER_MAX_PAY, smallest unit)
@@ -42,7 +42,8 @@ export function createBuyerAgent(opts: { keyFile?: string; gateway?: string; age
     ],
     spendControls: { allowedAssets: [{ network: payNetwork, asset: payAsset, maxAmountPerPayment: maxPay }] },
   });
-  const requireSeller = env("REQUIRE_SELLER_BADGE", "true") !== "false";
+  // REQUIRE_SELLER_BADGE=false is for local development only; the site's demo agent always checks the seller (opts.requireSeller)
+  const requireSeller = opts.requireSeller ?? env("REQUIRE_SELLER_BADGE", "true") !== "false";
   // The buyer's own CIS-8004 agent (optional). The seller checks from a node that the paying account is its agentWallet
   const buyerAgentId = (opts.agentTokenId ?? process.env.BUYER_AGENT_TOKEN_ID ?? "").trim();
   if (buyerAgentId && !/^\d{1,20}$/.test(buyerAgentId)) throw new Error("BUYER_AGENT_TOKEN_ID must be a CIS-8004 token id (digits)");

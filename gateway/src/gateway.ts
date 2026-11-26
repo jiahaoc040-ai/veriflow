@@ -33,7 +33,7 @@ import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, inlineScriptHashes, rateLimit, securityHeaders } from "./security.js";
-import { demoBuyRouter, demoDisabledRouter } from "./demo-buy.js";
+import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.js";
 import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
@@ -404,7 +404,8 @@ const DEMO_KEY = process.env.DEMO_BUYER_KEY_FILE?.trim();
 app.use(
   DEMO_KEY
     ? demoBuyRouter({
-        makeAgent: async () => (await import("./agent.js")).createBuyerAgent({ keyFile: DEMO_KEY, gateway: PUBLIC_URL, agentTokenId: env("DEMO_BUYER_AGENT", "1478"), ccdOnly: true }),
+        makeAgent: async () => (await import("./agent.js")).createBuyerAgent({ keyFile: DEMO_KEY, gateway: PUBLIC_URL, agentTokenId: env("DEMO_BUYER_AGENT", "1478"), ccdOnly: true, requireSeller: true }),
+        counter: process.env.DATABASE_URL ? postgresCounter(process.env.DATABASE_URL) : undefined,
         dailyLimit: Number(env("DEMO_DAILY_LIMIT", "20")),
         perIpPerHour: Number(env("DEMO_PER_IP_PER_HOUR", "3")),
       })

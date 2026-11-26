@@ -119,3 +119,11 @@ test("node reads are retried on a dropped connection or a 429, not on other erro
   await assert.rejects(retrying(async () => { n++; throw new Error("agentOf: illegal option tag 7"); }, 3), /illegal/);
   assert.equal(n, 1);
 });
+
+test("vet402 is testnet-only: with no policy it is off on mainnet, so a testnet 'no' cannot block a mainnet agent", async () => {
+  const { d, asked } = deps({ verdict: "no" });
+  const v = await checkSellerFor({ origin: "https://seller.test", req: req() }, { ...d, registryNetwork: "mainnet" });
+  assert.equal(v.ok, true);
+  assert.equal(v.checks.length, 5);
+  assert.ok(!asked.some((u) => u.includes("/check?agent=")));
+});
