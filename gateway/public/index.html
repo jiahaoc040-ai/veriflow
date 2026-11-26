@@ -33,35 +33,72 @@
   .checks li { margin:2px 0; }
   .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
   .scroll { overflow-x:auto; }
+  main { max-width:960px; }
+  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:28px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; letter-spacing:-.01em; }
+  .dot { width:12px; height:12px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--ok)); }
+  .net { font-size:12px; font-weight:500; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:2px 10px; }
+  .nav { display:flex; gap:16px; flex-wrap:wrap; font-size:14px; }
+  .nav a { color:var(--ink); text-decoration:none; opacity:.8; } .nav a:hover { opacity:1; text-decoration:underline; }
+  .hero h1 { font-size:clamp(28px,4.4vw,42px); line-height:1.12; letter-spacing:-.02em; margin:0 0 12px; max-width:20ch; }
+  .hero .sub { font-size:17px; color:var(--muted); max-width:62ch; margin:0 0 22px; }
+  .pillars { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:0 0 28px; }
+  @media (max-width:760px) { .pillars { grid-template-columns:1fr; } }
+  .pillar { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .pillar .k { font-size:12px; font-weight:600; color:var(--accent); text-transform:uppercase; letter-spacing:.05em; }
+  .pillar h3 { margin:6px 0 6px; font-size:16px; }
+  .pillar p { margin:0; font-size:14px; color:var(--muted); }
+  .try { border-top:3px solid var(--accent); }
+  .try h2 { font-size:19px; text-transform:none; letter-spacing:0; color:var(--ink); margin-bottom:6px; }
+  .try h2 .step { display:inline-block; font-size:12px; font-weight:600; color:#fff; background:var(--accent); border-radius:999px; padding:2px 9px; margin-right:8px; vertical-align:middle; }
+  .section-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:28px 0 10px; }
+  footer { margin:32px 0 48px; }
   .small { font-size:12px; } .lead { margin-top:0; font-size:13px; } .verdict { margin:6px 0 0; font-weight:600; }
 </style>
 </head>
 <body>
 <main>
-  <h1>VeriFlow</h1>
-  <p class="tag">Trust checks for AI agents that pay each other, on Concordium. This is the reference seller: agent #1313 sells a daily BTC or ETH call (<code>RISK_ON</code> / <code>RISK_OFF</code>) for 1 testnet CCD over x402, only to verified buyers, and commits every call on-chain before its outcome.</p>
+  <div class="top">
+    <div class="brand"><span class="dot"></span>VeriFlow <span class="net">Concordium testnet</span></div>
+    <nav class="nav">
+      <a href="https://youtu.be/UO6d-opQ56o" target="_blank" rel="noopener">Demo video</a>
+      <a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md" target="_blank" rel="noopener">JUDGES.md</a>
+      <a href="https://github.com/jiahaoc040-ai/veriflow/tree/main/packages/concordium-x402-guard" target="_blank" rel="noopener">Guard package</a>
+      <a href="https://github.com/jiahaoc040-ai/veriflow" target="_blank" rel="noopener">Code</a>
+    </nav>
+  </div>
+
+  <section class="hero">
+    <h1>Pay an AI agent only after Concordium vouches for it.</h1>
+    <p class="sub">When agents pay each other over x402, the buyer cannot tell who it is paying, the seller cannot tell who is buying, and nobody can prove what was sold was not changed later. VeriFlow closes all three on Concordium. Try both below: no wallet, nothing to install.</p>
+    <div class="pillars">
+      <div class="pillar"><div class="k">Buyer → seller</div><h3>Check before signing</h3><p>Agent Registry badge, Active, card hash, and payTo = the agent's own on-chain wallet. A guard any x402 agent can wrap around its client.</p></div>
+      <div class="pillar"><div class="k">Seller → buyer</div><h3>Prove, reveal nothing</h3><p>A Verify &amp; Access zero-knowledge proof (18+, allowed country), re-checked at every payment; the payer must be its agent's wallet.</p></div>
+      <div class="pillar"><div class="k">The record</div><h3>Cannot be rewritten</h3><p>Every call is committed on-chain before its outcome, one per asset and day, under a scoring rule registered first.</p></div>
+    </div>
+  </section>
 
   <div class="badges" id="badges">
     <a class="badge" href="/verify">Buyer verification (Verify &amp; Access V1)</a>
     <a class="badge" id="badge" href="https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9UWYKh54TD2MUJDfqC" target="_blank" rel="noopener">Verified by Concordium · agent #1313</a>
-    <a class="badge" href="https://github.com/jiahaoc040-ai/veriflow" target="_blank" rel="noopener">Source &amp; MCP server</a>
+    <a class="badge" href="https://ccdexplorer.io/testnet/contract/13115/0" target="_blank" rel="noopener">Contract &lt;13115,0&gt; on CCDExplorer</a>
   </div>
 
-
-  <div class="card" id="demo" hidden>
-    <h2>Watch an agent buy one call</h2>
+  <div class="card try" id="demo" hidden>
+    <h2><span class="step">Try 1</span>Watch an agent buy one call</h2>
     <p class="muted lead">Our buyer agent <b>#1478</b> runs on this server. It checks this seller, agent <b>#1313</b>, on Concordium before signing anything, pays 1 testnet CCD over x402, and the seller checks it back. You pay nothing. Then your browser checks the call it bought against the chain. <span id="demoLeft"></span></p>
     <p><button class="primary" data-asset="BTC">Buy a BTC call</button> <button data-asset="ETH">Buy an ETH call</button></p>
     <div id="demoOut"></div>
   </div>
 
-  <div class="card" id="guardCard">
-    <h2>Check another team's seller before paying</h2>
-    <p class="muted lead">The same checks our buyer runs, as a guard any x402 agent can wrap around its own client (<a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/gateway/src/guard.ts" target="_blank" rel="noopener">guard.ts</a>). This server calls the seller, reads whom it wants to be paid, and checks that seller on Concordium. Nothing is paid. Results are cached for a minute.</p>
+  <div class="card try" id="guardCard">
+    <h2><span class="step">Try 2</span>Check another team's seller before paying</h2>
+    <p class="muted lead">The same checks our buyer runs, as a guard any x402 agent can wrap around its own client (<a href="https://github.com/jiahaoc040-ai/veriflow/tree/main/packages/concordium-x402-guard" target="_blank" rel="noopener">concordium-x402-guard</a>). This server calls the seller, reads whom it wants to be paid, and checks that seller on Concordium. Nothing is paid. Results are cached for a minute.</p>
     <p id="guardButtons"></p>
     <div id="guardOut"></div>
   </div>
 
+  <h3 class="section-title">The seller's record</h3>
   <div class="grid">
     <div class="card metric"><div class="n" id="issued">–</div><div class="l">signals issued</div></div>
     <div class="card metric"><div class="n" id="scored">–</div><div class="l" id="scoredLabel">first reveal</div></div>
@@ -85,7 +122,7 @@
     <div id="pastedOut"></div>
   </div>
 
-  <p class="muted small">Not investment advice. Testnet demo for the Concordium Trusted Agents Hackathon.</p>
+  <footer class="muted small">Not investment advice. Testnet demo for the Concordium Trusted Agents Hackathon · <a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md" target="_blank" rel="noopener">every on-chain link in JUDGES.md</a> · MIT</footer>
 </main>
 <script>
   const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
