@@ -27,7 +27,7 @@ The setting is not the whole job. Mainnet also needs:
 1. **A new agent.** Register in the mainnet Agent Registry `<10082,0>` from a mainnet identity, get the badge, and bind a mainnet `agentWallet`. The agent id will differ from #1313; the buyer reads it from the 402 and the registry, not from code.
 2. **A new contract and a new anchored rule.** Deploy contract v2 to mainnet after an external review, then anchor a scoring rule that names the mainnet contract and module before its first commit, exactly as on testnet.
 3. **Key handling.** Owner key on a hardware wallet. Split the committer and the fee sponsor into two accounts, each topped up by hand with a few days of fees.
-4. **Pricing.** 1 CCD is not a stable price. The x402 Concordium scheme we already use (`@x402/concordium`) settles PLT tokens such as EURR by setting `price.asset` to the token id ([package README](https://github.com/x402-foundation/x402/blob/main/typescript/packages/mechanisms/concordium/README.md)). The scheme needs no change. In this repo the price field and the buyer's spend limit, which today only allows CCD, do.
+4. **Pricing.** 1 CCD is not a stable price. The x402 Concordium scheme we already use (`@x402/concordium`) settles PLT tokens such as EURR by setting `price.asset` to the token id ([package README](https://github.com/x402-foundation/x402/blob/main/typescript/packages/mechanisms/concordium/README.md)). The scheme needs no change, and this repo already does it on testnet: `PLT_PRICE=hh-VFUSD:1000000` adds a 1 `hh-VFUSD` price beside CCD, and a buyer pays it with `BUYER_PAY_ASSET=hh-VFUSD` ([payment `ed2a9c29…`](https://ccdexplorer.io/testnet/transaction/ed2a9c298d875f7bb0f94aefa9499227304291c9a3f817d34b75416625f22e13)). On mainnet the token becomes an issued stablecoin such as EURR.
 5. **Legal review** of selling a market signal to anonymous agents, before the first mainnet sale. The restricted-country list is one configuration value.
 
 ## Who the users are
@@ -44,7 +44,7 @@ The signal itself is a public 30-day momentum rule and carries no edge. The prod
 |---|---|---|---|
 | M0 | Dec 2026 | The testnet system above, with the first reveals (from 2026-11-29) and the first published score (after 2026-11-30). | Reveal transactions on CCDExplorer; a green `score-v2` run with numbers |
 | M1 | Q1 2027 | Contract review; mainnet agent, contract and anchored rule; hardware-wallet owner. | First mainnet sale bought by an agent we do not run |
-| M2 | Q1 2027 | Stable pricing in a PLT stablecoin (EURR or USDR). | A buyer pays a fixed stablecoin price |
+| M2 | Q1 2027 | Stable pricing in a PLT stablecoin (EURR or USDR). Testnet done 2026-11-26 with our own test dollar `hh-VFUSD`. | A buyer pays a fixed stablecoin price on mainnet |
 | M3 | Q2 2027 | One agent platform integration; MCP Registry listing. | 10 distinct paying buyer accounts |
 | M4 | Q2 2027 | More assets; 90 days of uninterrupted commits. Publish only what the anchored rule prints, against always-on and always-off. No hit rate. | 90-day public record |
 

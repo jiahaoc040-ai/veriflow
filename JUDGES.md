@@ -6,7 +6,7 @@
 - **The seller checks the buyer before settling.** A zero-knowledge proof (18+, not in a restricted country, nothing else revealed) is re-checked at every payment, and the payer must be the wallet of the agent it claims to be.
 - **What was sold cannot be rewritten.** Each call is committed on-chain before its outcome, one per asset per day, under a scoring rule registered before the first commit.
 
-Our own seller is the reference for the last two: it sells a BTC or ETH call, `RISK_ON` or `RISK_OFF`, from Binance's 30-day momentum, for 1 testnet CCD (or 0.01 USDC on Base) over x402. The rule is deliberately simple and public. The product is the checks around it.
+Our own seller is the reference for the last two: it sells a BTC or ETH call, `RISK_ON` or `RISK_OFF`, from Binance's 30-day momentum, for 1 testnet CCD over x402, or 1 unit of our own Protocol-Level Token `hh-VFUSD` (a stable test dollar), or 0.01 USDC on Base. The rule is deliberately simple and public. The product is the checks around it.
 
 **Demo video (3 min): <https://youtu.be/UO6d-opQ56o>** · Live on testnet: <https://veriflow-yrhp.onrender.com> · Code (MIT): this repo
 
@@ -55,6 +55,7 @@ Check 6 is optional and comes from another team: vet402's free `/check` tells wh
 | **Seller → buyer:** 18+ and not resident in a restricted country, nothing else revealed; re-checked at every payment | Verify & Access V1 | Our buyer's proof: [VRA `edc30fac…`](https://ccdexplorer.io/testnet/transaction/edc30fac188ba167b37e8f7338ce691a0f00932303201230576056e8a103a5d6), [VAA `c40957b4…`](https://ccdexplorer.io/testnet/transaction/c40957b4731064f10103ae7272509cd26a1863ae75746e74f53d8578b4a71e90). The age and country are not readable on-chain; the gateway re-checks the stored proof |
 | **Seller → buyer agent:** the payer is the wallet of the agent it names, so an agent id cannot be borrowed | Agent Registry, agent #1478 | [`setAgentWallet` `e2487e43…`](https://ccdexplorer.io/testnet/transaction/e2487e43d130ac6f5af8ba541978a779e4490f7741086b2115a3f0e3b1484819): #1478's wallet = 19528 |
 | **Cross-chain:** a USDC payment on Base carries Concordium identity on both ends | External Key Registry (CIS-8) `<12801,0>`; the seller recovers the payer's key from its payment signature | Seller's Base key → #1313's owner: [`64746743…`](https://ccdexplorer.io/testnet/transaction/64746743a948d0d9dbbc0fafbcb8d9c5ee143fb8dbcf210cb6ebbe50627e59ce). Buyer's Base key → 19528: [`21c76e95…`](https://ccdexplorer.io/testnet/transaction/21c76e955cc356c73e2eb3763b8c9841a01dbb1dd44f08f22b71d20da1162a5b). Payment, 0.01 USDC `0xAc02…aCb8` → `0xdd31…8746`: [`0xe48c3357…` on Blockscout](https://base-sepolia.blockscout.com/tx/0xe48c3357d84601a51ab4caf6db73274b1d57ef797c21c9f54f80f02c875cbc44) |
+| **Stable price in a Protocol-Level Token:** the same call for 1 `hh-VFUSD`, a test dollar issued to us as a PLT on Concordium testnet | PLT `hh-VFUSD` ([token page](https://ccdexplorer.io/testnet/tokens/hh-VFUSD), 6 decimals, held by #1478); x402 `@x402/concordium` with `price.asset` = the token id; Concordium's facilitator sponsors the fee | Payment [`ed2a9c29…`](https://ccdexplorer.io/testnet/transaction/ed2a9c298d875f7bb0f94aefa9499227304291c9a3f817d34b75416625f22e13): "Transferred 1.000000 from 19528 to 19394, PLT: VeriFlow Test Dollar", sponsor 19003; the buyer got the ETH 2026-11-25 call. The first attempt, [`99310359…`](https://ccdexplorer.io/testnet/transaction/99310359b346f397876aca4298897a4c7f1fce7dfa1ab6dbc947869e0feb5b34), settled on-chain while the facilitator reported "transaction not found", and the seller did not deliver; that is how we found the recovery gap fixed in [`2944a99`](https://github.com/jiahaoc040-ai/veriflow/commit/2944a99) |
 | **What was sold, and when:** one call per asset per day, accepted only in the day after the close, revealable after 7 days; on reveal the contract checks the text hashes to the commit and its label agrees with its momentum number | Our Rust contract v2 `<13115,0>` | A commit: [`d9527398…`](https://ccdexplorer.io/testnet/transaction/d952739813664933795fc43b5d2b4a99a5b0f3455472bad28349628a51f9bd03) (parameter: BTC, 2026-11-23, the commitment hash). Rejections: the 60-second table above |
 | **Scoring fixed in advance** | Rule hashes as on-chain transaction data | [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271). A public workflow re-checks the hashes and the ordering on every run |
 
@@ -72,7 +73,7 @@ Every payment to #1313's wallet (19394) as of 2026-11-26, from [its account page
 | 19836 | 1 | A friend of the developer, new to Concordium, on Windows with their own identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1). They reported two bugs and nine unclear steps in [issue #13](https://github.com/jiahaoc040-ai/veriflow/issues/13); all were fixed the same evening |
 | 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: not ours. The account works with another builder's payment contract (`payment_intents` [`<13147,0>`](https://ccdexplorer.io/testnet/contract/13147/0), created by 19762) and the EUDemo token, so it looks like another hackathon developer testing against VeriFlow. We do not know who it is |
 
-Plus one USDC purchase on Base by #1478 (above). In the other direction, our buyer #1478 bought once from another team's agent (MainsMarker #990, [above](#the-guard-on-sellers-we-do-not-run)).
+Plus, from #1478: one USDC purchase on Base and two payments of 1 `hh-VFUSD` (one delivered, one paid but not delivered before the fix; both above). In the other direction, our buyer #1478 bought once from another team's agent (MainsMarker #990, [above](#the-guard-on-sellers-we-do-not-run)).
 
 ## The same checks across mainnet
 
@@ -94,7 +95,7 @@ What it does not check: the hosted badge service, endpoints not linked from the 
 
 - A node error, an unreachable registry, a changed card or a revoked binding stops the payment before it settles.
 - The buyer's checks run in an x402 client hook, so a failing seller is never signed for.
-- When a facilitator reports a failure for a transfer that did go through, the gateway reads the transaction itself (CCD from a node, USDC from the Base receipt) and delivers only on an exact match of payer, `payTo` and amount.
+- When a facilitator reports a failure for a transfer that did go through, the gateway reads the transaction itself (CCD and PLT transfers from a node, USDC from the Base receipt) and delivers only on an exact match of payer, `payTo`, token and amount.
 - Details: [THREAT_MODEL.md](docs/THREAT_MODEL.md), [GO_LIVE.md](docs/GO_LIVE.md).
 
 ## Keys and roles, stated plainly
