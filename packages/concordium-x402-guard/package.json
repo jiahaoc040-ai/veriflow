@@ -1,13 +1,13 @@
 {
   "name": "concordium-x402-guard",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Check an x402 seller on Concordium before your agent pays it: Agent Registry badge, Active, Agent Card hash, payTo bound to the agent on-chain (CIS-8004 / CIS-8).",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "concordium-x402-guard": "./dist/cli.js"
+    "concordium-x402-guard": "bin/concordium-x402-guard.js"
   },
   "exports": {
     ".": {
@@ -17,6 +17,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "README.md",
     "LICENSE"
   ],

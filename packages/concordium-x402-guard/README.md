@@ -83,6 +83,8 @@ Output of those runs: <https://github.com/jiahaoc040-ai/veriflow/tree/main/docs/
 
 ## Changes
 
+0.2.1: the `npx` command is actually included (0.2.0 was published without it).
+
 0.2.0: `npx concordium-x402-guard check <url>`; `@x402/fetch` and `@x402/core` are peer dependencies; Node 22+ declared; an Agent Card host name that resolves to a private address is refused.
 
 0.1.1: payment network pinned to the configured network; badge sub-checks enforced; Agent Card fetched only from public https hosts and only after the record is confirmed; payTo compared alias-aware; CIS-8 owner compared in code (owner or agentWallet); strict secp256k1 key types; retries see `error.cause`, timeouts and HTTP status; registry responses capped, no redirects; clear error for a wrong `network`; delivery verdicts case-insensitive and capped. Thanks to an outside review for every one of these.
