@@ -61,10 +61,12 @@ export function payerOf(payload: unknown): string | undefined {
 }
 
 function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${what} timed out (${CHAIN_TIMEOUT_MS / 1000} s); please try again`)), CHAIN_TIMEOUT_MS)),
-  ]);
+  // The timer is cleared once p settles, so a finished check leaves nothing running for three minutes
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<T>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${what} timed out (${CHAIN_TIMEOUT_MS / 1000} s); please try again`)), CHAIN_TIMEOUT_MS);
+  });
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
 }
 
 export function parseCountries(s: string | undefined): string[] {

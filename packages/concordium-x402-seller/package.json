@@ -1,0 +1,59 @@
+{
+  "name": "concordium-x402-seller",
+  "version": "0.1.0",
+  "description": "Seller-side checks for x402 on Concordium: re-check the buyer's Verify & Access proof at every payment, verify the buyer's agent in the CIS-8004 registry, recover settlements a facilitator misreports, deliver each payment once.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiahaoc040-ai/veriflow.git",
+    "directory": "packages/concordium-x402-seller"
+  },
+  "keywords": [
+    "concordium",
+    "x402",
+    "ai-agents",
+    "verify-and-access",
+    "zero-knowledge",
+    "cis-8004",
+    "payments",
+    "seller"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@concordium/web-sdk": "^12.0.2",
+    "concordium-x402-guard": "^0.2.0"
+  },
+  "peerDependencies": {
+    "@x402/core": "^2.31.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@x402/core": "^2.31.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

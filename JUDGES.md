@@ -3,7 +3,7 @@
 **When one AI agent pays another, it cannot tell who it is paying, the seller cannot tell who is buying, and nobody can prove what was sold wasn't changed afterwards. VeriFlow closes all three with Concordium, and every claim on this page is a transaction you can open.**
 
 - **Any x402 agent can check the seller before it signs.** `protect(client)` wraps the `@x402/fetch` client an agent already has: a standalone package on npm, [`concordium-x402-guard`](https://www.npmjs.com/package/concordium-x402-guard) (`npm install concordium-x402-guard`, [source](packages/concordium-x402-guard)), testnet and mainnet. It reads the seller from the Concordium Agent Registry and pays only if the payout address is that agent's own on-chain wallet, or, for a USDC payout on Base, a key bound to the agent's owner in CIS-8. A copycat seller with a stolen card and badge is refused before any signature. **We ran it on seven sellers we do not run** ([below](#the-guard-on-sellers-we-do-not-run)): it passed MainsMarker (#990, another team) and bought from it, passed Oracle Scout (#1253), passed x402 Doctor (#5120) **on mainnet** including its Base payout, and refused four: vet402 and its two test sellers (payout address not the registered wallet; one of them takes payment and returns nothing) and Clear to Pay (no Agent Card on the site).
-- **The seller checks the buyer before settling.** A zero-knowledge proof (18+, not in a restricted country, nothing else revealed) is re-checked at every payment, and the payer must be the wallet of the agent it claims to be.
+- **The seller checks the buyer before settling.** A zero-knowledge proof (18+, not in a restricted country, nothing else revealed) is re-checked at every payment, and the payer must be the wallet of the agent it claims to be. Any x402 seller can add the same checks to its own server: [`concordium-x402-seller`](https://www.npmjs.com/package/concordium-x402-seller) ([source](packages/concordium-x402-seller)) attaches them to an `x402ResourceServer` in one call, plus the on-chain recovery of settlements a facilitator misreports and once-only delivery.
 - **What was sold cannot be rewritten.** Each call is committed on-chain before its outcome, one per asset per day, under a scoring rule registered before the first commit.
 
 Our own seller is the reference for the last two: it sells a BTC or ETH call, `RISK_ON` or `RISK_OFF`, from Binance's 30-day momentum, for 1 testnet CCD over x402, or 1 unit of `hh-VFUSD`, a Protocol-Level Token we issued ourselves as a test dollar, or 0.01 USDC on Base. The rule is deliberately simple and public. The product is the checks around it.
@@ -111,7 +111,7 @@ What it does not check: the hosted badge service, endpoints not linked from the 
 
 ## Built to fail closed
 
-Tests, run in CI on every push (the contract's whenever it changes): 168 for the gateway (TypeScript), 28 for the guard package, 25 for the Python API and verifier, 10 for the v2 contract (Rust).
+Tests, run in CI on every push (the contract's whenever it changes): 168 for the gateway (TypeScript), 28 for the guard package, 32 for the seller package, 25 for the Python API and verifier, 10 for the v2 contract (Rust).
 
 - A node error, an unreachable registry, a changed card or a revoked binding stops the payment before it settles.
 - The buyer's checks run in an x402 client hook, so a failing seller is never signed for.

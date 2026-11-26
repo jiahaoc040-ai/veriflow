@@ -20,7 +20,7 @@ Everything below is live on Concordium testnet at <https://veriflow-yrhp.onrende
 
 ## Already usable on mainnet
 
-The buyer-side guard needs no registration and no keys of ours: it is published on npm as [`concordium-x402-guard`](https://www.npmjs.com/package/concordium-x402-guard) and runs against mainnet today (`concordiumGuardDeps({ network: "mainnet" })`). On 2026-11-26 it checked x402 Doctor (agent #5120) on mainnet, including its Base payout bound in CIS-8 ([output](evidence/guard-2026-11-26-checks.txt)). What follows is about our own seller.
+The buyer-side guard needs no registration and no keys of ours: it is published on npm as [`concordium-x402-guard`](https://www.npmjs.com/package/concordium-x402-guard) and runs against mainnet today (`concordiumGuardDeps({ network: "mainnet" })`). On 2026-11-26 it checked x402 Doctor (agent #5120) on mainnet, including its Base payout bound in CIS-8 ([output](evidence/guard-2026-11-26-checks.txt)). The seller side is packaged the same way, as [`concordium-x402-seller`](../packages/concordium-x402-seller) (Verify & Access re-check at every payment, buyer-agent check, settlement recovery, once-only delivery), with `network: "mainnet"` supported; it needs the seller's own anchoring account for Verify & Access. What follows is about our own seller.
 
 ## What changes for mainnet
 
