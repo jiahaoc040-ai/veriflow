@@ -52,8 +52,10 @@ if (mode === "check") {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(1);
   });
-  console.log(`${url} asks for payment: ${options.map((a) => `${a.amount} ${a.asset} on ${a.network} to ${a.payTo}`).join(" | ")}`);
-  console.log(`checking the option on ${picked.network}`);
+  const human = (a: Requirement) => (a.asset === "CCD" ? `${Number(a.amount) / 1e6} CCD` : `${a.amount} ${a.asset} (smallest unit)`);
+  const where = (n: string) => (n.startsWith("ccd:") ? "Concordium" : n.startsWith("eip155:") ? `EVM chain ${n}` : n);
+  console.log(`${url} asks to be paid: ${options.map((a) => `${human(a)} on ${where(a.network)} to ${a.payTo}`).join(" | ")}`);
+  console.log(`checking the seller behind the ${human(picked)} option on ${where(picked.network)} (nothing is paid)`);
   show(verdict);
   process.exit(verdict.ok ? 0 : 1);
 }

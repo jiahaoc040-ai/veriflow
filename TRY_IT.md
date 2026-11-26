@@ -1,6 +1,6 @@
 # Try VeriFlow yourself
 
-Each step says what to run, what you should see, and what that shows.
+Each step says what to run, what you should see, and what that shows. You need Node.js 22 or newer for the `npm run` commands.
 
 - **Path A: about 10 minutes, no wallet.** Check a call that was really bought, against the chain and Binance. You need a terminal with `shasum`, `curl`, `python3` and `git`, and a browser. The commands use `shasum -a 256`; on Linux without `shasum`, replace it with `sha256sum`. **On Windows**, run them in Git Bash (installed with Git for Windows), not PowerShell; or skip steps 1–3 with the one-command check below, which works in any shell.
 - **Path B: about 30 minutes.** Buy a call yourself on Concordium testnet with your own testnet identity.
@@ -94,10 +94,10 @@ The contract enforces the second half of the rule itself. When this call is reve
 The owner registered the hashes of the rule files in [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) at 2026-11-22 07:06:10. That was before the committer was appointed (07:33:20) and before the first commit (08:03:30, the BTC call above).
 
 ```bash
-git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow
-git show 8d07d44:docs/SCORING-v2.md | shasum -a 256
+git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow   # a full clone: --depth 1 drops commit 8d07d44
+git show 8d07d44:docs/SCORING-v2.md > rule.md && shasum -a 256 rule.md
 # 6c862bfec9a427da83bd4cb1482e0a61f938e4c1fc54a07861ef36fb0a93b1c0
-git show 8d07d44:gateway/src/score-v2.ts | shasum -a 256
+git show 8d07d44:gateway/src/score-v2.ts > rule.ts && shasum -a 256 rule.ts
 # babc11e585bfdd9e54e64832540d36669c1a1641446fb3bb3b5947922c4f6f88
 ```
 

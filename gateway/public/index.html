@@ -205,13 +205,13 @@
       $("demoLeft").textContent = `(${st.left_today} of ${st.daily_limit} demo purchases left today, UTC.)`;
     } catch (e) { /* demo stays hidden */ }
   }
-  const step = (ok, text, detail) => `<li class="${ok === null ? "muted" : ok ? "ok" : "bad"}">${ok === null ? "…" : ok ? "✅" : "❌"} ${esc(text)}${detail ? ` <span class="muted mono">${esc(String(detail).slice(0, 140))}</span>` : ""}</li>`;
+  const step = (ok, text, detail) => `<li class="${ok === null ? "muted" : ok ? "ok" : "bad"}">${ok === null ? "…" : ok ? "✅" : "❌"} ${esc(text)}${detail ? ` <span class="muted mono">${esc(String(detail).slice(0, 300))}</span>` : ""}</li>`;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   document.querySelectorAll("#demo button").forEach((b) => b.onclick = async () => {
     const asset = b.dataset.asset;
     document.querySelectorAll("#demo button").forEach((x) => (x.disabled = true));
     const out = $("demoOut");
-    out.innerHTML = `<ul class="checks">${step(null, `Agent #1478 asks for the ${asset} call, gets HTTP 402, and checks the seller on Concordium before signing…`)}</ul>`;
+    out.innerHTML = `<ul class="checks">${step(null, `Agent #1478 asks for the ${asset} call, gets HTTP 402, and checks the seller on Concordium before signing… This takes about a minute (two node reads, the payment, and the seller checking us back).`)}</ul>`;
     try {
       const r = await fetch("/demo/buy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ asset }) });
       const j = await r.json();

@@ -20,7 +20,19 @@ Our own seller is the reference for the last two: it sells a BTC or ETH call, `R
 | [`ce062332…` on CCDScan](https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=ce0623322833d6d0d6d5a2891ff7f65ca46b18b45f491483850f4419136047c6) | Same contract, **Error code: -10** | It refused a call sent three days after its close. −10 is `OutsideCommitWindow`. |
 | [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) then [`6e3eb548…`](https://ccdexplorer.io/testnet/transaction/6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f) | 2026-11-22 **07:06:10**, then **07:33:20** | The scoring rule was registered before the committer, the only account that can commit, even existed. The first page's data is hex; it decodes to `veriflow:scoring:v2:13115:08e3b49e…:6c862bfe…:babc11e5…` (contract, module, SHA-256 of [SCORING-v2.md](docs/SCORING-v2.md), SHA-256 of [score-v2.ts](gateway/src/score-v2.ts)). |
 
-CCDExplorer does not show a contract's reject code, which is why the two rejections link to CCDScan. CCDScan shows your local time; CCDExplorer shows UTC.
+CCDExplorer does not show a contract's reject code, which is why the two rejections link to CCDScan. CCDScan opens the transaction in a panel over its dashboard and can take about 10 seconds to fill it; it shows your local time, CCDExplorer shows UTC.
+
+**Run it yourself, three commands, no wallet** (Node.js 22+, macOS/Linux shell; on Windows see [TRY_IT.md](TRY_IT.md)):
+
+```bash
+git clone https://github.com/jiahaoc040-ai/veriflow && cd veriflow/gateway && npm ci
+npm run check-call -- '{"as_of":"2026-11-21","asset":"BTC","momentum_e6":-260395,"nonce":"7294f91f41330af85ea8f6af86dc2f9c","signal":"RISK_OFF"}'
+#   success: "✅ all checks pass" (the call is in the contract, committed in the day after its close, and Binance gives the same number)
+npm run impostor
+#   success: four ✓, then "✗ 5. payTo is the agent's on-chain wallet" and "refused before signing: the impostor got nothing"
+npm run guard -- check https://mainsmarker.sites.tab.bot/x402/review --json '{"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}'
+#   success: six ✓ and "seller verified: agent #990" (another team's seller; nothing is paid)
+```
 
 ## The guard on sellers we do not run
 
@@ -48,6 +60,7 @@ Check 6 is optional and comes from another team: vet402's free `/check` tells wh
 | Account 19003 | Concordium's hosted x402 facilitator, which pays the fee on CCD payments |
 | VRA / VAA | Verify & Access *request* anchor and *audit* anchor: the two on-chain records of a buyer's zero-knowledge proof. They hold hashes only |
 | `<12802,0>` · `<12801,0>` · `<13115,0>` | Agent Registry (CIS-8004) · External Key Registry (CIS-8) · our commit contract v2 |
+| "Verification Status: Unverifiable" on `<13115,0>` | CCDExplorer's label for a module that was not built with Concordium's verifiable-build image. The source is [`contract-v2/`](contract-v2/); the module reference `08e3b49e…` is the one the anchored scoring rule names, so a later switch to different code would not match the rule |
 
 ## What Concordium does here
 
@@ -61,7 +74,7 @@ Check 6 is optional and comes from another team: vet402's free `/check` tells wh
 | **What was sold, and when:** one call per asset per day, accepted only in the day after the close, revealable after 7 days; on reveal the contract checks the text hashes to the commit and its label agrees with its momentum number | Our Rust contract v2 `<13115,0>` | A commit: [`d9527398…`](https://ccdexplorer.io/testnet/transaction/d952739813664933795fc43b5d2b4a99a5b0f3455472bad28349628a51f9bd03) (parameter: BTC, 2026-11-23, the commitment hash). Rejections: the 60-second table above |
 | **Scoring fixed in advance** | Rule hashes as on-chain transaction data | [`ecadec1b…`](https://ccdexplorer.io/testnet/transaction/ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271). A public workflow re-checks the hashes and the ordering on every run |
 
-**Reveals and scores:** the first v2 calls become revealable on 2026-11-29 (7 days after the first commit) and the first score is published after 2026-11-30. Until then the record shows calls committed before their outcome, not how good they were. This page will link the first reveal and score transactions.
+**Reveals and scores:** the [published score report](https://github.com/jiahaoc040-ai/veriflow/tree/score-reports/score-v2) is rebuilt by a scheduled workflow about every 6 hours, so it can be a day behind the live site's newest call; the run's numbers are in that report (GitHub only shows a run's logs to signed-in users). The first v2 calls become revealable on 2026-11-29 (7 days after the first commit) and the first score is published after 2026-11-30. Until then the record shows calls committed before their outcome, not how good they were. This page will link the first reveal and score transactions.
 
 Payments use x402 v2 (`@x402/concordium`). Since 2026-11-24 CCD payments settle through Concordium's hosted testnet facilitator (19003, named in the live 402's `extra.feePayer`). Earlier purchases were settled by VeriFlow's own facilitator, which sponsored the fee from 19719. Base payments settle through the public x402 facilitator.
 
