@@ -57,7 +57,7 @@ Every payment to #1313's wallet (19394) as of 2026-11-26, from [its account page
 |---|---|---|
 | 19528 | 16 | Our own buyer agent #1478: development, tests and demos. These prove the mechanism, not demand |
 | 19836 | 1 | A friend of the developer, new to Concordium, on Windows with their own identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1). They reported two bugs and nine unclear steps in [issue #13](https://github.com/jiahaoc040-ai/veriflow/issues/13); all were fixed the same evening |
-| 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: an account we do not recognise, which also deploys its own contracts on testnet |
+| 19760 | 1 | [`521260c3…`](https://ccdexplorer.io/testnet/transaction/521260c308b99168ca089038aad7d19da3e7de2785c7a218acc05f06bff5d8ed), 2026-11-23: not ours. The account works with another builder's payment contract (`payment_intents` [`<13147,0>`](https://ccdexplorer.io/testnet/contract/13147/0), created by 19762) and the EUDemo token, so it looks like another hackathon developer testing against VeriFlow. We do not know who it is |
 
 Plus one USDC purchase on Base by #1478 (above).
 
@@ -94,4 +94,4 @@ What it does not check: the hosted badge service, endpoints not linked from the 
 - The signal is a public 30-day momentum rule with no edge. The product is the accountability around it.
 - Everything runs on testnet, with testnet identity providers.
 - No call has been revealed or scored yet (first reveal 2026-11-29).
-- Most purchases are our own agent's (16 of 18).
+- Most purchases are our own agent's (16 of 18); the other two are a friend of the developer and one account we cannot name.
