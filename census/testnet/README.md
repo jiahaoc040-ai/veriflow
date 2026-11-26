@@ -32,8 +32,12 @@ Run 2026-11-25T06:51:00.513Z. Read-only: every agent read from a Concordium node
 | … … offering an EVM payTo | 0 |
 | … … EVM offer naming a CIS-8 key in `extra` | 0 |
 
-External key namespaces (Active): `aifleet` 100, `solana:devnet` 30, `concordium` 29, `eip155:1` 18, `fetchai` 10, `eip155:11155111` 6, `cosmos:fetchhub-4` 6, `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` 5.
+Why the other 549 fail, each agent counted once: no agentWallet, and the card also fails 44; no agentWallet, card fine 133; wallet bound but no https card 175; wallet bound but the card does not load 170; wallet bound but the card changed since it was pinned 23.
 
-Not checked here: the official badge check (a hosted service), CIS-8 bindings (the registry has no listing by account), endpoints not named in the card or not answering GET.
+External key namespaces (Active): `aifleet` 100, `solana:devnet` 30, `concordium` 29, `eip155:1` 18, `fetchai` 10, `eip155:11155111` 6, `cosmos:fetchhub-4` 6, `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` 5, `eip155:8453` 5, `near` 4, `eip155:84532` 4, `solana:mainnet` 3, `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` 3, `solana:5eykt4usfv8p8njdtrepy1vzqkqzkvdp` 2, `eip155:137` 2, `near:testnet` 2, `solana:testnet` 2, `skillmark:v1` 2, `solana` 1, `ccd:4221332d34e1694168c2a0c0b3fd0f27` 1, `fetchai:uagent` 1, `eip155:56` 1, `eip155:43114` 1, `eip155:42161` 1, `eip155:143` 1, `tgtrust:v1` 1.
+
+Not checked here: the official badge check (a hosted service); CIS-8 keys an agent does not link through external_reference (CIS-8 has no listing by account); endpoints not named in the card or not answering GET.
 
 Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/45562965554 · code at commit 043680f806404dce2f03c628fe97c15fc4f3ba53 · per-agent rows in latest.json
+
+_This README was re-rendered on 2026-11-26 from the same latest.json, with code from main: all namespaces listed, the failures broken down so they add up, and the not-checked list corrected (CIS-8 keys linked through external_reference are checked). No count changed._
