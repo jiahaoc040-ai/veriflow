@@ -21,5 +21,7 @@ services:
         sync: false
       - key: DEMO_BUYER_KEY_JSON    # optional: buyer agent #1478's .export contents; turns on the demo button
         sync: false
+      - key: ESCROW_CONTRACT        # optional, with DEMO_BUYER_KEY_JSON: index of veriflow_escrow; turns on "Pay through the escrow contract"
+        sync: false
       - key: REGISTRY_CONTRACT
         value: "13094"
