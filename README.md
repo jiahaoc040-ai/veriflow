@@ -75,7 +75,7 @@ VeriFlow binds its x402 `payTo` to agent #1313 on-chain with `npm run registry -
 
 ## Operations
 
-`/health` reports the API status and the operator account. Since 2026-11-22 that is the committer `4Hga…`, which pays for v1 reveals, eligibility anchors and sponsored buyer fees. The offline owner `4dNM…` is not on the server. The response is `{"ok":true,"operator":{"account":…,"balance_ccd":…,"low":false}}`. The balance is refreshed every 10 minutes in the background, and `low` turns true below `MIN_OPERATOR_CCD` (default 100). The on-chain state that only the offline owner can change is watched by the `watch` workflow.
+`/health` reports the API status and the operator account. Since 2026-11-22 that is the committer `4Hga…`, which pays for v1 reveals, eligibility anchors and sponsored buyer fees. The owner `4dNM…` is not on the server: its key is a software key on the developer's machine, used by hand (on mainnet, a hardware wallet). The response is `{"ok":true,"operator":{"account":…,"balance_ccd":…,"low":false}}`. The balance is refreshed every 10 minutes in the background, and `low` turns true below `MIN_OPERATOR_CCD` (default 100). The on-chain state that only the offline owner can change is watched by the `watch` workflow.
 
 ## Agent guardrails
 
@@ -201,7 +201,7 @@ Deployed on testnet as [`<13115,0>`](https://ccdexplorer.io/testnet/contract/131
 |---|---|---|
 | `commit(asset, as_of, hash)` | the appointed committer only, never the owner or one of its aliases | `asset` is `BTC` or `ETH`. `as_of` is a real `YYYY-MM-DD` date. The block time must be in `[as_of+1d, as_of+2d)` UTC. A second commit for the same `(asset, as_of)`, or a reused hash, is rejected. |
 | `reveal(canonical)` | **anyone**, 7 days after the commit | The contract computes SHA-256, finds the slot, and parses the fixed schema. It requires `asset` and `as_of` to equal the key, and `signal` to be `RISK_ON` exactly when `momentum_e6 > 0`. |
-| `set_committer`, `revoke_committer` | the offline owner | Appoints one committer (it replaces the previous one) or removes it. |
+| `set_committer`, `revoke_committer` | the owner (not on the server) | Appoints one committer (it replaces the previous one) or removes it. |
 | `slot`, `view` | anyone | Read one `(asset, as_of)` slot, or the totals, owner, committer and init time. |
 
 ```bash

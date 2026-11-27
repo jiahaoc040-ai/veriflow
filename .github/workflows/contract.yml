@@ -60,6 +60,12 @@ jobs:
           cargo concordium build --schema-json-out concordium-out/
           ls -la concordium-out
           sha256sum concordium-out/module.wasm.v1
+          # contract-v2 is deployed on testnet as <13115,0>: the source here must still build to exactly that module
+          if [ "${{ matrix.dir }}" = contract-v2 ]; then
+            got=$(sha256sum concordium-out/module.wasm.v1 | cut -d' ' -f1)
+            [ "$got" = 08e3b49e4e6d0a11f1d2af4c6754537d695cfe19945b9b6d7fb5b8722f4df6cc ] || { echo "::error::contract-v2 builds to $got, not the deployed module 08e3b49e…"; exit 1; }
+            echo "contract-v2 source builds to the deployed module 08e3b49e… (<13115,0>)"
+          fi
 
       - name: Unit + end-to-end tests
         run: cargo test

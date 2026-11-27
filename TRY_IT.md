@@ -126,7 +126,7 @@ GitHub hides run summaries and logs from visitors who are not signed in, so ever
 
 | Account | Index on the explorers | Role, and where that is recorded |
 |---|---|---|
-| `4dNMXmNK…JF5wjUNt` | 19527 | Owner of agent #1313 in the CIS-8004 Agent Registry `<12802,0>` (`agentOf(1313)`), and owner of contract `<13115,0>` (its creator on CCDScan). Kept offline. |
+| `4dNMXmNK…JF5wjUNt` | 19527 | Owner of agent #1313 in the CIS-8004 Agent Registry `<12802,0>` (`agentOf(1313)`), and owner of contract `<13115,0>` (its creator on CCDScan). Not on the server: a software key on the developer's machine, used by hand. |
 | `3WSAJwTZ…5NGavf8` | 19394 | Agent #1313's `agentWallet` in the registry. Every purchase pays here. |
 | `4HgaCRwX…VwT3nmCj` | 19719 | Committer of contract `<13115,0>`, appointed by the owner in `set_committer`. Until 2026-11-24 it also sponsored buyers' transaction fees; since then Concordium's hosted facilitator does (account 19003). |
 | `4Vf4qUg5…QFF52FgkjMQ16r` | 19528 | A test buyer. |

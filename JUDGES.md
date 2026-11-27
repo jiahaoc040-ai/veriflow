@@ -136,6 +136,34 @@ Tests, run in CI on every push (the contract's whenever it changes): 179 for the
 - **Owner 19527 (`4dNM…`)** is a software key on the developer's machine, not a hardware wallet (on mainnet it will be: [GO_LIVE.md](docs/GO_LIVE.md#what-changes-for-mainnet)). It did more than setup. Until the committer existed (2026-11-22), VeriFlow's own facilitator signed with this key, so it sponsored buyer fees for the purchases of 2026-11-18 to 11-20 (those transactions show sponsor 19527). It also signed the setup transactions: binding the wallet, the seller's CIS-8 binding `64746743…` (the local key file is still named `keys/facilitator.export`, which is why [EVIDENCE.md](docs/EVIDENCE.md) shows that name), registering the scoring rule and appointing the committer. Since 2026-11-22 the server's key is the committer: the live [`/health`](https://veriflow-yrhp.onrender.com/health) shows its operator account, `4HgaCRwX…`.
 - **Committer 19719 (`4Hga…`)** lives on the server and has more than one job on testnet: it commits the daily calls, it sponsored buyer fees for VeriFlow's own facilitator until 2026-11-24, and it signed the two deliberately rejected commits above. The contract limits what it can do: it cannot change the owner or the rule, and the owner can revoke it with `revoke_committer`. On mainnet, committing and fee sponsoring become two accounts.
 
+## Hard questions, answered from the record
+
+**Why not just use Concordium's badge check?** The badge says an agent is registered and its owner verified. It says nothing about the address in a 402's `payTo`: an impostor can serve a real agent's badge and its own wallet. The guard runs the official badge check as one of its five checks and adds the one the badge cannot make, `payTo` = the agent's on-chain `agentWallet` read from a node. vet402 S2 and S3 above pass the badge and are refused on exactly that.
+
+**How is this different from x402 Doctor?** Doctor is a diagnosis service you call to get a report on an endpoint. VeriFlow is code inside the paying agent that refuses to sign (an x402 client hook, fail closed), plus the seller side (the buyer's zero-knowledge proof and agent, re-checked at every payment, now recorded on-chain per payment), plus a contract that pays only a registered wallet. They are complementary: our guard checked Doctor's mainnet agent #5120 and it passed.
+
+**Why charge for a call with no score?** We do not sell an edge, and claim none. The call is a deliberately simple public rule, the reference product that every check runs around. What a buyer gets is a call fixed on-chain before its outcome under a rule registered first. The first reveals are due 29 Nov and the first score 30 Nov; until then the honest number is "none yet".
+
+**One friend is not real use.** Agreed. Outside the team: two buyer accounts (19760 from the hackathon Discord, 19836 a friend new to Concordium, who also found and reported a real Windows bug), and our guard bought from two other teams' agents. We do not claim demand; the npm packages are what another team would adopt.
+
+**Contract v2 shows "Unverifiable" on CCDExplorer; why trust it?** It was built before we used Concordium's verifiable-build image, so CCDExplorer cannot match it to source. Anyone can still: CI rebuilds `contract-v2/` on every change and fails unless the result is exactly the deployed module `08e3b49e…` (`.github/workflows/contract.yml`). The escrow, built later, is Verified on CCDExplorer. The mainnet v2 will be a verifiable build ([GO_LIVE.md](docs/GO_LIVE.md), step 9).
+
+**Two transactions on 22 Nov around the scoring rule?** One rule. [`ecadec1b…`]({X}ecadec1b75cd764a2f87c512787cb3e5422148852760046978e2e4324d8b3271) registers it; [`6e3eb548…`]({X}6e3eb5483acbcdbf87717649b0941812513220c52b0623cc652c80678dc7668f), 27 minutes later, is `set_committer`, which gave the contract its committer. No call could be committed under v2 before the rule was on-chain.
+
+**Can the seller skip bad days?** No. The rule requires a commit for every asset and day in the window, and "no commit" is a failure; one failed slot blocks the whole number ([SCORING-v2.md](docs/SCORING-v2.md), "When it is published"). Skipping a day does not hide a loss, it stops the score from being published at all.
+
+**The committer writes `momentum_e6` itself. Who checks it?** The scoring rule recomputes it from Binance's daily closes and counts any difference as a failure. The contract also checks that the label matches its sign at reveal.
+
+**A stored proof, re-checked: what if the credential changes?** At each payment the seller re-runs the SDK's official check on the stored proof, reads the identity provider list from a node, requires both anchors to be its own, and requires the credential to still belong to the paying account. Since 27 Nov each payment's re-check is also recorded on-chain (for example [`e630b294…`]({X}e630b2945f514ba6960ba759760e4f4cee43fcdf55814127c36bfc0d36c73d39)). A new proof is required after 30 days.
+
+**Concordium's x402 guide checks attributes at the facilitator. Why in the seller?** So the policy belongs to the seller and survives a change of facilitator, and the seller does not have to trust the facilitator with it. The same code runs with Concordium's hosted facilitator and with our own.
+
+**Fail closed means no payment when the registry service is down.** Yes, by design: a payment that cannot be checked is not made. The guard reads the agent from a node; the hosted service is used for the official badge check, and its answer must agree with the node. An outage costs a sale, never money sent to the wrong place.
+
+**322 mainnet cards mention x402 and one endpoint is live. Who is protected?** Few today; the census says so. The checks are cheap to add before agents pay each other at volume, which is why they ship as packages rather than as a service to call.
+
+**Who pays the fees at scale?** On testnet Concordium's hosted facilitator sponsors buyers' fees. With our own facilitator each sale costs us about Ͼ4–5, so a mainnet price must sit above that; the running cost of the daily record is about Ͼ15,000 a year ([GO_LIVE.md](docs/GO_LIVE.md#costs)). The guard, the seller package and the escrow charge no fee.
+
 ## What it does not claim
 
 - The signal is a public 30-day momentum rule with no edge. The product is the accountability around it.
