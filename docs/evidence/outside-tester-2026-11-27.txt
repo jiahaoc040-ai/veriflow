@@ -25,3 +25,13 @@ and one with an outdated checkout (3acd9d0a…, which he says not to count).
 
 What he found, both fixed in 69c54c0: on Windows every `npm run <cli>` printed nothing (entry check compared file:///D:/… with
 D:\…); `git pull` on a D: drive needed `git config --global --add safe.directory`.
+
+3. Same day, after the seller began recording each payment's re-check on-chain (commit 741bd65): another BTC call.
+payment tx: https://ccdexplorer.io/testnet/transaction/b064e4565fce7f5d55d4f75baf4971567a564662e6cea306a2d8731488dd6241
+re-check record (on-chain, for this payment): https://ccdexplorer.io/testnet/transaction/e630b2945f514ba6960ba759760e4f4cee43fcdf55814127c36bfc0d36c73d39
+CCDExplorer: 2026-11-27 15:48:15 UTC, sender 19719 (VeriFlow's anchoring account), Data Registered; the data decodes to
+veriflow:recheck:v1:b064e4565fce7f5d55d4f75baf4971567a564662e6cea306a2d8731488dd6241:3GdS46Ep1g76SJKgFKt5kBBvUTk4wGcmnAuN932pUYfxVrveHz:70df5beb5d318803a340dc60457225b6417393bfdc970b6d892a6c063a9e6795:6e1654b535197b23
+= this payment, this payer (19836), the audit record (VAA) his proof was re-checked against, and the policy id. The proof is from
+2026-11-25; the re-check of it for this payment is recorded on-chain the same day as the payment. (His earlier purchases today,
+before this commit, have no such record.) The site's demo button left the first one: payment ad90524d…, record 0cbfdb43…
+(15:44:09 UTC, payer 4Vf4… = our buyer #1478).
