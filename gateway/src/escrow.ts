@@ -39,7 +39,9 @@ import { NET, txLink } from "./network.js";
 
 export const ESCROW_NAME = "veriflow_escrow";
 /** The verifiable build CI made from contract-escrow/ (cargo concordium verify-build: "Source and module match") */
-export const EXPECTED_MODULE = "0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457";
+export const EXPECTED_MODULE = "b1b62b091aac44fa10a866224f20bfa213fd5aa5f4a6b77e53d00b5235ff302e";
+/** The first escrow, <13170,0>: payout followed the registry's current wallet; superseded after an outside review */
+export const V1_MODULE = "0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457";
 export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/escrow-module-v2/verified.wasm.v1";
 
 /** Rejection codes, in the order of the contract's Error enum (-1, -2, …) */

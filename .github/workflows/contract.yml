@@ -85,35 +85,38 @@ jobs:
         run: |
           gh release view ${ESCROW_RELEASE} >/dev/null 2>&1 || \
             gh release create ${ESCROW_RELEASE} --title "VeriFlow escrow module (${ESCROW_RELEASE})" --notes "Verifiable build of contract-escrow/, made by CI."
-          gh release upload ${ESCROW_RELEASE} concordium-out/verified.wasm.v1.tar concordium-out/verified.wasm.v1 --clobber
-          # Rebuild from the published sources and compare, as a verifier would
-          cargo concordium verify-build --module concordium-out/verified.wasm.v1
+          # Never replace a published version: a contract may already link to it. Bump ESCROW_RELEASE for new sources
+          if gh release download ${ESCROW_RELEASE} -p verified.wasm.v1 -D /tmp/published 2>/dev/null; then
+            echo "published: $(sha256sum /tmp/published/verified.wasm.v1)"
+            echo "this build: $(sha256sum concordium-out/verified.wasm.v1)"
+            cmp -s /tmp/published/verified.wasm.v1 concordium-out/verified.wasm.v1 || echo "::warning::contract-escrow changed but ${ESCROW_RELEASE} is already published; bump ESCROW_RELEASE to publish it"
+            cargo concordium verify-build --module /tmp/published/verified.wasm.v1
+          else
+            gh release upload ${ESCROW_RELEASE} concordium-out/verified.wasm.v1.tar concordium-out/verified.wasm.v1
+            # Rebuild from the published sources and compare, as a verifier would
+            cargo concordium verify-build --module concordium-out/verified.wasm.v1
+          fi
 
       # The first escrow, <13170,0>, links to escrow-module, whose files an earlier run of this workflow replaced.
-      # Rebuild that version from its own commit and put it back, only if it is byte for byte the module on chain
+      # Put back that version's files from the CI artifact of the run that built it, only if it is byte for byte the module on chain
       - name: Restore the sources of escrow v1 (escrow only)
         if: matrix.dir == 'contract-escrow' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-          V1_COMMIT: 63c6cd5
+          V1_RUN: "45950187878"
           V1_MODULE: 0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457
         run: |
           set -e
-          top=$(git rev-parse --show-toplevel)
-          git -C "$top" fetch --quiet --unshallow origin 2>/dev/null || git -C "$top" fetch --quiet origin
-          rm -rf /tmp/v1 && mkdir -p /tmp/v1
-          git -C "$top" archive "$V1_COMMIT" contract-escrow | tar -x -C /tmp/v1
-          cd /tmp/v1/contract-escrow
-          cargo concordium build --verifiable \
-            --source-link https://github.com/${{ github.repository }}/releases/download/escrow-module/verified.wasm.v1.tar \
-            --schema-embed --out out/verified.wasm.v1
-          got=$(sha256sum out/verified.wasm.v1 | cut -d' ' -f1)
-          echo "v1 rebuilt: $got"
+          cur=$(gh release download escrow-module -p verified.wasm.v1 -O - -R ${{ github.repository }} | sha256sum | cut -d' ' -f1)
+          if [ "$cur" = "$V1_MODULE" ]; then echo "escrow-module already holds v1"; exit 0; fi
+          rm -rf /tmp/v1 && gh run download "$V1_RUN" -n escrow-module -D /tmp/v1 -R ${{ github.repository }}
+          got=$(sha256sum /tmp/v1/verified.wasm.v1 | cut -d' ' -f1)
+          echo "v1 artifact: $got"
           if [ "$got" = "$V1_MODULE" ]; then
-            gh release upload escrow-module out/verified.wasm.v1.tar out/verified.wasm.v1 --clobber -R ${{ github.repository }}
-            cargo concordium verify-build --module out/verified.wasm.v1
+            gh release upload escrow-module /tmp/v1/verified.wasm.v1.tar /tmp/v1/verified.wasm.v1 --clobber -R ${{ github.repository }}
+            cargo concordium verify-build --module /tmp/v1/verified.wasm.v1
           else
-            echo "::warning::v1 rebuild differs from the module on chain; escrow-module left as is"
+            echo "::warning::the v1 artifact is not the module on chain; escrow-module left as is"
           fi
 
       - name: Upload module artifact
