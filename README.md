@@ -45,6 +45,19 @@ The package is on npm: <https://www.npmjs.com/package/concordium-x402-guard> (so
 
 An EVM key that is not bound, a revoked binding, an authorization for another payee or amount, a Permit2 payment (not implemented) or a smart-wallet signature (its address is not a key's address, so it cannot be a CIS-8 subject), or an authorization signed by someone other than its `from` is refused before settlement. If the facilitator reports a failure for a transfer that did go through, the gateway reads the Base receipt and delivers only on the exact USDC Transfer. The testnet registry stores keys registered as `secp256k1-uncompressed` in compressed form; the read-back compares both forms. Code: `gateway/src/cis8.ts`, `gateway/src/evm-payer.ts`, `gateway/src/settle-recovery.ts`.
 
+## Next to other agent-identity schemes
+
+Checking who an agent is before paying is not new; where the check sits is what differs. Most schemes sign the *request*; few tie the *payout address* to a registered identity, and none we read re-checks the buyer's eligibility at the moment of payment with a zero-knowledge proof.
+
+| Scheme | What the other side checks | Trust root | Ties the payment to the identity? |
+|---|---|---|---|
+| ERC-8004 (Trustless Agents, draft) | Identity NFT, reputation and validation registries; `agentWallet` is a field | Ethereum contracts | No: "Payments are orthogonal to this protocol and not covered here" ([EIP-8004](https://eips.ethereum.org/EIPS/eip-8004)) |
+| Visa Trusted Agent Protocol | An RFC 9421 signature on each request, verified with the agent's public key | Visa's agent onboarding | Request, not payout ([spec](https://developer.visa.com/capabilities/trusted-agent-protocol/trusted-agent-protocol-specifications)) |
+| Skyfire KYAPay | An ES256 JWT per request carrying the human's and agent's identity claims | Skyfire's JWKS | Token scoped to a seller and amount; claims are disclosed, not proven in zero knowledge ([docs](https://docs.skyfire.xyz/docs/verify-and-extract-data-from-tokens)) |
+| **VeriFlow on Concordium** | **Buyer side** (`concordium-x402-guard`): the seller's CIS-8004 record read from a node, its badge, its card hash, and `payTo` = its on-chain `agentWallet`, before signing. **Seller side** (`concordium-x402-seller`): the buyer's Verify & Access proof re-checked at every payment, and a named buyer agent's `agentWallet` = the payer | Concordium's chain and its identity providers | Yes, both ways, enforced by the two parties' own code (not by the facilitator or a contract) |
+
+So the claim is narrow: on Concordium, the payout address and the buyer's proven attributes are checked against the chain inside the x402 payment itself, by the buyer and by the seller.
+
 ## Trust in both directions
 
 | Who checks | What | How |
