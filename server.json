@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jiahaoc040-ai/veriflow",
+  "title": "VeriFlow: Concordium x402 trust checks",
+  "description": "Check an x402 seller on Concordium before an agent pays it: Agent Registry, badge, card hash, payTo",
+  "version": "0.4.0",
+  "repository": {
+    "url": "https://github.com/jiahaoc040-ai/veriflow",
+    "source": "github"
+  },
+  "websiteUrl": "https://veriflow-yrhp.onrender.com",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://veriflow-yrhp.onrender.com/mcp"
+    }
+  ]
+}

@@ -13,7 +13,8 @@
  * Run: npm run gateway   (default http://localhost:4020)
  */
 import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
-import { AGENT_EXTENSION } from "./counterparty.js";
+import { AGENT_EXTENSION, cardHostIsPublic, cardUrlAllowed } from "./counterparty.js";
+import { checkSellerAt, summarize } from "./guard.js";
 import { NET, checkGenesis } from "./network.js";
 import { createGrpc } from "./grpc.js";
 import { BlockHash } from "@concordium/web-sdk";
@@ -34,7 +35,7 @@ import { createAnchorer } from "./anchor.js";
 import { startDailySignals } from "./daily.js";
 import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
-import { RateLimiter, clientKey, inlineScriptHashes, isSelfCall, publicMessage, rateLimit, securityHeaders, trustProxySetting } from "./security.js";
+import { RateLimiter, clientKey, inlineScriptHashes, isSelfCall, publicMessage, rateLimit, scrubDetail, securityHeaders, trustProxySetting } from "./security.js";
 import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.js";
 import { escrowChain, escrowDemoDisabledRouter, escrowDemoRouter } from "./demo-escrow.js";
 import { EXPECTED_MODULE as ESCROW_MODULE } from "./escrow.js";
@@ -619,7 +620,27 @@ const SELF_URL = `http://127.0.0.1:${env("GATEWAY_PORT", "4020")}`;
 // Each MCP/A2A call can make several reads of this gateway and a node: limit them where they come in, per visitor
 const limitAgentApi = rateLimit([{ limiter: new RateLimiter(Number(env("AGENT_API_PER_MIN", "60")), MIN), key: ip, what: "per IP" }]);
 app.use(["/mcp", "/a2a"], limitAgentApi);
-mountRemoteMcp(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
+// Hosted check_seller: any public https seller, testnet (this gateway's guard) or mainnet (the published package). Only public hosts are
+// fetched, redirects are not followed, results are cached for a minute per request, and /mcp is rate-limited per visitor
+const sellerChecks = new Map<string, { at: number; body: unknown }>();
+mountRemoteMcp(app, {
+  selfUrl: SELF_URL,
+  publicUrl: PUBLIC_URL,
+  checkSeller: async (url, init, network, payNetwork) => {
+    cardUrlAllowed(url);
+    await cardHostIsPublic(url);
+    const key = JSON.stringify([url, init.method, init.body ?? "", network, payNetwork ?? ""]);
+    const hit = sellerChecks.get(key);
+    if (hit && Date.now() - hit.at < 60_000) return hit.body;
+    const r = network === "mainnet"
+      ? await pkgCheckSellerAt(url, init, pkgGuardDeps({ network: "mainnet" }), {}, payNetwork)
+      : await checkSellerAt(url, init, guardDeps(), {}, payNetwork);
+    const body = { network, would_pay: r.verdict.ok, agent: r.verdict.tokenId ?? null, summary: scrubDetail(summarize(r.verdict)), checks: r.verdict.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })), asks: r.picked, paid: false };
+    if (sellerChecks.size > 500) sellerChecks.clear();
+    sellerChecks.set(key, { at: Date.now(), body });
+    return body;
+  },
+});
 // A2A (the Agent Card's url points here): read-only skills as well
 mountA2A(app, { selfUrl: SELF_URL, publicUrl: PUBLIC_URL });
 
