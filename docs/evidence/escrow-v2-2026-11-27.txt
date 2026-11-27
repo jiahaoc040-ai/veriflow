@@ -1,0 +1,61 @@
+VeriFlow agent escrow v2 <13171,0> on Concordium testnet, 2026-11-27 (UTC). Run by the developer from gateway/ with `npm run escrow -- …`
+(buyer: our agent #1478, account 19528). Output as printed. Every call is dry-run first; --send-anyway sends a call the contract
+would reject, to leave the rejection on-chain as evidence (it costs the fee; no CCD moves).
+
+Why v2: an outside review (Cursor) of v1 <13170,0> found that v1 paid whatever agentWallet the registry named at payout time, so an
+agent owner could re-point the wallet after a payment and have it paid elsewhere; that a registry answer v1 could not read after
+the window left the CCD stuck; and that there was no final deadline. v2 pays only the wallet recorded at payment, only while the
+registry still names it for an Active agent (else -22 WalletChanged, and the buyer may refund); refuses a wallet that is not an
+account (-23); leaves the refund open whenever the payout check fails; and lets the buyer refund in any case 30 days after the
+window. Chain tests for each: contract-escrow/tests/chain.rs. v1 stays on chain, superseded; its evidence: escrow-2026-11-27.txt.
+
+Module: verifiable build made by CI from contract-escrow/ (cargo concordium verify-build: "Source and module match"), sha256
+b1b62b091aac44fa10a866224f20bfa213fd5aa5f4a6b77e53d00b5235ff302e, sources at release escrow-module-v2. CCDExplorer module page
+shows the source code (the v2 doc comment and Error enum up to -23 WalletNotAnAccount).
+
+deployer 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r
+module b1b62b091aac44fa10a866224f20bfa213fd5aa5f4a6b77e53d00b5235ff302e (40765 bytes)
+1/2 deploying module…
+  tx https://ccdexplorer.io/testnet/transaction/47babab4df41a5f43664a5d935f11048e32e4c2c4210b93a784ced3557d79161
+2/2 creating the escrow for the CIS-8004 registry <12802,0>…
+  tx https://ccdexplorer.io/testnet/transaction/0354a0683e36581ad536b3dc459aafd20da27f93fdfebf15327ccdb0ba31067b
+✅ escrow <13171,0>
+
+> npm run escrow -- pay 1313 1 2 "veriflow escrow v2 demo"
+pay by 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r
+  tx https://ccdexplorer.io/testnet/transaction/19c00fc21e352addd861ccddc8b16c1c4b3d9b466acd9556b8e99c33ce99a737
+  ✅ finalized
+  escrow id 0
+
+> npm run escrow -- release 0
+release by 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r
+  tx https://ccdexplorer.io/testnet/transaction/8800d1cfc70a46032a10c6bcf59f5435ab2b6a782fb756875412067830c08580
+  ✅ finalized
+CCDExplorer, same transaction (2026-11-27 08:38:33, block 51,355,035): "Interrupted contract <13171,0> / Updated contract <12802,0>,
+Contract: CIS-8004, Function: agentOf, Parameter: 2105000000000000 (= token 1313) / Resumed / Interrupted / Transferred Ͼ1.000000
+from <13171,0> to 19394 / Resumed / Updated contract <13171,0>, veriflow_escrow.release, Parameter 0000000000000000 (escrow 0)".
+19394 is the wallet the contract recorded at payment, and the registry still named it at release.
+
+> npm run escrow -- pay 53 0.000001 60 --send-anyway
+the contract would reject pay: -4 AgentHasNoWallet
+  tx https://ccdexplorer.io/testnet/transaction/de8f59574568f62f4fbd7f1675e0220f7a82a1c8029955b6e84ba465b974d159
+  ⛔ rejected on-chain: -4 AgentHasNoWallet (no CCD moved)
+
+> npm run escrow -- pay 11 0.000001 60 --send-anyway
+the contract would reject pay: -3 AgentNotActive
+  tx https://ccdexplorer.io/testnet/transaction/a836272e763b98bd1626a6dfcbb61066b929a306224a027eded577565f2248d2
+  ⛔ rejected on-chain: -3 AgentNotActive (no CCD moved)
+
+> npm run escrow -- pay 99999999 0.000001 60 --send-anyway
+the contract would reject pay: -2 AgentNotFound
+  tx https://ccdexplorer.io/testnet/transaction/fa2b4722eb5a528b1965ae761c557a6924a633bd32604a76727d2a801c95b1be
+  ⛔ rejected on-chain: -2 AgentNotFound (no CCD moved)
+
+> npm run escrow -- status 0
+  buyer: '4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r', tokenId: '1313', amount: '1 CCD',
+  paidAt: 2026-11-27T08:29:31.433Z, claimAfter: 2026-11-27T08:31:31.433Z,
+  walletAtPay: '3WSAJwTZqVRypnGMkUjW28QDES8h1FUBoCwrzQ1rdN35NGavf8', memo: 'veriflow escrow v2 demo',
+  state: 'Released', paidTo: '3WSAJwTZqVRypnGMkUjW28QDES8h1FUBoCwrzQ1rdN35NGavf8'
+
+Agents used: #53 is Active with no agentWallet and #11 is Revoked in the testnet census of 2026-11-25 (score-reports branch,
+census/testnet/latest.json); the contract read both from the registry itself.

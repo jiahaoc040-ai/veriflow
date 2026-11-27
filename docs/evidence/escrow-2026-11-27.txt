@@ -1,3 +1,5 @@
+SUPERSEDED: v1. After an outside review, escrow v2 <13171,0> replaced it; see escrow-v2-2026-11-27.txt for why and its transactions.
+
 VeriFlow agent escrow <13170,0> on Concordium testnet, 2026-11-27 (UTC). Run by the developer from gateway/ with `npm run escrow -- …`
 (buyer: our agent #1478, account 19528). Output as printed. Every call is dry-run first; --send-anyway sends a call the contract
 would reject, to leave the rejection on-chain as evidence (it costs the fee; no CCD moves).
