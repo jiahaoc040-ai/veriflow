@@ -11,14 +11,16 @@ export type PaymentLedger = {
   claim(tx: string): Promise<boolean>;
 };
 
-export function memoryLedger(max = 100_000): PaymentLedger {
+/**
+ * In memory: nothing is ever forgotten while the process runs (a forgotten hash could be delivered again), and nothing survives
+ * a restart. One entry per paid settlement. For anything beyond a demo, use sqlLedger, shared by every process that sells to the same payTo.
+ */
+export function memoryLedger(): PaymentLedger {
   const seen = new Set<string>();
   return {
     async claim(tx) {
       const k = tx.toLowerCase();
       if (seen.has(k)) return false;
-      // A settlement hash is never reused, so forgetting the oldest one past `max` is harmless
-      if (seen.size >= max) seen.delete(seen.values().next().value!);
       seen.add(k);
       return true;
     },

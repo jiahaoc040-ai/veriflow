@@ -47,5 +47,10 @@ export async function waitForNode(account: string, nodeNonce: () => Promise<bigi
   const last = used.get(account);
   if (last === undefined) return;
   const deadline = Date.now() + timeoutMs;
-  while ((await nodeNonce()) <= last && Date.now() < deadline) await new Promise((ok) => setTimeout(ok, pollMs));
+  for (;;) {
+    if ((await nodeNonce()) > last) return;
+    // Sending now would reuse the previous transaction's nonce, and one of the two would be rejected
+    if (Date.now() >= deadline) throw new Error("the node has not yet counted the previous transaction; please try again shortly");
+    await new Promise((ok) => setTimeout(ok, pollMs));
+  }
 }

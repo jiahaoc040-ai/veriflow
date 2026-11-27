@@ -46,11 +46,20 @@ export function matchesPayment(s: any, payer: string, payTo: string, amount: str
   if (s?.type !== "accountTransaction" || s?.transactionType === "failed") return { ok: false, why: "transaction failed on-chain" };
   if (asset && asset !== "CCD") {
     if (s?.transactionType !== "tokenUpdate") return { ok: false, why: `not a token update (${s?.transactionType})` };
+    if (!same(transferOf(s).sender, payer)) return { ok: false, why: `token update not sent by the payer ${payer}` };
     const want = BigInt(amount);
-    const all = pltTransfersOf(s);
-    const hit = all.some((t) => t.tokenId === asset && same(t.from, payer) && same(t.to, payTo) && t.amount === want);
-    return hit ? { ok: true } : { ok: false, why: `no transfer of ${amount} ${asset} from ${payer} to ${payTo} (saw ${all.length} transfer event(s))` };
+    const all = pltTransfersOf(s).filter((t) => t.tokenId === asset);
+    // Net amount of this token from payer to payTo in this transaction (transfers back are subtracted)
+    let net = 0n;
+    for (const t of all) {
+      if (t.amount === undefined) continue;
+      if (same(t.from, payer) && same(t.to, payTo)) net += t.amount;
+      else if (same(t.from, payTo) && same(t.to, payer)) net -= t.amount;
+    }
+    return net === want ? { ok: true } : { ok: false, why: `net ${asset} from ${payer} to ${payTo} is ${net}, not ${amount}` };
   }
+  // A plain CCD transfer only (with or without memo): not a contract call or any other transaction that happens to move CCD
+  if (s?.transactionType !== "transfer" && s?.transactionType !== "transferWithMemo") return { ok: false, why: `not a CCD transfer (${s?.transactionType})` };
   const t = transferOf(s);
   if (!same(t.sender, payer)) return { ok: false, why: `sender ${t.sender} is not the payer ${payer}` };
   if (!same(t.to, payTo)) return { ok: false, why: `receiver ${t.to} is not payTo ${payTo}` };

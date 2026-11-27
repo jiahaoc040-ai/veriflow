@@ -22,14 +22,13 @@ export type PaymentLedger = {
   claim(tx: string): Promise<boolean>;
 };
 
-export function memoryLedger(max = 100_000): PaymentLedger {
+/** In memory, never forgetting while the process runs (a forgotten hash could be delivered again); the deployment uses Postgres */
+export function memoryLedger(): PaymentLedger {
   const seen = new Set<string>();
   return {
     async claim(tx) {
       const k = tx.toLowerCase();
       if (seen.has(k)) return false;
-      // Oldest first out: a settlement tx hash is never reused, so forgetting a very old one is harmless
-      if (seen.size >= max) seen.delete(seen.values().next().value!);
       seen.add(k);
       return true;
     },

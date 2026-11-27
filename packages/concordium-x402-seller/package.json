@@ -1,6 +1,6 @@
 {
   "name": "concordium-x402-seller",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Seller-side checks for x402 on Concordium: re-check the buyer's Verify & Access proof at every payment, verify the buyer's agent in the CIS-8004 registry, recover settlements a facilitator misreports, deliver each payment once.",
   "license": "MIT",
   "type": "module",
@@ -38,18 +38,23 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "check:examples": "tsc -p tsconfig.examples.json"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",
-    "concordium-x402-guard": "^0.2.0"
+    "concordium-x402-guard": "^0.2.1"
   },
   "peerDependencies": {
     "@x402/core": "^2.31.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^26.6.6",
+    "@x402/concordium": "^2.32.0",
     "@x402/core": "^2.31.0",
+    "@x402/express": "^2.32.0",
+    "express": "^5.3.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },

@@ -41,6 +41,12 @@ if (!response) {
 }
 ```
 
+If your agent is registered in the Agent Registry, name it so sellers that check buyers (for example with [`concordium-x402-seller`](https://www.npmjs.com/package/concordium-x402-seller)) can confirm it from the chain: send its token id in the `X-Concordium-Agent` header, and pay from its `agentWallet`. A seller set to `buyerAgent: "required"` refuses requests without it.
+
+```ts
+await guarded.fetch(url, { method: "POST", body, headers: { "X-Concordium-Agent": "1478" } });
+```
+
 How a refusal looks: `response` is undefined, `verdict.ok` is false with every check listed, and `error` is also set (x402's "Payment creation aborted: refused to pay: …"). If `verdict` is undefined, the guard never saw a payment (a non-402 answer, or the x402 client failed first). `protect` accepts any `x402Client` from `@x402/fetch`, ESM or CommonJS build.
 
 `network` is the **Concordium** network the checks read: `"testnet"` or `"mainnet"` (default testnet); anything else throws. It also pins what can be paid: a Concordium payment only on that network, an EVM payment only on its Base chain (Base Sepolia for testnet, Base for mainnet). A testnet agent never approves a mainnet payment.
@@ -82,6 +88,8 @@ The site the agent called is the one checked (never the 402's own `resource.url`
 Output of those runs: <https://github.com/jiahaoc040-ai/veriflow/tree/main/docs/evidence>.
 
 ## Changes
+
+0.2.2: `NETWORKS.*.caip2` is typed as a CAIP-2 template string, so it can be passed to `x402ResourceServer.register` and routes directly; README shows the `X-Concordium-Agent` header.
 
 0.2.1: the `npx` command is actually included (0.2.0 was published without it).
 

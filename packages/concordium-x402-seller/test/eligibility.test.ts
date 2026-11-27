@@ -249,3 +249,30 @@ test("challenge: an account that does not exist on-chain is refused before anyth
   await assert.rejects(svc.challenge(BUYER), /no such account/);
   assert.equal(chain.requests, 0);
 });
+
+test("review fixes: NOT_FOUND only by gRPC code; a record with a broken expiry date is expired", async () => {
+  const { isGrpcNotFound } = await import("../src/eligibility.ts");
+  assert.equal(isGrpcNotFound({ code: "NOT_FOUND" }), true);
+  assert.equal(isGrpcNotFound({ code: 5 }), true);
+  assert.equal(isGrpcNotFound(Object.assign(new Error("method not found"), { code: "UNIMPLEMENTED" })), false);
+  const store = new EligibilityStore();
+  await store.grant({ account: BUYER, credId: "c", issuer: 0, policy: "p", requestAnchorTx: "a", auditAnchorTx: "b", challengeId: "i", requestJson: {}, presentationJson: "{}" } as never);
+  (store as unknown as { eligible: Record<string, { expiresAt: string }> }).eligible[BUYER].expiresAt = "nope";
+  assert.equal(store.status(BUYER, "p"), null);
+});
+
+test("review fixes: the payment-time re-check reads the identity provider list fresh", async () => {
+  let fresh = 0;
+  const chain = { ...fakeChain(), async identityProviders(f?: boolean) { if (f) fresh++; return [0, 1]; } };
+  const svc = new EligibilityService(POLICY, new EligibilityStore(), chain);
+  const c = await svc.challenge(BUYER);
+  await svc.verify(c.id, "{}");
+  await svc.recheck(BUYER);
+  assert.equal(fresh, 1);
+});
+
+test("review fixes: the anchor queue refuses to send while the node has not counted the previous anchor", async () => {
+  const { waitForNonce } = await import("../src/txqueue.ts");
+  await assert.rejects(waitForNonce(async () => 5n, 5n, 30, 10), /not yet counted/);
+  await waitForNonce(async () => 6n, 5n, 30, 10);
+});

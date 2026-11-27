@@ -5,7 +5,7 @@
  *   concordiumSeller(server, { network: "testnet", eligibility, buyerAgent: "optional" });
  *   app.use(paymentMiddleware(routes, server));
  */
-export { concordiumSeller, sellerAgentExtension } from "./seller.js";
+export { concordiumSeller, sellerAgentExtension, buyerRequirementsExtra } from "./seller.js";
 export type { SellerOptions, SellerServer } from "./seller.js";
 export { checkBuyerAgent, BUYER_AGENT_HEADER } from "./buyer-agent.js";
 export type { BuyerAgentPolicy, BuyerAgentResult } from "./buyer-agent.js";
@@ -31,6 +31,7 @@ export {
   parseCountries,
   credIdFromDid,
   idpFromDid,
+  isGrpcNotFound,
   MIN_AGE,
   CHALLENGE_TTL_MS,
   ELIGIBILITY_TTL_MS,

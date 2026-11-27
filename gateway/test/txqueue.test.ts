@@ -65,7 +65,7 @@ test("a failed send does not block the queue, and the next send trusts the node 
   assert.equal(pickNonce(acct, 5n), 5n); // after forgetting, follow the node
 });
 
-test("waitForNode: waits until the node has caught up with our last send, with a timeout", async () => {
+test("waitForNode: waits until the node has caught up with our last send, and refuses after a timeout", async () => {
   const acct = "op-3";
   await waitForNode(acct, async () => 0n); // nothing sent yet: no wait
   pickNonce(acct, 7n);
@@ -74,6 +74,7 @@ test("waitForNode: waits until the node has caught up with our last send, with a
   await waitForNode(acct, async () => n++, 1_000, 10); // caught up on the second query (8 > 7)
   assert.ok(Date.now() - t0 < 500);
   const t1 = Date.now();
-  await waitForNode(acct, async () => 7n, 50, 10); // never catches up: time out and continue
+  // never catches up: refuse rather than send with a nonce the node may hand out twice
+  await assert.rejects(waitForNode(acct, async () => 7n, 50, 10), /not yet counted/);
   assert.ok(Date.now() - t1 >= 50);
 });

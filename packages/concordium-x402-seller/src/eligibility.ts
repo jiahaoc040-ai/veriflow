@@ -237,7 +237,7 @@ export class EligibilityStore {
 
   status(account: string, policy: string): Eligible | null {
     const e = this.eligible[account];
-    if (!e || e.policy !== policy || Date.parse(e.expiresAt) < this.now()) return null;
+    if (!e || e.policy !== policy || !(Date.parse(e.expiresAt) >= this.now())) return null;
     // Old records stored no proof, so they cannot be re-checked at payment: treat as unverified and ask the buyer to verify again
     if (!e.presentationJson || !e.requestJson || !e.challengeId) return null;
     return e;
@@ -246,7 +246,8 @@ export class EligibilityStore {
 
 /** On-chain dependencies (replaced by fakes in tests) */
 export type Chain = {
-  identityProviders(): Promise<number[]>;
+  /** fresh = read from the node now (used at payment); otherwise a recent list may be reused */
+  identityProviders(fresh?: boolean): Promise<number[]>;
   /** Does this account exist on-chain? (A challenge costs an on-chain anchor, so a made-up address is refused first.) Optional for test chains */
   accountExists?(account: string): Promise<boolean>;
   /** Build a verification request and anchor its hash on-chain (VRA), waiting for finalization */
@@ -280,6 +281,12 @@ export type ChainOptions = {
   service?: string;
 };
 
+/** gRPC status NOT_FOUND only, by its code (the SDK's RpcError carries "NOT_FOUND" or 5), never a message that merely says "not found" */
+export function isGrpcNotFound(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  return code === "NOT_FOUND" || code === 5;
+}
+
 export function concordiumChain(o: ChainOptions): Chain {
   const { grpc, anchor, did } = o;
   const service = o.service ?? "x402-seller";
@@ -296,14 +303,22 @@ export function concordiumChain(o: ChainOptions): Chain {
         await grpc.getAccountInfo(AccountAddress.fromBase58(account));
         return true;
       } catch (e) {
-        // NOT_FOUND = no such account; anything else (node down) is thrown so the caller does not anchor blindly
-        if (/NOT_FOUND|not found/i.test(e instanceof Error ? `${e.message} ${(e as { code?: unknown }).code ?? ""}` : String(e))) return false;
+        // gRPC NOT_FOUND (status 5) = no such account; anything else (node down, UNIMPLEMENTED…) is thrown so the caller does not anchor blindly
+        if (isGrpcNotFound(e)) return false;
         throw e;
       }
     },
 
-    async identityProviders() {
-      // Cache only a non-empty list, refreshed hourly: a node that briefly returns nothing cannot make every later verification fail
+    async identityProviders(fresh = false) {
+      // fresh (at payment): read the list now, and an empty list refuses. Otherwise (challenge): a non-empty list cached for an hour
+      if (fresh) {
+        const now: number[] = [];
+        for await (const ip of grpc.getIdentityProviders()) now.push(ip.ipIdentity);
+        if (!now.length) throw new Error("the node returned no identity provider list");
+        ips = now;
+        ipsAt = Date.now();
+        return now;
+      }
       if (!ips || Date.now() - ipsAt > 3_600_000) {
         const fresh: number[] = [];
         for await (const ip of grpc.getIdentityProviders()) fresh.push(ip.ipIdentity);
@@ -475,7 +490,8 @@ export class EligibilityService {
     const vc = parsed.credentials[0];
     if (parsed.credentials.length !== 1 || vc.kind !== "account") throw new Error("stored proof is not one account credential");
     // The stored proof must satisfy the current policy and identity provider list (not just the stored policy string)
-    const ips = await this.chain.identityProviders();
+    // The list as it is now: an issuer removed from the chain's list stops passing at the next payment
+    const ips = await withTimeout(this.chain.identityProviders(true), "reading the identity provider list");
     const gap = statementGap(buildClaims(this.policy, ips, this.did)[0].statements as Atomic[], vc.statement);
     if (gap) throw new Error(`stored proof does not meet the current policy: ${gap}`);
     if (!ips.includes(idpFromDid(vc.issuer))) throw new Error("stored proof's identity provider is not on the chain's list");

@@ -139,3 +139,42 @@ test("network names: a wrong one is a clear error", async () => {
   const { server } = fakeServer();
   assert.throws(() => concordiumSeller(server, { network: "eip155:8453" as never }), /testnet" or "mainnet/);
 });
+
+test("review fixes: proof re-checked before settle too; unreadable header refuses; other networks' settlements untouched", async () => {
+  let eligible = true;
+  const { server, h } = fakeServer();
+  concordiumSeller(server, { log: quiet, readAgent: agent(), eligibility: { async recheck() { if (!eligible) throw new Error("revoked"); } } });
+  assert.equal(await h.verify(ctx()), undefined);
+  eligible = false;
+  assert.equal((await h.settle(ctx())).reason, "buyer_proof_required");
+  const bad = { ...ctx(), transportContext: { request: { adapter: { getHeader: () => { throw new Error("x"); } } } } };
+  eligible = true;
+  assert.equal((await h.verify(bad)).reason, "buyer_agent_check_failed:header_unreadable");
+  await h.after({ result: { transaction: "ee".repeat(32) }, requirements: { ...ctx().requirements, network: "eip155:8453" } });
+  await h.after({ result: { transaction: "ee".repeat(32) }, requirements: { ...ctx().requirements, network: "eip155:8453" } });
+});
+
+test("review fixes: hash found in the error message; ledger down still delivers a matching recovery", async () => {
+  const { server, h } = fakeServer();
+  const down = { async claim(): Promise<boolean> { throw new Error("db down"); } };
+  concordiumSeller(server, { log: quiet, ledger: down, grpc: fakeGrpc(ccdTransfer(PAYER, PAYTO, 1_000_000n)) });
+  const r = await h.failure({ ...ctx(), error: { transaction: "", errorReason: `transaction ${TX} not found` } });
+  assert.equal(r.recovered, true);
+  assert.equal(r.result.transaction, TX);
+  assert.equal(await h.failure({ ...ctx(), error: { errorReason: "timeout" } }), undefined, "no hash: nothing to read, nothing delivered");
+});
+
+test("review fixes: recovery matches only a plain transfer; PLT by net amount", () => {
+  assert.equal(matchesPayment({ ...ccdTransfer(PAYER, PAYTO, 5n), transactionType: "update" }, PAYER, PAYTO, "5", "CCD").ok, false);
+  assert.equal(matchesPayment({ ...ccdTransfer(PAYER, PAYTO, 5n), transactionType: "transferWithMemo" }, PAYER, PAYTO, "5", "CCD").ok, true);
+  const ev = (from: string, to: string, v: string) => ({ tag: "TokenTransfer", tokenId: { value: "T" }, from: { address: from }, to: { address: to }, amount: { value: v } });
+  const plt = (events: unknown[]) => ({ type: "accountTransaction", transactionType: "tokenUpdate", sender: PAYER, events });
+  assert.equal(matchesPayment(plt([ev(PAYER, PAYTO, "10"), ev(PAYTO, PAYER, "5")]), PAYER, PAYTO, "10", "T").ok, false, "money sent back does not count");
+  assert.equal(matchesPayment(plt([ev(PAYER, PAYTO, "4"), ev(PAYER, PAYTO, "6")]), PAYER, PAYTO, "10", "T").ok, true);
+  assert.equal(matchesPayment({ ...plt([ev(PAYER, PAYTO, "10")]), sender: OTHER }, PAYER, PAYTO, "10", "T").ok, false);
+});
+
+test("buyerRequirementsExtra: where a refused buyer can verify", async () => {
+  const { buyerRequirementsExtra } = await import("../src/seller.ts");
+  assert.deepEqual(buyerRequirementsExtra({ verifyUrl: "https://s.test/verify", buyerAgent: "required" }), { buyerProofUrl: "https://s.test/verify", buyerAgentHeader: "X-Concordium-Agent", buyerAgentPolicy: "required" });
+});

@@ -16,11 +16,11 @@ test("single flight: concurrent requests for one commitment anchor once", async 
 });
 
 test("payment ledger: a settlement tx is delivered against once", async () => {
-  const l = memoryLedger(3);
+  const l = memoryLedger();
   assert.equal(await l.claim("AB"), true);
   assert.equal(await l.claim("ab"), false);
-  for (const t of ["c", "d", "e"]) await l.claim(t);
-  assert.equal(await l.claim("ab"), true, "bounded: the oldest is forgotten");
+  for (let i = 0; i < 1000; i++) await l.claim(`t${i}`);
+  assert.equal(await l.claim("ab"), false, "never forgotten while the process runs");
 });
 
 test("Postgres TLS on unless the URL disables it or is local", () => {

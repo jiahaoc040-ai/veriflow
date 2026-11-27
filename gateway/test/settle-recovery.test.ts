@@ -53,6 +53,8 @@ import { TokenAmount, TokenHolder, TokenId } from "@concordium/web-sdk/plt";
 
 // Shaped like the node's summary of tx 99310359…: 1.000000 hh-VFUSD from 19528 to 19394, a facilitator that reported "transaction not found"
 const pltSummary = (o: { token?: string; from?: string; to?: string; value?: bigint; type?: string } = {}) => ({
+  type: "accountTransaction",
+  sender: AccountAddress.fromBase58(o.from ?? A),
   transactionType: o.type ?? "tokenUpdate",
   events: [
     { tag: "TokenTransfer", tokenId: TokenId.fromString(o.token ?? "hh-VFUSD"), from: TokenHolder.fromAccountAddress(AccountAddress.fromBase58(o.from ?? A)),
@@ -74,5 +76,8 @@ test("PLT recovery refuses another token, amount, payer, payee, or a non-token t
     [pltSummary({ type: "transfer" }), "type"],
   ] as const) assert.equal(matchesPayment(s, A, B, "1000000", "hh-VFUSD").ok, false, why);
   // and CCD still works as before
-  assert.equal(matchesPayment({ sender: AccountAddress.fromBase58(A), transfer: { to: AccountAddress.fromBase58(B), amount: CcdAmount.fromMicroCcd(1_000_000n) } }, A, B, "1000000", "CCD").ok, true);
+  const ccd = { type: "accountTransaction", transactionType: "transfer", sender: AccountAddress.fromBase58(A), transfer: { to: AccountAddress.fromBase58(B), amount: CcdAmount.fromMicroCcd(1_000_000n) } };
+  assert.equal(matchesPayment(ccd, A, B, "1000000", "CCD").ok, true);
+  // only a plain transfer counts: the same CCD moved by a contract call does not
+  assert.equal(matchesPayment({ ...ccd, transactionType: "update" }, A, B, "1000000", "CCD").ok, false);
 });

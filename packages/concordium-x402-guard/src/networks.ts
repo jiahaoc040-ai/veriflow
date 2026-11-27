@@ -3,8 +3,8 @@ export type NetworkName = "testnet" | "mainnet";
 
 export type ConcordiumNetwork = {
   name: NetworkName;
-  /** CAIP-2 id used by x402 for this network */
-  caip2: string;
+  /** CAIP-2 id used by x402 for this network (typed the way @x402/core's register() and routes expect it) */
+  caip2: `${string}:${string}`;
   /** CIS-8004 Agent Registry */
   agentRegistry: { index: bigint; subindex: bigint };
   /** CIS-8 External Key Registry */
@@ -12,7 +12,7 @@ export type ConcordiumNetwork = {
   /** Public gRPC node */
   grpc: { host: string; port: number };
   /** EVM network whose keys agents usually bind (Base) */
-  evmNetwork: string;
+  evmNetwork: `${string}:${string}`;
 };
 
 export const NETWORKS: Record<NetworkName, ConcordiumNetwork> = {

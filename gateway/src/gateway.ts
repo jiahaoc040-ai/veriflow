@@ -174,6 +174,9 @@ resourceServer
     const evm = isEvmNetwork(requirements.network);
     const payer = evm ? (paymentPayload.payload as { authorization?: { from?: string } }).authorization?.from : payerOf(paymentPayload.payload);
     console.warn(`settlement reported failure: ${e.errorReason ?? e.message}${e.errorMessage && e.errorMessage !== e.errorReason ? ` (${e.errorMessage})` : ""} tx=${e.transaction || "-"} payer=${payer ?? "-"}`);
+    // The hash from the error's field or, failing that, its message ("transaction <hash> not found")
+    const tx = e.transaction && /^(0x)?[0-9a-f]{64}$/i.test(e.transaction) ? e.transaction : `${e.errorReason ?? ""} ${e.errorMessage ?? ""} ${e.message ?? ""}`.match(/\b(0x)?[0-9a-f]{64}\b/i)?.[0];
+    if (tx) e.transaction = tx;
     if (!e.transaction || !payer) return;
     // Base USDC: read the receipt (onBeforeVerify already mapped this payment to a bound Concordium account; here we only confirm the money arrived)
     const paid = evm
@@ -184,7 +187,10 @@ resourceServer
       return;
     }
     // The same signed payment sent many times at once: only one request may be delivered against this transaction
-    if (!(await ledger.claim(e.transaction).catch(() => false))) {
+    let first = true;
+    // The money is on-chain: if the ledger is down, deliver (as after a normal settlement); only a recorded earlier delivery stops it
+    try { first = await ledger.claim(e.transaction); } catch (err) { console.error(`payment ledger unavailable, delivering ${e.transaction}: ${err instanceof Error ? err.message : err}`); }
+    if (!first) {
       console.warn(`not recovered: ${e.transaction} was already delivered against`);
       return;
     }
@@ -215,6 +221,16 @@ resourceServer
         return { abort: true, reason: who.ok ? "evm_payer_not_bound" : who.code };
       }
       account = who.account;
+    }
+    // The buyer's proof again, just before the money moves: a credential revoked or moved after verification is refused here
+    if (REQUIRE_ELIGIBILITY) {
+      try {
+        if (!account) throw new Error("no payer");
+        await eligibility.recheck(account);
+      } catch (err) {
+        console.log(`refused at settlement, buyer ${account}: ${err instanceof Error ? err.message : err}`);
+        return { abort: true, reason: "buyer_proof_required" };
+      }
     }
     const named = req?.res?.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
     if (!named) return;
