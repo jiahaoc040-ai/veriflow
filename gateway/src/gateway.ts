@@ -48,15 +48,17 @@ const AGENT_BADGE = env("AGENT_BADGE", "JyP9UWYKh54TD2MUJDfqC");
 const AGENT_TOKEN_ID = env("AGENT_TOKEN_ID", "1313");
 const PAY_TO = env("SELLER_ADDRESS");
 const PRICE_MICROCCD = env("PRICE_MICROCCD", "1000000"); // 1 CCD
-// Optional: the same signal can be paid in a Protocol-Level Token, e.g. PLT_PRICE=VFUSD:1000000 (1 VFUSD, 6 decimals)
+// Optional: the same signal can be paid in Protocol-Level Tokens, e.g. PLT_PRICE=EUDemo:1000000,hh-VFUSD:1000000 (1 unit each, 6 decimals)
 // The buyer picks, from the 402's accepts, the option its own spend controls allow
-const PLT_PRICE = (() => {
-  const v = (process.env.PLT_PRICE ?? "").trim();
-  if (!v) return undefined;
-  const m = /^([A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]):(\d{1,20})$/.exec(v);
-  if (!m) throw new Error("PLT_PRICE must look like VFUSD:1000000 (token id and amount in the token's smallest unit)");
-  return { asset: m[1], amount: m[2] };
-})();
+const PLT_PRICES = (process.env.PLT_PRICE ?? "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean)
+  .map((v) => {
+    const m = /^([A-Za-z][A-Za-z0-9-]{1,10}[A-Za-z0-9]):(\d{1,20})$/.exec(v);
+    if (!m) throw new Error("PLT_PRICE must look like EUDemo:1000000 or EUDemo:1000000,hh-VFUSD:1000000 (token id and amount in the token's smallest unit)");
+    return { asset: m[1], amount: m[2] };
+  });
 
 const PUBLIC_URL = env("PUBLIC_URL", "http://localhost:4020");
 
@@ -292,7 +294,7 @@ app.use(
       "GET /signal/:asset": {
         accepts: [
           { asset: "CCD", amount: PRICE_MICROCCD },
-          ...(PLT_PRICE ? [PLT_PRICE] : []),
+          ...PLT_PRICES,
         ].map((p) => ({
           scheme: "exact",
           network: NETWORK,
@@ -583,7 +585,7 @@ for (let i = 0; i < 3 && !(await Promise.race([checkNetwork(), new Promise<boole
 setInterval(checkNetwork, 60_000).unref();
 
 app.listen(PORT, () => {
-  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD${PLT_PRICE ? ` or ${PLT_PRICE.amount} ${PLT_PRICE.asset} units` : ""}  anchor=${anchorer.address} via ${anchorer.mode}`);
+  console.log(`gateway on http://localhost:${PORT}  payTo=${PAY_TO}  price=${PRICE_MICROCCD} microCCD${PLT_PRICES.map((p) => ` or ${p.amount} ${p.asset} units`).join("")}  anchor=${anchorer.address} via ${anchorer.mode}`);
   console.log(`daily public signals: ${DAILY_MODE === "reveal" ? "v1 reveals only (v2 signals come from the daily-v2 workflow)" : DAILY ? "on" : "off"}`);
   console.log(`buyer eligibility ${REQUIRE_ELIGIBILITY ? "REQUIRED" : "off"}: age ≥ ${MIN_AGE}, not resident in ${eligibility.policy.restrictedCountries.join(",")}  → ${PUBLIC_URL}/verify`);
   if (EVM) {
