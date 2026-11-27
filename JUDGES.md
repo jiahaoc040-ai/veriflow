@@ -111,7 +111,7 @@ What it does not check: the hosted badge service, endpoints not linked from the 
 
 ## Built to fail closed
 
-Tests, run in CI on every push (the contract's whenever it changes): 168 for the gateway (TypeScript), 28 for the guard package, 39 for the seller package, 25 for the Python API and verifier, 10 for the v2 contract (Rust).
+Tests, run in CI on every push (the contract's whenever it changes): 168 for the gateway (TypeScript), 28 for the guard package, 39 for the seller package, 25 for the Python API and verifier, 10 for the v2 contract and 11 for the escrow contract (Rust).
 
 - A node error, an unreachable registry, a changed card or a revoked binding stops the payment before it settles.
 - The buyer's checks run in an x402 client hook, so a failing seller is never signed for.

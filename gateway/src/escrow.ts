@@ -37,6 +37,8 @@ import { createGrpc } from "./grpc.js";
 import { NET, txLink } from "./network.js";
 
 export const ESCROW_NAME = "veriflow_escrow";
+/** The verifiable build CI made from contract-escrow/ (cargo concordium verify-build: "Source and module match") */
+export const EXPECTED_MODULE = "0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457";
 export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/escrow-module/verified.wasm.v1";
 
 /** Rejection codes, in the order of the contract's Error enum (-1, -2, …) */
@@ -129,9 +131,10 @@ async function main() {
     const owner = loadAccount(process.env.ESCROW_DEPLOY_KEY_FILE ?? env("BUYER_KEY_FILE"));
     const source = process.env.CONTRACT_MODULE ? readFileSync(process.env.CONTRACT_MODULE) : Buffer.from(await (await fetch(MODULE_URL)).arrayBuffer());
     const refHex = createHash("sha256").update(source).digest("hex");
-    const expected = process.env.EXPECTED_ESCROW_MODULE;
+    const expected = process.env.EXPECTED_ESCROW_MODULE ?? EXPECTED_MODULE;
     console.log(`deployer ${owner.address}\nmodule ${refHex} (${source.length} bytes)`);
-    if (expected && refHex !== expected) throw new Error(`module ${refHex} is not ${expected}; nothing was sent`);
+    // Deploy only the reviewed, verifiable module; anything else stops here and nothing is sent
+    if (refHex !== expected) throw new Error(`module ${refHex} is not the reviewed module ${expected}; nothing was sent`);
     const submit = async (tx: any) => {
       const { nonce } = await grpc.getNextAccountNonce(owner.accountAddress);
       const built = tx.addMetadata({ sender: owner.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
