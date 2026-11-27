@@ -89,3 +89,27 @@ CCDExplorer, release 240c23b2… (2026-11-27 11:54:27): sender 19836; "Updated c
 He also bought an ETH call the same session (payment 368aae2e…, commit 1d690202…). His two reports, both fixed:
 on Windows `npm run escrow` printed nothing (the "run main if this is the started script" check compared file:///D:/… with D:\…;
 now src/is-main.ts, for all eight CLIs); and `git pull` on a D: drive needed `git config --global --add safe.directory` (TRY_IT.md).
+
+The review's main fix, on-chain (2026-11-27 12:3x–12:42 UTC): a payout refused because the agent's wallet changed after payment,
+then the buyer's refund after the window. A disposable agent was registered for this, owned by our buyer account 19528.
+  register agent #1545                    https://ccdexplorer.io/testnet/transaction/75d9af905c7d9944421a456e126206b66aef00b60f4423e76809ee8368be2553
+  setAgentWallet #1545 -> 4dNMXmNK… (19527)  https://ccdexplorer.io/testnet/transaction/d5f3a537e96bbd8da8975b16fe7074c1187769a088643b8d93e2ffbf8ed80221
+> npm run escrow -- pay 1545 1 1 "wallet change test"           (1 CCD, 1-minute window)
+  tx https://ccdexplorer.io/testnet/transaction/9297b7ee7355d686d59ecd820dbdaa563c8e7301ae808f4f9630faba60a37ab1
+  escrow id 4   (wallet recorded at payment: 4dNMXmNK…)
+  setAgentWallet #1545 -> 3WSAJwTZ… (19394)  https://ccdexplorer.io/testnet/transaction/4508aa57fcb2e90ed89e3ffc05c5652fb45776bc860748271734efdd7e9b9465
+> npm run escrow -- release 4 --send-anyway
+the contract would reject release: -22 WalletChanged
+  tx https://ccdexplorer.io/testnet/transaction/ce9420ab9bb1beea81691ba39bfd1864337da596b2845f1bc8a3692fb03d0af3
+  ⛔ rejected on-chain: -22 WalletChanged (no CCD moved)
+  CCDScan: "Rejected due to contract logic in receive function 'veriflow_escrow.release' of contract <13171, 0>, Error code: -22"
+> npm run escrow -- refund 4      (12:42:43 UTC, after the window closed at 12:34:21)
+  tx https://ccdexplorer.io/testnet/transaction/4ec9064e34cf03f62db480fd4075641375535181f4c919a458c79df68b8d8088
+  ✅ finalized
+  CCDExplorer: the contract reads CIS-8004.agentOf (parameter 0906000000000000 = 1545), then "Transferred Ͼ1.000000 from
+  <13171,0> to 19528", veriflow_escrow.refund, parameter 4. After the window a refund is allowed only if the payout check fails;
+  it failed (wallet changed), so the buyer got the CCD back.
+> npm run escrow -- status 4
+  walletAtPay 4dNMXmNK…, state 'Refunded', paidTo 4Vf4qUg5… (the buyer)
+With v1 this payment would have gone to the new wallet 3WSAJwTZ… (the review's first finding).
+Also: an operator typo sent `release 5` for an escrow that did not exist, rejected on-chain as -12 UnknownEscrow (40118708…).
