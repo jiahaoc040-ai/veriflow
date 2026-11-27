@@ -7,7 +7,10 @@ import express from "express";
 import { checkSellerAt, summarize, type GuardDeps, type GuardVerdict } from "./guard.js";
 import { scrubDetail } from "./security.js";
 
-export type Preset = { id: string; name: string; who: string; url: string; init: RequestInit };
+export type Preset = { id: string; name: string; who: string; url: string; init: RequestInit; mainnet?: true };
+
+/** A check run on Concordium mainnet with the published npm package (gateway.ts wires it; this file names no mainnet constants) */
+export type MainnetCheck = (url: string, init: RequestInit) => Promise<{ verdict: GuardVerdict; picked: { amount?: string; asset?: string; network: string; payTo: string } }>;
 
 const QA = JSON.stringify({
   question: "Explain why the sky appears blue during the day.",
@@ -23,19 +26,20 @@ export function presets(publicUrl: string): Preset[] {
     { id: "cleartopay", name: "Clear to Pay", who: "another team: escrow pre-clearance (no Agent Card on its site)", url: "https://cleartopay-concordium.vercel.app/api/preclear?escrow=13161&order=2", init: { method: "GET" } },
     { id: "vet402-s2", name: "vet402 S2", who: "the vet402 team's test seller, on vet402's site", url: "https://vet402-concordium.fly.dev/s2/resource", init: { method: "GET" } },
     { id: "vet402-s3", name: "vet402 S3", who: "the vet402 team's seller built to take payment and return nothing", url: "https://vet402-concordium.fly.dev/s3/resource", init: { method: "GET" } },
+    { id: "doctor-mainnet", name: "x402 Doctor (agent #5120, mainnet)", who: "another team, on Concordium mainnet: read live from a mainnet node by the published concordium-x402-guard package", url: "https://x402-doctor.fizzl.eu/api/v1/preflight", init: { method: "GET" }, mainnet: true },
     { id: "veriflow", name: "VeriFlow (agent #1313)", who: "this site's own seller", url: `${publicUrl}/signal/BTC`, init: { method: "GET" } },
   ];
 }
 
-export function guardPresetRouter(o: { publicUrl: string; deps: () => GuardDeps; now?: () => number; ttlMs?: number; log?: (m: string) => void }) {
+export function guardPresetRouter(o: { publicUrl: string; deps: () => GuardDeps; mainnet?: MainnetCheck; now?: () => number; ttlMs?: number; log?: (m: string) => void }) {
   const r = express.Router();
-  const list = presets(o.publicUrl);
+  const list = presets(o.publicUrl).filter((p) => !p.mainnet || o.mainnet);
   const now = o.now ?? Date.now;
   const ttl = o.ttlMs ?? 60_000;
   const cache = new Map<string, { at: number; body: unknown }>();
   const inflight = new Map<string, Promise<unknown>>();
 
-  r.get("/guard/presets", (_req, res) => res.json(list.map(({ id, name, who, url }) => ({ id, name, who, url }))));
+  r.get("/guard/presets", (_req, res) => res.json(list.map(({ id, name, who, url, mainnet }) => ({ id, name, who, url, network: mainnet ? "mainnet" : "testnet" }))));
 
   r.get("/guard/check/:id", async (req, res) => {
     const p = list.find((x) => x.id === req.params.id);
@@ -46,7 +50,7 @@ export function guardPresetRouter(o: { publicUrl: string; deps: () => GuardDeps;
     if (!job) {
       job = (async () => {
         try {
-          const { verdict, picked } = await checkSellerAt(p.url, p.init, o.deps());
+          const { verdict, picked } = p.mainnet && o.mainnet ? await o.mainnet(p.url, p.init) : await checkSellerAt(p.url, p.init, o.deps());
           const body = shape(p, verdict, picked, now());
           cache.set(p.id, { at: now(), body });
           return body;
@@ -69,7 +73,7 @@ export function guardPresetRouter(o: { publicUrl: string; deps: () => GuardDeps;
 
 function shape(p: Preset, v: GuardVerdict, picked: { amount?: string; asset?: string; network: string; payTo: string }, at: number) {
   return {
-    id: p.id, name: p.name, who: p.who, url: p.url, checked_at: new Date(at).toISOString(),
+    id: p.id, name: p.name, who: p.who, url: p.url, network: p.mainnet ? "mainnet" : "testnet", checked_at: new Date(at).toISOString(),
     asks: { amount: picked.amount, asset: picked.asset, network: picked.network, payTo: picked.payTo },
     agent: v.tokenId ?? null, ok: v.ok, summary: scrubDetail(summarize(v)), checks: v.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })), paid: false,
   };

@@ -109,7 +109,7 @@
 
   <div class="card try" id="guardCard">
     <h2><span class="step">Try 3</span>Check another team's seller before paying</h2>
-    <p class="muted lead">The same checks our buyer runs, as a guard any x402 agent can wrap around its own client (<a href="https://www.npmjs.com/package/concordium-x402-guard" target="_blank" rel="noopener">npm install concordium-x402-guard</a>). This server calls the seller, reads whom it wants to be paid, and checks that seller on Concordium. Nothing is paid. Results are cached for a minute.</p>
+    <p class="muted lead">The same checks our buyer runs, as a guard any x402 agent can wrap around its own client (<a href="https://www.npmjs.com/package/concordium-x402-guard" target="_blank" rel="noopener">npm install concordium-x402-guard</a>). This server calls the seller, reads whom it wants to be paid, and checks that seller on Concordium. Nothing is paid. Results are cached for a minute. <b>One runs on Concordium mainnet</b>: x402 Doctor (#5120), checked live against the mainnet Agent Registry and its CIS-8 key binding by the published <code>concordium-x402-guard</code> package.</p>
     <p id="guardButtons"></p>
     <div id="guardOut"></div>
   </div>
@@ -368,7 +368,7 @@
           const j = await get(`/guard/check/${encodeURIComponent(b.dataset.id)}`);
           if (j.error) { $("guardOut").innerHTML = `<p class="bad">${esc(j.message || j.error)}</p>`; return; }
           $("guardOut").innerHTML =
-            `<p class="small muted">${esc(j.name)} · ${esc(j.who)} · asks for ${esc(j.asks.asset === "CCD" ? `${Number(j.asks.amount) / 1e6} CCD` : `${j.asks.amount} ${j.asks.asset} (smallest unit)`)} to <span class="mono">${esc(String(j.asks.payTo).slice(0, 14))}…</span> · checked ${esc(j.checked_at)}</p>` +
+            `<p class="small muted">${j.network === "mainnet" ? '<b class="ok">Concordium mainnet</b> · ' : ""}${esc(j.name)} · ${esc(j.who)} · asks for ${esc(j.asks.asset === "CCD" ? `${Number(j.asks.amount) / 1e6} CCD` : `${j.asks.amount} ${j.asks.asset} (smallest unit)`)} to <span class="mono">${esc(String(j.asks.payTo).slice(0, 14))}…</span> · checked ${esc(j.checked_at)}</p>` +
             `<ul class="checks">${j.checks.map((c) => step(c.ok, c.name, c.detail)).join("")}</ul>` +
             `<p class="verdict ${j.ok ? "ok" : "bad"}">${j.ok ? "Would pay: every check passes." : failedLine(j.checks, j.summary)}</p>`;
         } catch (e) {

@@ -18,7 +18,7 @@ test("only the fixed list can be checked; results are cached; a seller error is 
   let t = 0;
   const app = express(); app.use(guardPresetRouter({ publicUrl: "https://me.test", deps, now: () => t, log: () => {} }));
   const s = await new Promise<{ url: string; close: () => void }>((ok) => { const h = app.listen(0, () => ok({ url: `http://127.0.0.1:${(h.address() as { port: number }).port}`, close: () => h.close() })); });
-  assert.deepEqual((await (await fetch(`${s.url}/guard/presets`)).json()).map((p: { id: string }) => p.id), presets("x").map((p) => p.id));
+  assert.deepEqual((await (await fetch(`${s.url}/guard/presets`)).json()).map((p: { id: string }) => p.id), presets("x").filter((p) => !p.mainnet).map((p) => p.id));
   assert.equal((await fetch(`${s.url}/guard/check/${encodeURIComponent("http://169.254.169.254")}`)).status, 404);
   const a = await (await fetch(`${s.url}/guard/check/mainsmarker`)).json();
   assert.equal(a.ok, false); // registry down → fail closed
@@ -33,4 +33,17 @@ test("only the fixed list can be checked; results are cached; a seller error is 
   assert.equal(v.error, "check_failed");
   assert.doesNotMatch(JSON.stringify(v), /10\.0\.0\.5|ECONNREFUSED/);
   s.close();
+});
+
+test("mainnet preset: listed only when a mainnet check is wired, and run through it", async () => {
+  let called = "";
+  const mainnet = async (url: string) => { called = url; return { verdict: { origin: "https://x402-doctor.fizzl.eu", ok: true, payTo: "0x1", tokenId: "5120", checks: [{ name: "registered and Active", ok: true, detail: "agent #5120" }] } as never, picked: { network: "eip155:8453", payTo: "0x1", amount: "1000", asset: "USDC" } }; };
+  const app = express(); app.use(guardPresetRouter({ publicUrl: "https://me.test", deps: () => { throw new Error("testnet deps must not be used"); }, mainnet, log: () => {} }));
+  const srv = app.listen(0); const url = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  try {
+    const list = await (await fetch(`${url}/guard/presets`)).json();
+    assert.equal(list.find((p: { id: string }) => p.id === "doctor-mainnet").network, "mainnet");
+    const j = await (await fetch(`${url}/guard/check/doctor-mainnet`)).json();
+    assert.equal(j.ok, true); assert.equal(j.network, "mainnet"); assert.match(called, /x402-doctor/);
+  } finally { srv.close(); }
 });

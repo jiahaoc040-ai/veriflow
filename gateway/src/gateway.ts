@@ -39,6 +39,7 @@ import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.j
 import { escrowChain, escrowDemoDisabledRouter, escrowDemoRouter } from "./demo-escrow.js";
 import { EXPECTED_MODULE as ESCROW_MODULE } from "./escrow.js";
 import { guardPresetRouter } from "./guard-presets.js";
+import { checkSellerAt as pkgCheckSellerAt, concordiumGuardDeps as pkgGuardDeps, NETWORKS as PKG_NETWORKS } from "concordium-x402-guard";
 import { guardDeps } from "./guard-deps.js";
 import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
@@ -539,7 +540,13 @@ app.get("/agents/buyer-agent-card.json", limitRead, (_req, res) => res.type("app
 // "Check another team's seller": the guard on a fixed list of x402 sellers, no payment (guard-presets.ts)
 const limitGuard = rateLimit([{ limiter: new RateLimiter(20, MIN), key: ip, what: "per IP" }]);
 app.use("/guard", limitGuard);
-app.use(guardPresetRouter({ publicUrl: PUBLIC_URL, deps: guardDeps }));
+// One seller on Concordium mainnet, checked live by the published npm package (read-only: no wallet, nothing paid). Its Base payout
+// is checked against the key bound to its owner in CIS-8 on mainnet
+const mainnetGuard = (() => {
+  let deps: ReturnType<typeof pkgGuardDeps> | undefined;
+  return (url: string, init: RequestInit) => pkgCheckSellerAt(url, init, (deps ??= pkgGuardDeps({ network: "mainnet" })), {}, PKG_NETWORKS.mainnet.evmNetwork);
+})();
+app.use(guardPresetRouter({ publicUrl: PUBLIC_URL, deps: guardDeps, mainnet: process.env.MAINNET_GUARD_PRESET === "off" ? undefined : mainnetGuard }));
 
 // Live demo button: our buyer agent #1478 buys one call from this seller, on the server (demo-buy.ts). Off unless a key file is configured
 const DEMO_KEY = process.env.DEMO_BUYER_KEY_FILE?.trim();
