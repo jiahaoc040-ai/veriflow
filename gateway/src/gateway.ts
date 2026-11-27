@@ -200,10 +200,12 @@ resourceServer
       return;
     }
     console.log(`recovered: ${e.transaction} is finalized and pays ${requirements.amount} to ${requirements.payTo}`);
+    // Hosted facilitators often report failure for a payment that finalized: record the re-check on this path too
+    if (REQUIRE_ELIGIBILITY && !evm) recordRecheck(e.transaction, payer);
     return { recovered: true as const, result: { success: true, transaction: e.transaction, network: requirements.network, payer } };
   })
   // A successful settlement whose transaction was already delivered against (by a recovery above) is not delivered again
-  .onAfterSettle(async ({ result, requirements }) => {
+  .onAfterSettle(async ({ result, requirements, paymentPayload }) => {
     if (!result.transaction) return;
     let first: boolean;
     try { first = await ledger.claim(result.transaction); } catch (err) {
@@ -213,7 +215,8 @@ resourceServer
     }
     if (!first) throw new AfterSettleAbortError("already_delivered", "this payment was already delivered");
     // The buyer's proof was re-checked before settlement: record that on-chain for this payment, without delaying delivery
-    if (REQUIRE_ELIGIBILITY && result.payer && !isEvmNetwork(requirements.network)) recordRecheck(result.transaction, result.payer);
+    const payer = result.payer || payerOf(paymentPayload.payload);
+    if (REQUIRE_ELIGIBILITY && payer && !isEvmNetwork(requirements.network)) recordRecheck(result.transaction, payer);
   })
   // Read again before settling: if the agent was revoked or its wallet changed between verify and settle (the handler anchors in between), do not take the money
   .onBeforeSettle(async ({ paymentPayload, requirements, transportContext }) => {
@@ -452,10 +455,12 @@ async function refreshOperatorBalance() {
 
 // Per-payment re-check records: payment tx -> the registerData transaction that records it (also decodable from the chain alone)
 const recheckAnchors = new Map<string, { tx: string; data: string; at: string }>();
-function recordRecheck(paymentTx: string, payer: string) {
-  if (!/^[0-9a-f]{64}$/.test(paymentTx)) return;
+function recordRecheck(rawTx: string, payer: string) {
+  const paymentTx = rawTx.replace(/^0x/i, "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(paymentTx) || recheckAnchors.has(paymentTx)) return;
   eligibility.anchorRecheck(paymentTx, payer).then((r) => {
-    if (!r) return;
+    if (!r) return console.warn(`re-check record for ${paymentTx}: ${payer} has no eligibility record`);
+    console.log(`re-check record for ${paymentTx}: ${r.tx}`);
     if (recheckAnchors.size >= 5000) recheckAnchors.delete(recheckAnchors.keys().next().value as string);
     recheckAnchors.set(paymentTx, { ...r, at: new Date().toISOString() });
   }).catch((e) => console.error(`re-check record for ${paymentTx} not anchored: ${e instanceof Error ? e.message : e}`));
