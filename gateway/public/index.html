@@ -134,6 +134,13 @@
 <script>
   const EXPLORER = "https://ccdexplorer.io/testnet/transaction/";
   const $ = (id) => document.getElementById(id);
+  // A restart or deploy on the host answers with an HTML error page, not JSON: say so instead of a parse error
+  async function readJson(r) {
+    const text = await r.text();
+    try { return JSON.parse(text); } catch (e) {
+      throw new Error(`The server is restarting or busy (HTTP ${r.status}). Wait a minute and press the button again.`);
+    }
+  }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const get = async (p) => { const r = await fetch(p); if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`); return r.json(); };
   let commitments = [];
@@ -258,7 +265,7 @@
     out.innerHTML = `<ul class="checks">${step(null, `Agent #1478 asks for the ${asset} call, gets HTTP 402, and checks the seller on Concordium before signing… This takes about a minute (two node reads, the payment, and the seller checking us back).`)}</ul>`;
     try {
       const r = await fetch("/demo/buy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ asset }) });
-      const j = await r.json();
+      const j = await readJson(r);
       if (!r.ok) { out.innerHTML = `<p class="bad">${esc(j.message || j.error || ("HTTP " + r.status))}</p>`; return; }
       const lines = [];
       const show = () => (out.innerHTML = `<ul class="checks">${lines.join("")}</ul>`);
@@ -308,7 +315,7 @@
     out.innerHTML = `<ul class="checks">${step(null, "Asking the contract about three agents it must refuse, then paying #1313 into the escrow and releasing it. Two transactions on Concordium: about 20–40 seconds.")}</ul>`;
     try {
       const r = await fetch("/demo/escrow", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const j = await r.json();
+      const j = await readJson(r);
       if (!r.ok) { out.innerHTML = `<p class="bad">${esc(j.message || j.error || ("HTTP " + r.status))}</p>`; return; }
       const lines = [];
       const show = () => (out.innerHTML = `<ul class="checks">${lines.join("")}</ul>`);
