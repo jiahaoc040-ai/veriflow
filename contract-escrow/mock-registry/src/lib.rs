@@ -9,7 +9,7 @@ pub struct State<S: HasStateApi = StateApi> {
     records: StateMap<u64, Vec<u8>, S>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, SchemaType)]
 pub struct SetParams {
     pub token_id: u64,
     pub raw: Vec<u8>,
