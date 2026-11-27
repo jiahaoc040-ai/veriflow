@@ -1,0 +1,39 @@
+{
+  "rule": "v2",
+  "contract": "<13115,0>",
+  "run_at": "2026-11-27T01:57:28.165Z",
+  "complete": true,
+  "problems": [],
+  "integrity": {
+    "window": [
+      "2026-11-21",
+      "2026-11-25"
+    ],
+    "commit": {
+      "numerator": 10,
+      "denominator": 10
+    },
+    "reveal": {
+      "numerator": 0,
+      "denominator": 0
+    },
+    "failures": []
+  },
+  "performance": {
+    "published": false,
+    "reason": "no scored day yet",
+    "pending_days": [
+      "2026-11-21",
+      "2026-11-22",
+      "2026-11-23",
+      "2026-11-24",
+      "2026-11-25"
+    ]
+  },
+  "valid_until": "2026-11-28T03:57:28.165Z",
+  "hashes": {
+    "spec": "6c862bfec9a427da83bd4cb1482e0a61f938e4c1fc54a07861ef36fb0a93b1c0",
+    "script": "babc11e585bfdd9e54e64832540d36669c1a1641446fb3bb3b5947922c4f6f88",
+    "data": "veriflow:scoring:v2:13115:08e3b49e4e6d0a11f1d2af4c6754537d695cfe19945b9b6d7fb5b8722f4df6cc:6c862bfec9a427da83bd4cb1482e0a61f938e4c1fc54a07861ef36fb0a93b1c0:babc11e585bfdd9e54e64832540d36669c1a1641446fb3bb3b5947922c4f6f88"
+  }
+}
