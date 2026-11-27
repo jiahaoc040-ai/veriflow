@@ -113,3 +113,16 @@ the contract would reject release: -22 WalletChanged
   walletAtPay 4dNMXmNK…, state 'Refunded', paidTo 4Vf4qUg5… (the buyer)
 With v1 this payment would have gone to the new wallet 3WSAJwTZ… (the review's first finding).
 Also: an operator typo sent `release 5` for an escrow that did not exist, rejected on-chain as -12 UnknownEscrow (40118708…).
+
+The full counterparty flow, no release by the buyer: an outside buyer pays, and #1313's own wallet claims after the window.
+> (outside tester, account 19836, Windows) npm run escrow -- pay 1313 1 5 "claim test"
+  tx https://ccdexplorer.io/testnet/transaction/33bc24f4685ff27aa8f8158f94efd5eca88732fc9e04c8a45f74a27158e7587a
+  escrow id 5   (2026-11-27 12:55:53 UTC, sender 19836; trace: CIS-8004.agentOf(1313), then veriflow_escrow.pay Ͼ1, window 5 min)
+> (#1313's wallet 19394) ESCROW_CLAIM_KEY_FILE=keys/seller.export npm run escrow -- claim 5
+  before the window closed (13:00:53 UTC): the contract would reject claim: -9 TooEarly, nothing sent
+  after it:
+  tx https://ccdexplorer.io/testnet/transaction/e07f525d0887f910764de8798953eb1e3c1e292ad2088f9db6e373602e3d4e34
+  ✅ finalized   (14:54:41 UTC, sender 19394; trace: CIS-8004.agentOf(1313), then "Transferred Ͼ1.000000 from <13171,0> to 19394",
+  veriflow_escrow.claim, parameter 5)
+The buyer never released it: the contract paid the agent's recorded wallet on that wallet's own request, after checking the
+registry again.
