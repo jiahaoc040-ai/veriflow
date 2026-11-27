@@ -267,6 +267,11 @@
       await sleep(350);
       if (j.refused || (j.seller_check && !j.seller_check.ok)) { lines.push(step(false, "Seller failed a check: nothing was signed or paid")); show(); return; }
       if (!j.seller_check) { lines.push(step(false, "No seller check was reported", j.payment_tx ? "a payment was made anyway" : "")); show(); if (!j.payment_tx) return; }
+      if (j.seller_checked_eligibility) {
+        const el = j.seller_checked_eligibility;
+        lines.push(`<li class="ok">✅ The seller re-checked our buyer's zero-knowledge proof (age ≥ 18, not resident in a restricted country; nothing revealed) for this payment: ${txa(el.verification_request_tx, "proof request")} · ${txa(el.audit_record_tx, "audit record")} <span class="muted">· valid until ${esc(String(el.valid_until || "").slice(0, 10))}</span></li>`);
+        show(); await sleep(350);
+      }
       if (j.seller_checked_buyer) { lines.push(step(true, `The seller checked us back: agent #${j.seller_checked_buyer.token_id}`, j.seller_checked_buyer.checked)); show(); await sleep(350); }
       if (j.status !== 200) { lines.push(step(false, `Seller answered HTTP ${j.status}`, j.error)); show(); return; }
       lines.push(`<li class="ok">✅ Paid 1 testnet CCD: <a class="mono" href="${esc(j.payment_tx)}" target="_blank" rel="noopener">payment transaction</a></li>`); show(); await sleep(350);

@@ -1,0 +1,27 @@
+Outside tester, second round, 2026-11-27 (UTC). Account 19836 = 3GdS46Ep1g76SJKgFKt5kBBvUTk4wGcmnAuN932pUYfxVrveHz, his own testnet
+identity and wallet, Windows 11 + PowerShell, following TRY_IT.md Path B. His own report, posted by his own GitHub account
+(tainanfamilynetflix-bit): https://github.com/jiahaoc040-ai/veriflow/issues/13 (comment of 2026-11-27 12:12 UTC). Excerpts as posted.
+
+1. A purchase in which the seller re-checked his zero-knowledge eligibility proof for this payment (live gateway at commit 69c54c0):
+status: 200
+the seller re-checked our eligibility proof — the stored proof re-checked for this payment, before verification and again before
+settlement: against the current policy and the identity provider list read from a node, the SDK's official check, both anchors
+sent by VeriFlow's account, and the credential still owned by the payer
+  proof request https://ccdexplorer.io/testnet/transaction/e10116517edc9f6259449f6498c9747313f5324c6ea2756403ce0944a2880c06
+  audit record  https://ccdexplorer.io/testnet/transaction/70df5beb5d318803a340dc60457225b6417393bfdc970b6d892a6c063a9e6795
+  valid until   2026-12-25T13:14:46.840Z
+canonical: {"as_of":"2026-11-26","asset":"BTC","momentum_e6":-251300,"nonce":"88643eff9da5382891db9c3ee43ba738","signal":"RISK_OFF"}
+commitment: 063e789ddee816cea3e19f7609e926ea5ce590ffbc0fa1c66a56fd26f4c3e996
+commit tx:  https://ccdexplorer.io/testnet/transaction/7bb9b65ae8c0abd2e2e5ee903dc8ac55e5b278d8f8bfa4b1afcb9c9b310c1175
+payment tx: https://ccdexplorer.io/testnet/transaction/c14f5dfc38aca3d14b12ec36e6e51ee4fe210922406865ebf048a579c792ef1a
+The proof request and audit record are the Verify & Access anchors of his proof of 2026-11-25 (age >= 18, not resident in CU, IR,
+KP, SY, US; nothing revealed), sent by VeriFlow's anchoring account; GET /eligibility/<his account> on the live site shows the same.
+
+2. Paid #1313 through the escrow contract <13171,0> and released it himself: pay 15f9ab08…, release 240c23b2… (sender 19836;
+the release trace shows CIS-8004.agentOf then "Transferred Ͼ1.000000 from <13171,0> to 19394"). Details: escrow-v2-2026-11-27.txt.
+
+Earlier the same day he also bought an ETH call (payment 368aae2e…, before the redeploy, so no eligibility record in that response)
+and one with an outdated checkout (3acd9d0a…, which he says not to count).
+
+What he found, both fixed in 69c54c0: on Windows every `npm run <cli>` printed nothing (entry check compared file:///D:/… with
+D:\…); `git pull` on a D: drive needed `git config --global --add safe.directory`.

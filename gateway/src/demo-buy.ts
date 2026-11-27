@@ -130,7 +130,7 @@ export function demoBuyRouter(o: DemoOptions) {
       if (!ok) return res.status(429).json({ error: "daily_limit", message: `The demo buys at most ${daily} calls per UTC day. Try again tomorrow, or buy one yourself (TRY_IT.md, Path B).` });
       agent ??= await o.makeAgent();
       const b = await agent.buySignal(asset);
-      const body = (b.body && typeof b.body === "object" ? b.body : {}) as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string } };
+      const body = (b.body && typeof b.body === "object" ? b.body : {}) as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string }; buyer_eligibility?: Record<string, unknown> };
       res.json({
         buyer: { account: agent.address, agent: agent.agentTokenId },
         seller_check: b.sellerCheck ? { ok: b.sellerCheck.ok, agent: b.sellerCheck.tokenId, payTo: b.sellerCheck.payTo, checks: b.sellerCheck.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })) } : null,
@@ -138,6 +138,8 @@ export function demoBuyRouter(o: DemoOptions) {
         status: b.status,
         payment_tx: b.paymentExplorer ?? null,
         seller_checked_buyer: body.buyer_agent ?? null,
+        // The seller's re-check of our buyer's zero-knowledge proof for this payment: two on-chain anchors and the validity
+        seller_checked_eligibility: body.buyer_eligibility ?? null,
         canonical: body.canonical ?? null,
         commitment: body.commitment ?? null,
         anchor_tx: body.anchor_tx ?? null,
