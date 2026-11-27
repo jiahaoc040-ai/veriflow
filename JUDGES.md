@@ -138,7 +138,7 @@ Tests, run in CI on every push (the contract's whenever it changes): 179 for the
 
 ## Hard questions, answered from the record
 
-**Why not just use Concordium's badge check?** The badge says an agent is registered and its owner verified. It says nothing about the address in a 402's `payTo`: an impostor can serve a real agent's badge and its own wallet. The guard runs the official badge check as one of its five checks and adds the one the badge cannot make, `payTo` = the agent's on-chain `agentWallet` read from a node. vet402 S2 and S3 above pass the badge and are refused on exactly that.
+**Why not just use Concordium's badge check?** The badge says an agent is registered and its owner verified. It says nothing about the address in a 402's `payTo`: an impostor can serve a real agent's badge and its own wallet. The guard runs the official badge check as one of its five checks and adds the one the badge cannot make, `payTo` = the agent's on-chain `agentWallet` read from a node. vet402 (#1268) and its S2 and S3 above pass the badge and the official check, and are refused on exactly that.
 
 **How is this different from x402 Doctor?** Doctor is a diagnosis service you call to get a report on an endpoint. VeriFlow is code inside the paying agent that refuses to sign (an x402 client hook, fail closed), plus the seller side (the buyer's zero-knowledge proof and agent, re-checked at every payment, now recorded on-chain per payment), plus a contract that pays only a registered wallet. They are complementary: our guard checked Doctor's mainnet agent #5120 and it passed.
 
