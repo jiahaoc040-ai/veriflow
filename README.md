@@ -6,7 +6,7 @@
 2. **A seller that checks the buyer**: a zero-knowledge eligibility proof re-checked at every payment, and the payer must be the wallet of the agent it names. Packaged for any x402 seller as [`concordium-x402-seller`](packages/concordium-x402-seller): `concordiumSeller(server, { eligibility, buyerAgent: "optional" })`.
 3. **A record that cannot be rewritten**: every call our reference seller sells is committed on-chain before its outcome, one per asset and day.
 
-The reference seller sells a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, for 1 testnet CCD, 1 `hh-VFUSD` (our Protocol-Level Token test dollar, [paid here](https://ccdexplorer.io/testnet/transaction/ed2a9c298d875f7bb0f94aefa9499227304291c9a3f817d34b75416625f22e13)) or 0.01 USDC on Base, over x402. The product is the checks around it.
+The reference seller sells a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, for 1 testnet CCD, 1 `EUDemo` (Concordium's allow-listed test euro, a Protocol-Level Token, [paid here](https://ccdexplorer.io/testnet/transaction/2faa32b102cb68365f64feef63245f2ef625aeb4a94a7018855ad5aee93866ab)), 1 `hh-VFUSD` (our own PLT test dollar) or 0.01 USDC on Base, over x402. The product is the checks around it.
 
 ```ts
 import { protect, concordiumGuardDeps } from "concordium-x402-guard"; // npm install concordium-x402-guard

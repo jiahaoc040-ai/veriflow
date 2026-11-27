@@ -50,7 +50,7 @@ The signal itself is a public 30-day momentum rule and carries no edge. The prod
 |---|---|---|---|
 | M0 | Dec 2026 | The testnet system above, with the first reveals (from 2026-11-29) and the first published score (after 2026-11-30). | Reveal transactions on CCDExplorer; a green `score-v2` run with numbers |
 | M1 | Q1 2027 | Contract review; mainnet agent, contract and anchored rule; hardware-wallet owner. | First mainnet sale bought by an agent we do not run |
-| M2 | Q1 2027 | Stable pricing in a PLT stablecoin (EURR or USDR). Testnet done 2026-11-26 with our own test dollar `hh-VFUSD`. | A buyer pays a fixed stablecoin price on mainnet |
+| M2 | Q1 2027 | Stable pricing in a PLT stablecoin (EURR or USDR). Testnet done: 2026-11-26 with our own test dollar `hh-VFUSD`, and 2026-11-27 with Concordium's allow-listed test euro `EUDemo` ([`2faa32b1…`](https://ccdexplorer.io/testnet/transaction/2faa32b102cb68365f64feef63245f2ef625aeb4a94a7018855ad5aee93866ab)); buyer and seller passed the allow list's EU-nationality proof first. | A buyer pays a fixed stablecoin price on mainnet |
 | M3 | Q2 2027 | One agent platform integration; MCP Registry listing. | 10 distinct paying buyer accounts |
 | M4 | Q2 2027 | More assets; 90 days of uninterrupted commits. Publish only what the anchored rule prints, against always-on and always-off. No hit rate. | 90-day public record |
 
