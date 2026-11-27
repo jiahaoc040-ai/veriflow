@@ -21,6 +21,8 @@ test("error codes follow the contract's enum order", () => {
   assert.equal(errorName(-4), "AgentHasNoWallet");
   assert.equal(errorName(-19), "SelfPayment");
   assert.equal(errorName(-21), "NotPayable");
+  assert.equal(errorName(-22), "WalletChanged");
+  assert.equal(errorName(-23), "WalletNotAnAccount");
   assert.equal(errorName(-99), "code -99");
 });
 

@@ -45,7 +45,7 @@ export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/do
 export const ERRORS = [
   "ParseParams", "AgentNotFound", "AgentNotActive", "AgentHasNoWallet", "OnlyAccount", "ZeroAmount", "NotBuyer", "NotHeld",
   "TooEarly", "TooLate", "NotAgentWallet", "UnknownEscrow", "RegistryCallFailed", "BadAgentRecord", "BadWindow", "MemoTooLong",
-  "TransferFailed", "LogFull", "SelfPayment", "WrongAgent", "NotPayable",
+  "TransferFailed", "LogFull", "SelfPayment", "WrongAgent", "NotPayable", "WalletChanged", "WalletNotAnAccount",
 ] as const;
 export const errorName = (code: number) => (code < 0 && -code <= ERRORS.length ? ERRORS[-code - 1] : `code ${code}`);
 

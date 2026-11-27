@@ -157,14 +157,54 @@ fn the_payout_follows_the_registry_at_payout_time() {
 }
 
 #[test]
-fn a_changed_wallet_gets_the_payout_not_the_old_one() {
+fn a_changed_wallet_is_never_paid_and_the_buyer_gets_the_money_back() {
     let mut w = setup();
     pay(&mut w, BUYER, 1313, 2, 60).unwrap();
+    // The owner re-points the agent to another wallet after the payment
     set_agent(&mut w, 1313, Some(STRANGER), true);
+    assert_eq!(err(call(&mut w, BUYER, "release", Amount::zero(), &0u64)), Error::WalletChanged);
+    w.chain.tick_block_time(Duration::from_minutes(61)).unwrap();
+    assert_eq!(err(call(&mut w, STRANGER, "claim", Amount::zero(), &0u64)), Error::NotAgentWallet);
+    assert_eq!(err(call(&mut w, WALLET, "claim", Amount::zero(), &0u64)), Error::WalletChanged);
     let before = balance(&w, STRANGER);
-    call(&mut w, BUYER, "release", Amount::zero(), &0u64).unwrap();
-    assert_eq!(balance(&w, STRANGER), before + Amount::from_ccd(2));
-    assert_eq!(escrow_of(&w, 0).paid_to, Some(STRANGER));
+    call(&mut w, BUYER, "refund", Amount::zero(), &0u64).unwrap();
+    assert_eq!(balance(&w, STRANGER), before, "the new wallet got nothing");
+    assert_eq!(escrow_of(&w, 0).state, EscrowState::Refunded);
+}
+
+#[test]
+fn an_unreadable_registry_answer_after_payment_leaves_the_refund_open() {
+    let mut w = setup();
+    pay(&mut w, BUYER, 1313, 2, 60).unwrap();
+    w.chain
+        .contract_update(
+            Signer::with_one_key(),
+            OWNER,
+            Address::Account(OWNER),
+            ENERGY,
+            UpdateContractPayload { amount: Amount::zero(), address: w.registry, receive_name: OwnedReceiveName::new_unchecked("mock_cis8004.set".into()), message: OwnedParameter::from_serial(&SetParams { token_id: 1313, raw: vec![1, 8, 0] }).unwrap() },
+        )
+        .unwrap();
+    w.chain.tick_block_time(Duration::from_minutes(61)).unwrap();
+    assert_eq!(err(call(&mut w, WALLET, "claim", Amount::zero(), &0u64)), Error::BadAgentRecord);
+    call(&mut w, BUYER, "refund", Amount::zero(), &0u64).unwrap();
+}
+
+#[test]
+fn an_unclaimed_payment_returns_to_the_buyer_after_the_claim_period() {
+    let mut w = setup();
+    pay(&mut w, BUYER, 1313, 2, 60).unwrap();
+    w.chain.tick_block_time(Duration::from_minutes(61)).unwrap();
+    assert_eq!(err(call(&mut w, BUYER, "refund", Amount::zero(), &0u64)), Error::TooLate);
+    w.chain.tick_block_time(Duration::from_minutes(CLAIM_PERIOD_MINUTES)).unwrap();
+    call(&mut w, BUYER, "refund", Amount::zero(), &0u64).unwrap();
+}
+
+#[test]
+fn a_wallet_that_is_not_an_account_is_refused() {
+    let mut w = setup();
+    set_agent(&mut w, 9, Some(AccountAddress([9; 32])), true);
+    assert_eq!(err(pay(&mut w, BUYER, 9, 1, 60)), Error::WalletNotAnAccount);
 }
 
 #[test]

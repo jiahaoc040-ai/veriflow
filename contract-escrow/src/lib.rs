@@ -6,11 +6,13 @@
 //! * **pay** (payable, accounts only): the buyer names a CIS-8004 token id and a dispute window. The contract reads
 //!   `agentOf` from the registry in the same transaction and rejects the payment if the agent does not exist, is not
 //!   Active, has no `agentWallet`, or that wallet is the buyer itself. Otherwise the CCD is held.
-//! * **release** (buyer, any time): reads `agentOf` again and pays the agent's `agentWallet` *as it is now*. An agent
-//!   revoked or left without a wallet since the payment is rejected, and the buyer can take the money back.
-//! * **claim** (the agent's current `agentWallet`, after the dispute window): the same checks, then payment.
-//! * **refund** (buyer): during the dispute window, or at any time once the agent is no longer payable
-//!   (missing, Revoked, no wallet).
+//! * **release** (buyer, any time): reads `agentOf` again and pays the wallet recorded at payment, **only if the registry
+//!   still names that same wallet** for an Active agent. An agent revoked, re-pointed to another wallet, or no longer
+//!   readable since the payment is refused, and the buyer can take the money back.
+//! * **claim** (the recorded wallet, after the dispute window): the same checks, then payment.
+//! * **refund** (buyer): during the dispute window; afterwards whenever the payout is not possible (agent missing,
+//!   Revoked, wallet changed or gone, registry unreadable); and in any case 30 days after the window, so held CCD
+//!   can never be stuck.
 //! * **escrow** / **view**: read-only.
 //!
 //! Every rule failure is a rejected transaction with its own error code, visible on CCDScan. There is no owner,
@@ -22,6 +24,8 @@ use concordium_std::*;
 /// Longest dispute window a buyer may set: 30 days.
 pub const MAX_WINDOW_MINUTES: u32 = 30 * 24 * 60;
 pub const MAX_MEMO_LEN: usize = 64;
+/// After the dispute window the agent's wallet has this long to claim; then the buyer may refund in any case.
+pub const CLAIM_PERIOD_MINUTES: u64 = 30 * 24 * 60;
 
 #[derive(Serialize, SchemaType, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EscrowState {
@@ -39,7 +43,8 @@ pub struct Escrow {
     pub paid_at: Timestamp,
     /// Before this time the buyer may refund; from this time the agent's wallet may claim.
     pub claim_after: Timestamp,
-    /// The agentWallet when the payment was made (for the record; the payout goes to the wallet at payout time).
+    /// The agentWallet when the payment was made: the only account this escrow can ever pay (and only while the
+    /// registry still names it).
     pub wallet_at_pay: AccountAddress,
     pub memo: String,
     pub state: EscrowState,
@@ -131,6 +136,10 @@ pub enum Error {
     WrongAgent,
     /// -21: no CCD may be sent with release, claim or refund
     NotPayable,
+    /// -22: the registry now names a different wallet than at payment; the buyer may refund
+    WalletChanged,
+    /// -23: the agent's wallet is not an account on this chain
+    WalletNotAnAccount,
 }
 
 impl From<LogError> for Error {
@@ -277,6 +286,9 @@ fn pay(ctx: &ReceiveContext, host: &mut Host<State>, amount: Amount, logger: &mu
     }
     let rec = read_agent(host, p.token_id)?;
     let wallet = payable_wallet(rec.as_ref(), p.token_id)?;
+    if host.account_balance(wallet).is_err() {
+        return Err(Error::WalletNotAnAccount);
+    }
     if same_account(&wallet, &buyer) {
         return Err(Error::SelfPayment);
     }
@@ -309,6 +321,20 @@ fn settle(host: &mut Host<State>, id: u64, to: AccountAddress, amount: Amount, s
     host.invoke_transfer(&to, amount).map_err(|_| Error::TransferFailed)
 }
 
+/// May this escrow be paid out now? Only to the wallet recorded at payment, only while the registry still names that
+/// wallet for an Active agent, and only if it is an account on this chain.
+fn payout_check(host: &Host<State>, e: &Escrow) -> Result<AccountAddress, Error> {
+    let rec = read_agent(host, e.token_id)?;
+    let now_wallet = payable_wallet(rec.as_ref(), e.token_id)?;
+    if !same_account(&now_wallet, &e.wallet_at_pay) {
+        return Err(Error::WalletChanged);
+    }
+    if host.account_balance(e.wallet_at_pay).is_err() {
+        return Err(Error::WalletNotAnAccount);
+    }
+    Ok(e.wallet_at_pay)
+}
+
 #[receive(contract = "veriflow_escrow", name = "release", parameter = "u64", error = "Error", mutable, payable, enable_logger)]
 fn release(ctx: &ReceiveContext, host: &mut Host<State>, sent: Amount, logger: &mut Logger) -> Result<(), Error> {
     if sent != Amount::zero() {
@@ -320,9 +346,7 @@ fn release(ctx: &ReceiveContext, host: &mut Host<State>, sent: Amount, logger: &
     if !same_account(&who, &e.buyer) {
         return Err(Error::NotBuyer);
     }
-    // The agent as it is now: a revoked agent or a removed wallet is never paid
-    let rec = read_agent(host, e.token_id)?;
-    let wallet = payable_wallet(rec.as_ref(), e.token_id)?;
+    let wallet = payout_check(host, &e)?;
     settle(host, id, wallet, e.amount, EscrowState::Released)?;
     logger.log(&Event::Released { id, to: wallet, amount: e.amount })?;
     Ok(())
@@ -339,11 +363,10 @@ fn claim(ctx: &ReceiveContext, host: &mut Host<State>, sent: Amount, logger: &mu
     if ctx.metadata().slot_time() < e.claim_after {
         return Err(Error::TooEarly);
     }
-    let rec = read_agent(host, e.token_id)?;
-    let wallet = payable_wallet(rec.as_ref(), e.token_id)?;
-    if !same_account(&who, &wallet) {
+    if !same_account(&who, &e.wallet_at_pay) {
         return Err(Error::NotAgentWallet);
     }
+    let wallet = payout_check(host, &e)?;
     settle(host, id, wallet, e.amount, EscrowState::Claimed)?;
     logger.log(&Event::Claimed { id, to: wallet, amount: e.amount })?;
     Ok(())
@@ -360,12 +383,13 @@ fn refund(ctx: &ReceiveContext, host: &mut Host<State>, sent: Amount, logger: &m
     if !same_account(&who, &e.buyer) {
         return Err(Error::NotBuyer);
     }
-    if ctx.metadata().slot_time() >= e.claim_after {
-        // After the window only an agent that can no longer be paid lets the buyer take the money back
-        let rec = read_agent(host, e.token_id)?;
-        if payable_wallet(rec.as_ref(), e.token_id).is_ok() {
-            return Err(Error::TooLate);
-        }
+    let now = ctx.metadata().slot_time();
+    let claim_closes = e.claim_after.checked_add(Duration::from_minutes(CLAIM_PERIOD_MINUTES)).unwrap_or(e.claim_after);
+    // After the window, while the agent can still be paid exactly as agreed, the money is the agent's to claim:
+    // the buyer may take it back only once the claim period has run out. Any failure of the payout check
+    // (registry unreadable, agent gone, wallet changed) leaves the refund open, so nothing can be stuck.
+    if now >= e.claim_after && now < claim_closes && payout_check(host, &e).is_ok() {
+        return Err(Error::TooLate);
     }
     settle(host, id, e.buyer, e.amount, EscrowState::Refunded)?;
     logger.log(&Event::Refunded { id, to: e.buyer, amount: e.amount })?;
