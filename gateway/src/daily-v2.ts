@@ -10,6 +10,7 @@
  *
  *   npm run daily2      (needs REGISTRY_V2_CONTRACT, COMMITTER_KEY_FILE, DATABASE_URL)
  */
+import type { ContractAddress } from "@concordium/web-sdk";
 import { pgSsl } from "./once.js";
 import { createHash } from "node:crypto";
 import { env } from "./config.js";
@@ -113,11 +114,13 @@ export async function runDailyV2(d: DailyV2Deps) {
   return out;
 }
 
-async function main() {
-  const address = v2Address();
-  if (!address) throw new Error("REGISTRY_V2_CONTRACT is not set");
-  const url = env("DATABASE_URL");
-  const keyFile = env("COMMITTER_KEY_FILE");
+/**
+ * One round: reveal what is due, commit yesterday's calls. Run hourly by GitHub Actions (daily-v2.yml) and, as a backup for
+ * delayed schedules, every 30 minutes by the live gateway with the same committer key (both are idempotent; a nonce clash
+ * between the two fails one transaction, which the next round sends again)
+ */
+export async function dailyV2Once(o: { address: ContractAddress.Type; url: string; keyFile: string; log?: (m: string) => void }) {
+  const { address, url, keyFile } = o;
   // Accept only a file path: if someone puts the key JSON itself in this variable, a read error would print it into the log
   if (keyFile.trim().startsWith("{") || keyFile.length > 512) throw new Error("COMMITTER_KEY_FILE must be a path to the key file, not its contents");
   const { default: pg } = await import("pg");
@@ -162,10 +165,17 @@ async function main() {
       setAnchorIfNull: async (c, tx) => void (await pool.query("UPDATE signals SET anchor_tx=$1 WHERE commitment=$2 AND anchor_tx IS NULL", [tx, c])),
       clearAnchorIf: async (c, tx) => void (await pool.query("UPDATE signals SET anchor_tx=NULL WHERE commitment=$1 AND anchor_tx=$2", [c, tx])),
     },
-    log: (m) => console.log(m),
+    log: o.log ?? ((m) => console.log(m)),
   });
   await pool.end();
-  console.log(JSON.stringify({ committer: w.address, contract: `<${address.index},${address.subindex}>`, ...out }, null, 2));
+  return { committer: w.address, contract: `<${address.index},${address.subindex}>`, ...out };
+}
+
+async function main() {
+  const address = v2Address();
+  if (!address) throw new Error("REGISTRY_V2_CONTRACT is not set");
+  const out = await dailyV2Once({ address, url: env("DATABASE_URL"), keyFile: env("COMMITTER_KEY_FILE") });
+  console.log(JSON.stringify(out, null, 2));
   if (out.errors.length) process.exit(1);
 }
 

@@ -654,6 +654,29 @@ operator.account = anchorer.address;
 setTimeout(refreshOperatorBalance, 5_000);
 setInterval(refreshOperatorBalance, 10 * 60_000);
 
+// Backup for the v2 record: GitHub's hourly schedule is often hours late, and one asset-day with no commit blocks the score for
+// good. Every 30 minutes this process runs the same idempotent round as daily-v2.yml (reveal what is due, commit yesterday's
+// calls), with the same committer key, only if that key is the contract's committer. V2_BACKUP_JOB=off turns it off
+async function v2BackupRound() {
+  if (process.env.V2_BACKUP_JOB === "off" || !process.env.DATABASE_URL) return;
+  try {
+    const { dailyV2Once } = await import("./daily-v2.js");
+    const { createV2Reader, v2Address, TESTNET_REGISTRY_V2_INDEX } = await import("./contract-v2.js");
+    const { ContractAddress } = await import("@concordium/web-sdk");
+    const address = v2Address() ?? (NET.name === "testnet" ? ContractAddress.create(TESTNET_REGISTRY_V2_INDEX, 0n) : undefined);
+    if (!address) return;
+    const keyFile = process.env.V2_COMMITTER_KEY_FILE ?? env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE"));
+    const committer = (await createV2Reader(address).summary()).committer;
+    if (!committer || committer !== anchorer.address) return; // not our committer key: leave it to the scheduled job
+    const out = await dailyV2Once({ address, url: process.env.DATABASE_URL, keyFile, log: (m) => console.log(`v2 backup: ${m}`) });
+    if (out.reveals.length || out.commits.length || out.errors.length) console.log(`v2 backup round: ${JSON.stringify({ reveals: out.reveals, commits: out.commits, errors: out.errors })}`);
+  } catch (e) {
+    console.warn(`v2 backup round failed: ${e instanceof Error ? e.message : e}`);
+  }
+}
+setTimeout(v2BackupRound, 2 * 60_000).unref();
+setInterval(v2BackupRound, 30 * 60_000).unref();
+
 // Some SDK checks are not awaited internally (e.g. createChecked's context check): one bad proof must not take the whole server down
 process.on("unhandledRejection", (e) => console.warn(`unhandled rejection (ignored): ${e instanceof Error ? e.message : e}`));
 

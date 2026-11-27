@@ -8,3 +8,6 @@ gateway/keys/
 gateway/.env
 *.export
 gateway/data/
+
+# private backups of unrevealed call texts (npm run contract2 -- backup)
+*.backup.json

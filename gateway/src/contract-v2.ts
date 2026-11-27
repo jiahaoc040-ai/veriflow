@@ -238,6 +238,47 @@ async function main() {
     if (sameAccount(a, w.address)) throw new Error("the committer cannot be the owner or an alias of it");
     return console.log(`set_committer ${a}: ${NET.explorer}/transaction/${await w.setCommitter(a)}`);
   }
+  // Backup of the call texts (each holds the nonce that makes it unguessable until revealed): the database is their only other copy.
+  // Writes a private file (mode 600); prints only counts and checks, never a call text. Every row is checked against the chain
+  if (cmd === "backup") {
+    if (!a) throw new Error("usage: backup <file>   (needs DATABASE_URL; keep the file private and out of the repository until the reveals)");
+    const { default: pg } = await import("pg");
+    const { pgSsl } = await import("./once.js");
+    const url = env("DATABASE_URL");
+    const pool = new pg.Pool({ connectionString: url, max: 1, ssl: pgSsl(url) });
+    const rows = (await pool.query(`SELECT asset, as_of, commitment, canonical, anchor_tx FROM signals WHERE canonical LIKE '%"momentum_e6":%' ORDER BY as_of, asset`)).rows as { asset: string; as_of: string; commitment: string; canonical: string; anchor_tx: string | null }[];
+    await pool.end();
+    const reader = createV2Reader(address);
+    let onChain = 0;
+    const problems: string[] = [];
+    for (const r of rows) {
+      if (createHash("sha256").update(r.canonical).digest("hex") !== r.commitment) problems.push(`${r.asset} ${r.as_of}: text does not hash to its commitment`);
+      const s = await reader.slot(r.asset, r.as_of).catch(() => undefined);
+      if (s === undefined) problems.push(`${r.asset} ${r.as_of}: node read failed`);
+      else if (s && s.commitment === r.commitment) onChain++;
+      else if (s) problems.push(`${r.asset} ${r.as_of}: on-chain commitment differs (a superseded row?)`);
+      if (!r.anchor_tx) problems.push(`${r.asset} ${r.as_of}: no anchor_tx recorded (the reveal job skips such rows)`);
+    }
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(a, JSON.stringify(rows, null, 1), { mode: 0o600 });
+    return show({ file: a, rows: rows.length, matching_on_chain: onChain, problems });
+  }
+  // Manual reveal from a backup file: only rows whose slot holds exactly this commitment, not yet revealed, past the 7-day horizon
+  if (cmd === "reveal-from") {
+    if (!a) throw new Error("usage: reveal-from <backup file>   (COMMITTER_KEY_FILE, or any funded key: the contract lets anyone reveal)");
+    const rows = JSON.parse(readFileSync(a, "utf8")) as { asset: string; as_of: string; commitment: string; canonical: string }[];
+    const w = createV2Writer(env("COMMITTER_KEY_FILE"), address);
+    const out: string[] = [];
+    for (const r of rows) {
+      if (createHash("sha256").update(r.canonical).digest("hex") !== r.commitment) { out.push(`${r.asset} ${r.as_of}: skipped, text does not hash to its commitment`); continue; }
+      const s = await w.slot(r.asset, r.as_of);
+      if (!s || s.commitment !== r.commitment) { out.push(`${r.asset} ${r.as_of}: skipped, not this slot's commitment`); continue; }
+      if (s.reveal) { out.push(`${r.asset} ${r.as_of}: already revealed`); continue; }
+      if (Date.now() < Date.parse(s.committed_at) + HORIZON_MS + 60_000) { out.push(`${r.asset} ${r.as_of}: not due until ${new Date(Date.parse(s.committed_at) + HORIZON_MS + 60_000).toISOString()}`); continue; }
+      try { out.push(`${r.asset} ${r.as_of}: revealed ${txLink(await w.reveal(r.canonical))}`); } catch (e) { out.push(`${r.asset} ${r.as_of}: ${e instanceof Error ? e.message : e}`); }
+    }
+    return show(out);
+  }
   if (cmd === "prove-rejection") {
     // Demo: the committer deliberately sends two commits that break the rules, leaving transactions the contract rejected on-chain (each costs only a small fee)
     const w = createV2Writer(env("COMMITTER_KEY_FILE"), address);
