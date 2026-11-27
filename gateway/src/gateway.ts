@@ -455,9 +455,18 @@ async function refreshOperatorBalance() {
 
 // Per-payment re-check records: payment tx -> the registerData transaction that records it (also decodable from the chain alone)
 const recheckAnchors = new Map<string, { tx: string; data: string; at: string }>();
+const RECHECK_PER_DAY = Number(env("RECHECK_RECORDS_PER_DAY", "15"));
+const RECHECK_MIN_CCD = Number(env("RECHECK_MIN_OPERATOR_CCD", "150"));
+const recheckDay = { day: "", n: 0 };
 function recordRecheck(rawTx: string, payer: string) {
   const paymentTx = rawTx.replace(/^0x/i, "").toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(paymentTx) || recheckAnchors.has(paymentTx)) return;
+  // Each record costs the anchoring account a fee (about 5 testnet CCD): never let it eat what the daily commits and reveals need
+  const day = new Date().toISOString().slice(0, 10);
+  if (recheckDay.day !== day) Object.assign(recheckDay, { day, n: 0 });
+  if (recheckDay.n >= RECHECK_PER_DAY) return console.warn(`re-check record for ${paymentTx} skipped: ${RECHECK_PER_DAY} already today`);
+  if (operator.balance_ccd !== null && operator.balance_ccd < RECHECK_MIN_CCD) return console.warn(`re-check record for ${paymentTx} skipped: operator balance ${operator.balance_ccd} CCD < ${RECHECK_MIN_CCD}`);
+  recheckDay.n++;
   eligibility.anchorRecheck(paymentTx, payer).then((r) => {
     if (!r) return console.warn(`re-check record for ${paymentTx}: ${payer} has no eligibility record`);
     console.log(`re-check record for ${paymentTx}: ${r.tx}`);
