@@ -1,0 +1,80 @@
+name: Concordium x402 Seller Check
+description: Before an agent pays an x402 seller, check it on Concordium (Agent Registry, badge, Agent Card hash, payTo = on-chain wallet). No wallet; nothing is paid.
+author: VeriFlow
+branding:
+  icon: shield
+  color: blue
+inputs:
+  url:
+    description: The seller's paid x402 URL (https)
+    required: true
+  network:
+    description: Concordium network the seller's agent is registered on (testnet or mainnet)
+    default: testnet
+  method:
+    description: HTTP method that gets the 402 (GET or POST)
+    default: GET
+  body:
+    description: JSON body for a POST
+    default: ""
+  pay-network:
+    description: Which of the seller's payment options to check, as a CAIP-2 id (for example eip155:8453 for Base). Default is the Concordium option
+    default: ""
+  reputation:
+    description: Optional delivery-record check (off, advisory, block-no, require-go)
+    default: ""
+  fail-on-refusal:
+    description: Fail the step when the guard would refuse to pay
+    default: "true"
+  version:
+    description: concordium-x402-guard version to run
+    default: 0.2.3
+outputs:
+  ok:
+    description: "true if every check passes (the guard would pay)"
+    value: ${{ steps.check.outputs.ok }}
+  agent:
+    description: The seller's CIS-8004 agent token id, if found
+    value: ${{ steps.check.outputs.agent }}
+  summary:
+    description: One-line verdict
+    value: ${{ steps.check.outputs.summary }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - id: check
+      shell: bash
+      # Inputs go through the environment, never into the script text
+      env:
+        G_URL: ${{ inputs.url }}
+        G_NETWORK: ${{ inputs.network }}
+        G_METHOD: ${{ inputs.method }}
+        G_BODY: ${{ inputs.body }}
+        G_PAY: ${{ inputs.pay-network }}
+        G_REP: ${{ inputs.reputation }}
+        G_FAIL: ${{ inputs.fail-on-refusal }}
+        G_VERSION: ${{ inputs.version }}
+      run: |
+        set +e
+        [[ "$G_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be x.y.z"; exit 2; }
+        args=(check "$G_URL" --network "$G_NETWORK" --method "$G_METHOD" --json-out)
+        [ -n "$G_BODY" ] && args+=(--json "$G_BODY")
+        [ -n "$G_PAY" ] && args+=(--pay-network "$G_PAY")
+        [ -n "$G_REP" ] && args+=(--reputation "$G_REP")
+        npx -y "concordium-x402-guard@$G_VERSION" "${args[@]}" > "$RUNNER_TEMP/guard.json"
+        code=$?
+        if [ $code -eq 2 ]; then echo "::error::the check could not run (bad input, or the seller or a Concordium node was unreachable)"; exit 2; fi
+        node -e '
+          const fs = require("fs");
+          const v = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/guard.json", "utf8"));
+          const out = process.env.GITHUB_OUTPUT, sum = process.env.GITHUB_STEP_SUMMARY;
+          const one = (s) => String(s ?? "").replace(/[\r\n]+/g, " ");
+          fs.appendFileSync(out, `ok=${v.ok}\nagent=${one(v.tokenId)}\nsummary=${one(v.summary)}\n`);
+          const rows = v.checks.map((c, i) => `| ${i + 1} | ${c.ok ? "✅" : "❌"} | ${one(c.name).replace(/\|/g, "/")} | ${one(c.detail).replace(/\|/g, "/").slice(0, 200)} |`);
+          fs.appendFileSync(sum, [`### ${v.ok ? "✅" : "⛔"} ${one(v.summary)}`, "", `Seller: ${one(v.origin)} · Concordium ${process.env.G_NETWORK} · nothing was paid`, "", "| # | | check | detail |", "|---|---|---|---|", ...rows, ""].join("\n"));
+        '
+        if [ $code -ne 0 ] && [ "$G_FAIL" = "true" ]; then echo "::error::the guard would refuse to pay this seller"; exit 1; fi
+        exit 0

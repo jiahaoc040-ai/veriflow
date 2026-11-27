@@ -1,0 +1,40 @@
+name: guard-action
+# Runs the GitHub Action in packages/guard-action against sellers we do not run, one on testnet and one on mainnet
+on:
+  push:
+    paths: ["packages/guard-action/**", ".github/workflows/guard-action.yml"]
+  workflow_dispatch:
+  schedule:
+    - cron: "41 7 * * 1"
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: testnet
+        uses: ./packages/guard-action
+        with:
+          url: https://mainsmarker.sites.tab.bot/x402/review
+          method: POST
+          body: '{"question":"Why is the sky blue?","answer":"Rayleigh scattering.","marks":10}'
+      - id: mainnet
+        uses: ./packages/guard-action
+        with:
+          url: https://x402-doctor.fizzl.eu/api/v1/preflight
+          network: mainnet
+          pay-network: eip155:8453
+      - id: refused
+        uses: ./packages/guard-action
+        with:
+          url: https://vet402-concordium.fly.dev/s3/resource
+          fail-on-refusal: "false"
+      - name: The impostor-style seller must be refused
+        env:
+          OK: ${{ steps.refused.outputs.ok }}
+          A: ${{ steps.testnet.outputs.summary }}
+          B: ${{ steps.mainnet.outputs.summary }}
+        run: |
+          echo "testnet: $A"; echo "mainnet: $B"
+          [ "$OK" = "false" ] || { echo "::error::vet402 S3 (payTo is not its agent's wallet) should be refused"; exit 1; }
