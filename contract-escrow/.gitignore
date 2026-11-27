@@ -1,0 +1,4 @@
+target/
+mock-registry/target/
+concordium-out/
+mock-registry/concordium-out/

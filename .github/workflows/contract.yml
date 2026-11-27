@@ -6,10 +6,10 @@ name: contract
 on:
   push:
     branches: [main]
-    paths: ["contract/**", "contract-v2/**", ".github/workflows/contract.yml"]
+    paths: ["contract/**", "contract-v2/**", "contract-escrow/**", ".github/workflows/contract.yml"]
   pull_request:
     branches: [main]
-    paths: ["contract/**", "contract-v2/**", ".github/workflows/contract.yml"]
+    paths: ["contract/**", "contract-v2/**", "contract-escrow/**", ".github/workflows/contract.yml"]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,8 @@ jobs:
             release: registry-module
           - dir: contract-v2
             release: registry-module-v2
+          - dir: contract-escrow
+            release: escrow-module
     defaults:
       run:
         working-directory: ${{ matrix.dir }}
@@ -51,6 +53,8 @@ jobs:
 
       - name: Build module (schema embedded)
         run: |
+          # contract-escrow also builds the CIS-8004 test double its chain tests run against
+          if [ -x build.sh ]; then ./build.sh; exit 0; fi
           mkdir -p concordium-out
           cargo concordium build --schema-embed --out concordium-out/module.wasm.v1
           cargo concordium build --schema-json-out concordium-out/

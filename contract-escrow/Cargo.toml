@@ -1,0 +1,22 @@
+[package]
+name = "veriflow-escrow"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "VeriFlow agent escrow: a payment can only ever reach the on-chain agentWallet of an Active CIS-8004 agent"
+
+[features]
+bump_alloc = ["concordium-std/bump_alloc"]
+
+[dependencies]
+concordium-std = "11.0"
+
+[dev-dependencies]
+concordium-smart-contract-testing = "5.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1

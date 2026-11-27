@@ -25,7 +25,8 @@
     "census": "tsx src/census.ts",
     "impostor": "tsx src/demo-impostor.ts",
     "check-call": "tsx src/check-call.ts",
-    "guard": "tsx src/guard-cli.ts"
+    "guard": "tsx src/guard-cli.ts",
+    "escrow": "tsx src/escrow.ts"
   },
   "dependencies": {
     "@concordium/web-sdk": "^12.0.2",

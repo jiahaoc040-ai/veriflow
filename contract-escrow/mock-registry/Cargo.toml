@@ -1,0 +1,19 @@
+[package]
+name = "mock-cis8004"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Test double for the CIS-8004 Agent Registry: agentOf returns whatever record a test stored (tests only, never deployed)"
+
+[features]
+bump_alloc = ["concordium-std/bump_alloc"]
+
+[dependencies]
+concordium-std = "11.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
