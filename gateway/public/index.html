@@ -91,8 +91,15 @@
     <div id="demoOut"></div>
   </div>
 
+  <div class="card try" id="escrowDemo" hidden>
+    <h2><span class="step">Try 2</span>Pay through the escrow contract</h2>
+    <p class="muted lead">The same buyer pays agent <b>#1313</b> 1 testnet CCD through our escrow contract <a id="escrowLink" class="mono" target="_blank" rel="noopener"></a>. The contract calls the CIS-8004 Agent Registry itself: when the CCD comes in (held only for an Active agent with an <span class="mono">agentWallet</span>, which it records), and again at release (paid only to that recorded wallet, only if the registry still names it). First it is asked about three agents it must refuse; those are read-only calls, nothing is sent. You pay and sign nothing. <span id="escrowLeft"></span></p>
+    <p><button class="primary" id="escrowGo">Pay #1313 through the escrow</button></p>
+    <div id="escrowOut"></div>
+  </div>
+
   <div class="card try" id="guardCard">
-    <h2><span class="step">Try 2</span>Check another team's seller before paying</h2>
+    <h2><span class="step">Try 3</span>Check another team's seller before paying</h2>
     <p class="muted lead">The same checks our buyer runs, as a guard any x402 agent can wrap around its own client (<a href="https://www.npmjs.com/package/concordium-x402-guard" target="_blank" rel="noopener">npm install concordium-x402-guard</a>). This server calls the seller, reads whom it wants to be paid, and checks that seller on Concordium. Nothing is paid. Results are cached for a minute.</p>
     <p id="guardButtons"></p>
     <div id="guardOut"></div>
@@ -275,6 +282,50 @@
     }
   });
   demoStatus();
+
+  // Escrow demo: POST /demo/escrow pays #1313 through the escrow contract and releases it; both transactions are linked
+  async function escrowStatus() {
+    try {
+      const st = await get("/demo/escrow/status");
+      if (!st.enabled) return;
+      const idx = (String(st.contract).match(/<(\d+),/) || [])[1] || "";
+      $("escrowLink").textContent = st.contract;
+      $("escrowLink").href = `https://ccdexplorer.io/testnet/contract/${idx}/0`;
+      $("escrowDemo").hidden = false;
+      $("escrowLeft").textContent = `(${st.left_today} of ${st.daily_limit} escrow demos left today, UTC.)`;
+    } catch (e) { /* stays hidden */ }
+  }
+  const acct = (a) => (a ? `${String(a).slice(0, 8)}…` : "?");
+  const txa = (url, label) => (url ? `<a class="mono" href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>` : esc(label));
+  $("escrowGo").onclick = async () => {
+    $("escrowGo").disabled = true;
+    const out = $("escrowOut");
+    out.innerHTML = `<ul class="checks">${step(null, "Asking the contract about three agents it must refuse, then paying #1313 into the escrow and releasing it. Two transactions on Concordium: about 20–40 seconds.")}</ul>`;
+    try {
+      const r = await fetch("/demo/escrow", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const j = await r.json();
+      if (!r.ok) { out.innerHTML = `<p class="bad">${esc(j.message || j.error || ("HTTP " + r.status))}</p>`; return; }
+      const lines = [];
+      const show = () => (out.innerHTML = `<ul class="checks">${lines.join("")}</ul>`);
+      for (const f of j.refusals || []) {
+        lines.push(step(f.refused, `Refused ${f.why} (#${f.agent})`, f.refused ? `${f.code} ${f.error} · read-only, nothing sent` : "the contract would have accepted it"));
+        show(); await sleep(300);
+      }
+      if (!j.ok && j.step === "pay") { lines.push(step(false, "The contract refused the payment to #1313", `${j.pay.code} ${j.pay.error}`)); show(); return; }
+      lines.push(`<li class="ok">✅ 1 · Paid 1 CCD into the escrow (id ${esc(j.escrow_id)}): ${txa(j.pay.tx, "pay transaction")} <span class="muted">— the contract read <span class="mono">agentOf(1313)</span> from the registry and recorded wallet <span class="mono">${esc(acct(j.pay.wallet_at_pay))}</span></span></li>`); show(); await sleep(400);
+      lines.push(`<li class="ok">✅ 2 · At release the contract read the registry again <span class="muted">(the <span class="mono">CIS-8004.agentOf</span> call is in the release transaction's trace on CCDExplorer)</span></li>`); show(); await sleep(400);
+      if (!j.ok) { lines.push(step(false, "Release was refused", `${j.release.code} ${j.release.error}`)); show(); return; }
+      const t = (j.release.transfers || [])[0];
+      lines.push(step(j.paid_recorded_wallet, `3 · The contract paid ${t ? Number(t.micro_ccd) / 1e6 : "?"} CCD to ${acct(t && t.to)}${j.paid_recorded_wallet ? ", the wallet it recorded at payment" : ", NOT the recorded wallet"}`)); show();
+      lines.push(`<li class="muted">${txa(j.release.tx, "release transaction")} · escrow state now <b>${esc(j.after ? j.after.state : "?")}</b> · module <span class="mono">${esc(String(j.module).slice(0, 12))}…</span> (verified build) · ${Math.round(j.ms / 1000)} s</li>`); show();
+      $("escrowLeft").textContent = `(${j.left_today} escrow demos left today, UTC.)`;
+    } catch (e) {
+      out.innerHTML = `<p class="bad">${esc(e.message)}</p>`;
+    } finally {
+      $("escrowGo").disabled = false;
+    }
+  };
+  escrowStatus();
 
   // "Check another team's seller": GET /guard/check/:id runs the guard on the server against a fixed list of sellers, no payment
   async function guardPresets() {

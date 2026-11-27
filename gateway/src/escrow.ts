@@ -28,6 +28,7 @@ import {
   Parameter,
   ReceiveName,
   ReturnValue,
+  SequenceNumber,
   Transaction,
   TransactionExpiry,
   TransactionHash,
@@ -39,7 +40,7 @@ import { NET, txLink } from "./network.js";
 export const ESCROW_NAME = "veriflow_escrow";
 /** The verifiable build CI made from contract-escrow/ (cargo concordium verify-build: "Source and module match") */
 export const EXPECTED_MODULE = "0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457";
-export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/escrow-module/verified.wasm.v1";
+export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/escrow-module-v2/verified.wasm.v1";
 
 /** Rejection codes, in the order of the contract's Error enum (-1, -2, …) */
 export const ERRORS = [
@@ -92,39 +93,99 @@ function rejectCode(x: any): number | undefined {
   return typeof v === "number" ? v : undefined;
 }
 
+type Grpc = ReturnType<typeof createGrpc>;
+type Account = ReturnType<typeof loadAccount>;
+const asParam = (b: Buffer) => Parameter.fromBuffer(new Uint8Array(b).buffer as ArrayBuffer);
+const method = (e: string) => ReceiveName.fromString(`${ESCROW_NAME}.${e}`);
+export const escrowU64 = (n: bigint) => u64(n);
+
+export type EscrowCall = { hex?: string; ok: boolean; code?: number; error?: string; dryRunOnly: boolean; transfers: { to: string; microCcd: bigint }[]; summary?: any };
+
+/** CCD transfers the contract made in a finalized update (the payout of release/claim/refund) */
+export function transfersOf(summary: any): { to: string; microCcd: bigint }[] {
+  const out: { to: string; microCcd: bigint }[] = [];
+  for (const ev of summary?.events ?? []) {
+    if (ev?.tag !== "Transferred") continue;
+    const to = ev.to?.address ?? ev.to;
+    const amount = ev.amount?.microCcdAmount ?? ev.amount;
+    try { out.push({ to: typeof to === "string" ? to : AccountAddress.toBase58(to), microCcd: BigInt(amount) }); } catch { /* not an account transfer */ }
+  }
+  return out;
+}
+
+/**
+ * Dry-run an escrow entrypoint as `acct`, then (if it would succeed, or sendAnyway) send it and wait for finalization.
+ * A nonce lock (serialize/pickNonce) is the caller's job when the account is shared.
+ */
+export async function escrowSend(grpc: Grpc, contract: ContractAddress.Type, acct: Account, entry: string, param: Buffer, microCcd: bigint, opts: { sendAnyway?: boolean; nonce?: (fromNode: bigint) => bigint; log?: (m: string) => void } = {}): Promise<EscrowCall> {
+  const log = opts.log ?? (() => {});
+  const dry = await grpc.invokeContract({ contract, invoker: acct.accountAddress, method: method(entry), parameter: asParam(param), amount: CcdAmount.fromMicroCcd(microCcd) });
+  if (dry.tag !== "success") {
+    const code = rejectCode(dry);
+    log(`the contract would reject ${entry}: ${code !== undefined ? `${code} ${errorName(code)}` : JSON.stringify(dry).slice(0, 200)}`);
+    if (!opts.sendAnyway) return { ok: false, code, error: code !== undefined ? errorName(code) : "dry_run_failed", dryRunOnly: true, transfers: [] };
+  }
+  const fromNode = (await grpc.getNextAccountNonce(acct.accountAddress)).nonce;
+  const nonce = opts.nonce ? SequenceNumber.create(opts.nonce(fromNode.value)) : fromNode;
+  const tx = Transaction.updateContract(
+    { amount: CcdAmount.fromMicroCcd(microCcd), address: contract, receiveName: method(entry), message: asParam(param) },
+    Energy.create(60_000),
+  ).addMetadata({ sender: acct.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
+  const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(tx, acct.signer));
+  const hex = TransactionHash.toHexString(hash);
+  log(`${entry} by ${acct.address}\n  tx ${txLink(hex)}`);
+  const s = (await grpc.waitForTransactionFinalization(hash, 180_000)).summary as any;
+  if (s.transactionType === "failed" || s.rejectReason) {
+    const code = rejectCode(s);
+    log(`  ⛔ rejected on-chain: ${code !== undefined ? `${code} ${errorName(code)}` : JSON.stringify(s.rejectReason).slice(0, 200)} (no CCD moved)`);
+    return { hex, ok: false, code, error: code !== undefined ? errorName(code) : "rejected", dryRunOnly: false, transfers: [], summary: s };
+  }
+  log("  ✅ finalized");
+  return { hex, ok: true, dryRunOnly: false, transfers: transfersOf(s), summary: s };
+}
+
+/** Would the contract accept a payment for this agent? Read-only, nothing is sent */
+export async function escrowWouldAccept(grpc: Grpc, contract: ContractAddress.Type, invoker: AccountAddress.Type, tokenId: bigint): Promise<{ ok: boolean; code?: number; error?: string }> {
+  const r = await grpc.invokeContract({ contract, invoker, method: method("pay"), parameter: asParam(encodePay(tokenId, 60, "check")), amount: CcdAmount.fromMicroCcd(1n) });
+  if (r.tag === "success") return { ok: true };
+  const code = rejectCode(r);
+  return { ok: false, code, error: code !== undefined ? errorName(code) : "dry_run_failed" };
+}
+
+export async function escrowNextId(grpc: Grpc, contract: ContractAddress.Type): Promise<{ registry: string; nextId: bigint }> {
+  const r = await grpc.invokeContract({ contract, method: method("view"), parameter: Parameter.empty() });
+  if (r.tag !== "success" || !r.returnValue) throw new Error("view failed");
+  const b = Buffer.from(ReturnValue.toHexString(r.returnValue), "hex");
+  return { registry: `<${b.readBigUInt64LE(0)},${b.readBigUInt64LE(8)}>`, nextId: b.readBigUInt64LE(16) };
+}
+
+export async function escrowRead(grpc: Grpc, contract: ContractAddress.Type, id: bigint): Promise<EscrowRecord | null> {
+  const r = await grpc.invokeContract({ contract, method: method("escrow"), parameter: asParam(u64(id)) });
+  if (r.tag !== "success" || !r.returnValue) throw new Error("escrow read failed");
+  return decodeEscrow(Buffer.from(ReturnValue.toHexString(r.returnValue), "hex"));
+}
+
+/** The escrow id a successful pay created: the contract logs nothing else we need, so read it back by buyer + memo among the newest ids */
+export async function escrowIdOf(grpc: Grpc, contract: ContractAddress.Type, buyer: string, memo: string, lookBack = 10n): Promise<bigint | null> {
+  const { nextId } = await escrowNextId(grpc, contract);
+  for (let id = nextId - 1n; id >= 0n && id >= nextId - lookBack; id--) {
+    const e = await escrowRead(grpc, contract, id).catch(() => null);
+    if (e && e.buyer === buyer && e.memo === memo) return id;
+  }
+  return null;
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
   const sendAnyway = args.includes("--send-anyway");
   const rest = args.filter((a) => a !== "--send-anyway");
   const grpc = createGrpc();
   const contractOf = () => ContractAddress.create(BigInt(env("ESCROW_CONTRACT")), 0n);
-  const method = (e: string) => ReceiveName.fromString(`${ESCROW_NAME}.${e}`);
 
   const send = async (keyFile: string, entry: string, param: Buffer, microCcd: bigint) => {
-    const acct = loadAccount(keyFile);
-    const contract = contractOf();
-    const dry = await grpc.invokeContract({ contract, invoker: acct.accountAddress, method: method(entry), parameter: Parameter.fromBuffer(new Uint8Array(param).buffer as ArrayBuffer), amount: CcdAmount.fromMicroCcd(microCcd) });
-    if (dry.tag !== "success") {
-      const code = rejectCode(dry);
-      console.log(`the contract would reject ${entry}: ${code !== undefined ? `${code} ${errorName(code)}` : JSON.stringify(dry).slice(0, 200)}`);
-      if (!sendAnyway) { console.log("nothing sent (add --send-anyway to put the rejected transaction on-chain as evidence)"); process.exit(1); }
-    }
-    const { nonce } = await grpc.getNextAccountNonce(acct.accountAddress);
-    const tx = Transaction.updateContract(
-      { amount: CcdAmount.fromMicroCcd(microCcd), address: contract, receiveName: method(entry), message: Parameter.fromBuffer(new Uint8Array(param).buffer as ArrayBuffer) },
-      Energy.create(60_000),
-    ).addMetadata({ sender: acct.accountAddress, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
-    const hash = await grpc.sendTransaction(await Transaction.signAndFinalize(tx, acct.signer));
-    const hex = TransactionHash.toHexString(hash);
-    console.log(`${entry} by ${acct.address}\n  tx ${txLink(hex)}`);
-    const s = (await grpc.waitForTransactionFinalization(hash, 180_000)).summary as any;
-    if (s.transactionType === "failed" || s.rejectReason) {
-      const code = rejectCode(s);
-      console.log(`  ⛔ rejected on-chain: ${code !== undefined ? `${code} ${errorName(code)}` : JSON.stringify(s.rejectReason).slice(0, 200)} (no CCD moved)`);
-      return { hex, ok: false, summary: s };
-    }
-    console.log("  ✅ finalized");
-    return { hex, ok: true, summary: s };
+    const r = await escrowSend(grpc, contractOf(), loadAccount(keyFile), entry, param, microCcd, { sendAnyway, log: console.log });
+    if (r.dryRunOnly) { console.log("nothing sent (add --send-anyway to put the rejected transaction on-chain as evidence)"); process.exit(1); }
+    return r;
   };
 
   if (cmd === "deploy") {
@@ -165,8 +226,8 @@ async function main() {
     const r = await send(env("BUYER_KEY_FILE"), "pay", encodePay(BigInt(id), Number(minutes), memo.join(" ") || `veriflow ${new Date().toISOString().slice(0, 10)}`), micro);
     if (r.ok) {
       // The newest escrow id: view returns next_id, and ids are given out one by one
-      const v = await grpc.invokeContract({ contract: contractOf(), method: method("view"), parameter: Parameter.empty() });
-      if (v.tag === "success" && v.returnValue) console.log(`  escrow id ${Buffer.from(ReturnValue.toHexString(v.returnValue), "hex").readBigUInt64LE(16) - 1n} (then: npm run escrow -- release <id>)`);
+      const { nextId } = await escrowNextId(grpc, contractOf());
+      console.log(`  escrow id ${nextId - 1n} (then: npm run escrow -- release <id>)`);
     }
     return;
   }
@@ -181,23 +242,18 @@ async function main() {
     const id = rest[0];
     if (!/^\d+$/.test(id ?? "")) throw new Error("usage: check <token id>");
     const buyer = loadAccount(env("BUYER_KEY_FILE"));
-    const r = await grpc.invokeContract({ contract: contractOf(), invoker: buyer.accountAddress, method: method("pay"), parameter: Parameter.fromBuffer(new Uint8Array(encodePay(BigInt(id), 60, "check")).buffer as ArrayBuffer), amount: CcdAmount.fromMicroCcd(1n) });
-    const code = r.tag === "success" ? undefined : rejectCode(r);
-    console.log(r.tag === "success" ? `agent #${id}: the escrow would accept a payment (nothing sent)` : `agent #${id}: the escrow would reject it: ${code} ${errorName(code ?? 0)} (nothing sent)`);
+    const r = await escrowWouldAccept(grpc, contractOf(), buyer.accountAddress, BigInt(id));
+    console.log(r.ok ? `agent #${id}: the escrow would accept a payment (nothing sent)` : `agent #${id}: the escrow would reject it: ${r.code} ${r.error} (nothing sent)`);
     return;
   }
   if (cmd === "status") {
     const id = rest[0];
     if (id) {
-      const r = await grpc.invokeContract({ contract: contractOf(), method: method("escrow"), parameter: Parameter.fromBuffer(new Uint8Array(u64(BigInt(id))).buffer as ArrayBuffer) });
-      if (r.tag !== "success" || !r.returnValue) throw new Error("escrow read failed");
-      const e = decodeEscrow(Buffer.from(ReturnValue.toHexString(r.returnValue), "hex"));
+      const e = await escrowRead(grpc, contractOf(), BigInt(id));
       console.log(e ? { ...e, amount: `${Number(e.amountMicroCcd) / 1e6} CCD`, amountMicroCcd: undefined } : `no escrow ${id}`);
     } else {
-      const r = await grpc.invokeContract({ contract: contractOf(), method: method("view"), parameter: Parameter.empty() });
-      if (r.tag !== "success" || !r.returnValue) throw new Error("view failed");
-      const b = Buffer.from(ReturnValue.toHexString(r.returnValue), "hex");
-      console.log(`escrow <${env("ESCROW_CONTRACT")},0>  registry <${b.readBigUInt64LE(0)},${b.readBigUInt64LE(8)}>  escrows so far ${b.readBigUInt64LE(16)}`);
+      const v = await escrowNextId(grpc, contractOf());
+      console.log(`escrow <${env("ESCROW_CONTRACT")},0>  registry ${v.registry}  escrows so far ${v.nextId}`);
     }
     return;
   }

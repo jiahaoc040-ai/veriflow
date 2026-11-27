@@ -95,6 +95,8 @@ export type DemoOptions = {
   perIpPerHour?: number;
   now?: () => number;
   ipOf?: (req: express.Request) => string;
+  /** Shared with the escrow demo: both send from the same buyer account */
+  lock?: { busy: boolean };
 };
 
 export function demoBuyRouter(o: DemoOptions) {
@@ -105,22 +107,22 @@ export function demoBuyRouter(o: DemoOptions) {
   const perIp = new RateLimiter(ipLimit, 60 * 60_000, now);
   const counter = o.counter ?? memoryCounter();
   const log = o.log ?? ((m: string) => console.error(m));
-  let busy = false;
+  const lock = o.lock ?? { busy: false };
   let agent: Agent | undefined;
   const today = () => new Date(now()).toISOString().slice(0, 10);
   const left = async () => Math.max(0, daily - (await counter.used(today()).catch(() => daily)));
 
-  r.get("/demo/status", async (_req, res) => res.json({ enabled: true, left_today: await left(), daily_limit: daily, busy }));
+  r.get("/demo/status", async (_req, res) => res.json({ enabled: true, left_today: await left(), daily_limit: daily, busy: lock.busy }));
 
   r.post("/demo/buy", async (req, res) => {
     // Only the page itself may press the button: a JSON body (a plain cross-site form cannot send one) and no cross-site fetch
     if (!req.is("application/json") || req.get("sec-fetch-site") === "cross-site") return res.status(403).json({ error: "same_origin_json_only" });
     const asset = String(req.body?.asset ?? "").toUpperCase();
     if (asset !== "BTC" && asset !== "ETH") return res.status(400).json({ error: "asset must be BTC or ETH" });
-    if (busy) return res.status(429).json({ error: "busy", message: "Another visitor's purchase is running. Try again in a few seconds." });
+    if (lock.busy) return res.status(429).json({ error: "busy", message: "Another visitor's purchase is running. Try again in a few seconds." });
     const key = (o.ipOf ?? ((q) => q.ip ?? "unknown"))(req);
     if (!perIp.take(key)) return res.status(429).json({ error: "per_ip_limit", message: `At most ${ipLimit} demo purchases per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) });
-    busy = true;
+    lock.busy = true;
     const started = now();
     try {
       let ok: boolean;
@@ -150,7 +152,7 @@ export function demoBuyRouter(o: DemoOptions) {
       log(`demo: purchase failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
       res.status(502).json({ error: "demo_failed", message: "The demo purchase failed. Nothing more is shown here; please try again later." });
     } finally {
-      busy = false;
+      lock.busy = false;
     }
   });
   return r;

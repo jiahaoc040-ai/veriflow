@@ -36,6 +36,8 @@ import { mountRemoteMcp } from "./mcp-http.js";
 import { mountA2A } from "./a2a.js";
 import { RateLimiter, clientKey, inlineScriptHashes, isSelfCall, publicMessage, rateLimit, securityHeaders, trustProxySetting } from "./security.js";
 import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.js";
+import { escrowChain, escrowDemoDisabledRouter, escrowDemoRouter } from "./demo-escrow.js";
+import { EXPECTED_MODULE as ESCROW_MODULE } from "./escrow.js";
 import { guardPresetRouter } from "./guard-presets.js";
 import { guardDeps } from "./guard-deps.js";
 import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
@@ -465,16 +467,34 @@ app.use(guardPresetRouter({ publicUrl: PUBLIC_URL, deps: guardDeps }));
 
 // Live demo button: our buyer agent #1478 buys one call from this seller, on the server (demo-buy.ts). Off unless a key file is configured
 const DEMO_KEY = process.env.DEMO_BUYER_KEY_FILE?.trim();
+const demoLock = { busy: false };
+const demoCounter = process.env.DATABASE_URL ? postgresCounter(process.env.DATABASE_URL) : undefined;
 app.use(
   DEMO_KEY
     ? demoBuyRouter({
         makeAgent: async () => (await import("./agent.js")).createBuyerAgent({ keyFile: DEMO_KEY, gateway: PUBLIC_URL, agentTokenId: env("DEMO_BUYER_AGENT", "1478"), ccdOnly: true, requireSeller: true }),
-        counter: process.env.DATABASE_URL ? postgresCounter(process.env.DATABASE_URL) : undefined,
+        counter: demoCounter,
         dailyLimit: Number(env("DEMO_DAILY_LIMIT", "20")),
         perIpPerHour: Number(env("DEMO_PER_IP_PER_HOUR", "3")),
         ipOf: (q) => clientKey(q.ip),
+        lock: demoLock,
       })
     : demoDisabledRouter(),
+);
+// Second demo button: the same buyer pays #1313 through the escrow contract, which checks CIS-8004 itself (demo-escrow.ts)
+const ESCROW_CONTRACT = process.env.ESCROW_CONTRACT?.trim();
+app.use(
+  DEMO_KEY && ESCROW_CONTRACT && /^\d+$/.test(ESCROW_CONTRACT)
+    ? escrowDemoRouter({
+        makeChain: () => escrowChain(DEMO_KEY, BigInt(ESCROW_CONTRACT)),
+        expectedModule: process.env.EXPECTED_ESCROW_MODULE ?? ESCROW_MODULE,
+        lock: demoLock,
+        counter: demoCounter,
+        dailyLimit: Number(env("ESCROW_DEMO_DAILY_LIMIT", "10")),
+        perIpPerHour: Number(env("ESCROW_DEMO_PER_IP_PER_HOUR", "2")),
+        ipOf: (q) => clientKey(q.ip),
+      })
+    : escrowDemoDisabledRouter(),
 );
 
 app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
