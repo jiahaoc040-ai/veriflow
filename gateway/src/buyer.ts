@@ -21,9 +21,10 @@ if (r.sellerCheck) {
 }
 if (r.refused) process.exit(1);
 console.log("\nstatus:", r.status);
-const body = r.body as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string }; evm_payer?: { address: string; concordium_account: string; checked: string } } | string | undefined;
+const body = r.body as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string }; evm_payer?: { address: string; concordium_account: string; checked: string }; buyer_eligibility?: { verification_request_tx: string; audit_record_tx: string; valid_until: string; checked: string } } | string | undefined;
 if (r.status === 200 && body && typeof body === "object") {
   if (body.evm_payer) console.log(`the seller mapped our EVM payer ${body.evm_payer.address} to Concordium account ${body.evm_payer.concordium_account} — ${body.evm_payer.checked}`);
+  if (body.buyer_eligibility) console.log(`the seller re-checked our eligibility proof — ${body.buyer_eligibility.checked}\n  proof request ${body.buyer_eligibility.verification_request_tx}\n  audit record  ${body.buyer_eligibility.audit_record_tx}\n  valid until   ${body.buyer_eligibility.valid_until}`);
   if (body.buyer_agent) console.log(`the seller checked us: agent #${body.buyer_agent.token_id} — ${body.buyer_agent.checked}`);
   console.log("canonical (hash exactly this string):", body.canonical);
   console.log("commitment:", body.commitment);

@@ -162,7 +162,8 @@ resourceServer
     // Every payment re-checks the proof (not just whether the database has a record); if the node is unreachable, refuse rather than fall back to the database
     try {
       if (!sender) throw new Error("no payer");
-      await eligibility.recheck(sender);
+      const rec = await eligibility.recheck(sender);
+      if (req?.res) req.res.locals.buyerEligibility = rec;
     } catch (e) {
       console.log(`refused buyer ${sender}: ${e instanceof Error ? e.message : e}`);
       return {
@@ -395,6 +396,17 @@ app.get("/signal/:asset", async (req, res) => {
     }
     const ba = res.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
     if (ba) body.buyer_agent = { token_id: ba.tokenId, registry: `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`, owner: ba.owner, agent_wallet: ba.wallet, checked: "read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet" };
+    // The buyer's zero-knowledge proof, re-checked for this payment: the record any buyer can show a third party
+    const el = res.locals.buyerEligibility as { account: string; requestAnchorTx: string; auditAnchorTx: string; verifiedAt: string; expiresAt: string } | undefined;
+    if (el) body.buyer_eligibility = {
+      account: el.account,
+      policy: eligibility.describe(),
+      verification_request_tx: `${NET.explorer}/transaction/${el.requestAnchorTx}`,
+      audit_record_tx: `${NET.explorer}/transaction/${el.auditAnchorTx}`,
+      proven_at: el.verifiedAt,
+      valid_until: el.expiresAt,
+      checked: "the stored proof re-checked for this payment, before verification and again before settlement: against the current policy and the identity provider list read from a node, the SDK's official check, both anchors sent by VeriFlow's account, and the credential still owned by the payer",
+    };
     const ep = res.locals.evmPayer as { address: string; account: string } | undefined;
     if (ep) body.evm_payer = { address: ep.address, concordium_account: ep.account, cis8_registry: `<${CIS8_REGISTRY.index},${CIS8_REGISTRY.subindex}>`, checked: "payer key recovered from the EIP-3009 signature, bound in CIS-8 (read from a Concordium node) before verification and again before settlement" };
     res.json(body);
