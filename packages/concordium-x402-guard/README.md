@@ -53,6 +53,8 @@ How a refusal looks: `response` is undefined, `verdict.ok` is false with every c
 
 No payment, just a look: `checkSellerAt(url, init, concordiumGuardDeps())` returns the verdict for the seller behind an x402 endpoint. It reads an x402 **v2** 402 (the `PAYMENT-REQUIRED` header); a v1 body-only 402 is not supported there.
 
+Want the chain to enforce check 5 as well? VeriFlow's escrow contract (`veriflow_escrow`, testnet `<13170,0>`, [source](https://github.com/jiahaoc040-ai/veriflow/tree/main/contract-escrow)) reads `agentOf` itself and pays only an Active agent's current `agentWallet`.
+
 ## What it checks
 
 | # | Check | Read from |

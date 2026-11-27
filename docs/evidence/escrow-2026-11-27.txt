@@ -1,0 +1,48 @@
+VeriFlow agent escrow <13170,0> on Concordium testnet, 2026-11-27 (UTC). Run by the developer from gateway/ with `npm run escrow -- …`
+(buyer: our agent #1478, account 19528). Output as printed. Every call is dry-run first; --send-anyway sends a call the contract
+would reject, to leave the rejection on-chain as evidence (it costs the fee; no CCD moves).
+
+Module: verifiable build made by CI from contract-escrow/ (cargo concordium verify-build: "Source and module match"), sha256
+0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457. CCDExplorer module page: Verification Status "Verified",
+build image concordium/verifiable-sc-wasm32v1:1, "Source and module match.", source code shown.
+
+deployer 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r
+module 0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457 (39853 bytes)
+1/2 deploying module…
+  tx https://ccdexplorer.io/testnet/transaction/0ea77e21c1313ed5ec30a9535696fc9445ab3cfba63bc5a6444a7f26c3e5a01f
+2/2 creating the escrow for the CIS-8004 registry <12802,0>…
+  tx https://ccdexplorer.io/testnet/transaction/4b41c6789cc62380195baab5574cb8336630d938304530d43d63e748d9f25dca
+✅ escrow <13170,0>
+
+> npm run escrow -- pay 1313 1 2 "veriflow escrow demo"
+pay by 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r
+  tx https://ccdexplorer.io/testnet/transaction/5fe2a79867dfab2a79849af561815195cc2a79bdc80e301b7b1034b1f9ee828a
+  ✅ finalized
+  escrow id 0
+
+> npm run escrow -- release 0
+release by 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r
+  tx https://ccdexplorer.io/testnet/transaction/72eaee559679d1313561d624416247f014f9592e6e14fb405920f8c10a6ea038
+  ✅ finalized
+CCDExplorer, same transaction (2026-11-27 06:28:45): "Interrupted contract <13170,0> / Updated contract <12802,0>, Contract: CIS-8004,
+Function: agentOf, Parameter: 2105000000000000 (= token 1313) / Resumed / Transferred Ͼ1.000000 from <13170,0> to 19394 / Updated
+contract <13170,0>, veriflow_escrow.release". 19394 is agent #1313's on-chain agentWallet, read by the contract at payout.
+
+> npm run escrow -- pay 53 1 60 --send-anyway
+the contract would reject pay: -4 AgentHasNoWallet
+  tx https://ccdexplorer.io/testnet/transaction/d2c0d84872f24ff0efdd3670a41b1eee518586b90a2b26e61f8cac9aea8120fe
+  ⛔ rejected on-chain: -4 AgentHasNoWallet (no CCD moved)
+CCDScan: "REJECTED … Rejected due to contract logic in receive function 'veriflow_escrow.pay' of contract <13170, 0>. Error code: -4"
+
+> npm run escrow -- pay 11 1 60 --send-anyway
+the contract would reject pay: -3 AgentNotActive
+  tx https://ccdexplorer.io/testnet/transaction/3b1946a907e4e2c6b25fd55b27ef0a366a30928e80ef12f1372bf09c8309cd9f
+  ⛔ rejected on-chain: -3 AgentNotActive (no CCD moved)
+
+> npm run escrow -- pay 99999999 1 60 --send-anyway
+the contract would reject pay: -2 AgentNotFound
+  tx https://ccdexplorer.io/testnet/transaction/77957e4223aa01948ef13370e83751f9efd2feba189550b0516dfea863af2bf5
+  ⛔ rejected on-chain: -2 AgentNotFound (no CCD moved)
+
+Agents used: #53 is Active with no agentWallet and #11 is Revoked in the testnet census of 2026-11-25 (score-reports branch,
+census/testnet/latest.json); the contract read both from the registry itself.

@@ -4,7 +4,8 @@
 
 1. **A seller guard any x402 agent can wrap around the client it already has.** Before signing, it reads the seller from the Agent Registry and pays only the agent's own on-chain wallet (or, on Base, a key bound to its owner in CIS-8). Run against seven sellers we do not run: MainsMarker (#990) passed and was bought from, Oracle Scout (#1253) passed and was bought from, x402 Doctor (#5120) passed **on mainnet**, and four were refused, including a seller built to take payment and deliver nothing. See [JUDGES.md](JUDGES.md#the-guard-on-sellers-we-do-not-run).
 2. **A seller that checks the buyer**: a zero-knowledge eligibility proof re-checked at every payment, and the payer must be the wallet of the agent it names. Packaged for any x402 seller as [`concordium-x402-seller`](packages/concordium-x402-seller): `concordiumSeller(server, { eligibility, buyerAgent: "optional" })`.
-3. **A record that cannot be rewritten**: every call our reference seller sells is committed on-chain before its outcome, one per asset and day.
+3. **A contract that enforces the payout**: our escrow `veriflow_escrow` `<13170,0>` reads the Agent Registry itself and pays only an Active agent's current on-chain `agentWallet`; unknown, Revoked or wallet-less agents are rejected on-chain (codes −2, −3, −4, [CCDScan](https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=d2c0d84872f24ff0efdd3670a41b1eee518586b90a2b26e61f8cac9aea8120fe)). Verifiable build, shown **Verified** on [CCDExplorer](https://ccdexplorer.io/testnet/module/0094e91830a15ece653402e75eaf0d8c841df3d4e7d6c9bff35698b9be821457).
+4. **A record that cannot be rewritten**: every call our reference seller sells is committed on-chain before its outcome, one per asset and day.
 
 The reference seller sells a deliberately simple public rule: a BTC or ETH `RISK_ON` / `RISK_OFF` call from Binance's 30-day momentum, for 1 testnet CCD, 1 `EUDemo` (Concordium's allow-listed test euro, a Protocol-Level Token, [paid here](https://ccdexplorer.io/testnet/transaction/2faa32b102cb68365f64feef63245f2ef625aeb4a94a7018855ad5aee93866ab)), 1 `hh-VFUSD` (our own PLT test dollar) or 0.01 USDC on Base, over x402. The product is the checks around it.
 
@@ -164,6 +165,29 @@ The Agent Card's `url` points to a real A2A JSON-RPC endpoint: `POST https://ver
 ```bash
 curl -s https://veriflow-yrhp.onrender.com/a2a -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"1","parts":[{"kind":"text","text":"how do I buy a signal?"}]}}}'
 ```
+
+## Agent escrow — the payout rule, enforced on-chain (`contract-escrow/`, Rust)
+
+The guard checks the payout address in the buyer's code. The escrow makes the chain check it: a payment is held by `veriflow_escrow`, and the contract itself calls `CIS-8004.agentOf` when the buyer pays and again when the money leaves.
+
+| Entrypoint | Who | Rule |
+|---|---|---|
+| `pay` (payable) | any account | Rejected unless the agent exists (−2), is Active (−3) and has an `agentWallet` (−4) that is not the buyer (−19). The buyer picks a dispute window, 1 minute to 30 days |
+| `release` | the buyer, any time | Pays the agent's `agentWallet` **as it is now**: an agent revoked since the payment is refused (−3) and the buyer can refund |
+| `claim` | the agent's current `agentWallet`, after the window | Same checks |
+| `refund` | the buyer | During the window, or at any time once the agent can no longer be paid |
+| `escrow`, `view` | anyone | Read-only |
+
+No owner, no upgrade entrypoint, no fee; the registry address is fixed at init. Every failure has its own reject code (−1 … −21, in the order of `Error` in [`src/lib.rs`](contract-escrow/src/lib.rs)). Tests: 5 unit tests and 6 chain tests against a CIS-8004 test double ([`mock-registry/`](contract-escrow/mock-registry)), in CI. The module is a verifiable build (`cargo concordium build --verifiable`, sources published as a release asset, `verify-build` in CI), and CCDExplorer shows it **Verified**.
+
+```bash
+cd gateway
+npm run escrow -- check 1313             # would the contract accept a payment for agent #1313? (dry run, nothing sent)
+npm run escrow -- pay 1313 1 60 "order"  # BUYER_KEY_FILE pays 1 CCD into escrow, 60-minute dispute window
+npm run escrow -- release 0              # pays #1313's on-chain agentWallet
+```
+
+Live on testnet: `<13170,0>`, module `0094e918…`. Transactions: [docs/evidence/escrow-2026-11-27.txt](docs/evidence/escrow-2026-11-27.txt).
 
 ## Smart contract v2 — one call per asset and day (`contract-v2/`, Rust)
 
