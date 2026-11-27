@@ -59,3 +59,11 @@ the contract would reject pay: -2 AgentNotFound
 
 Agents used: #53 is Active with no agentWallet and #11 is Revoked in the testnet census of 2026-11-25 (score-reports branch,
 census/testnet/latest.json); the contract read both from the registry itself.
+
+Live site, same day: "Pay #1313 through the escrow" on https://veriflow-yrhp.onrender.com (Try 2), pressed once (2026-11-27 09:24 UTC).
+The page showed, in 15 s: refused #11 -3 AgentNotActive, #53 -4 AgentHasNoWallet, #99999999 -2 AgentNotFound (read-only calls,
+nothing sent); paid 1 CCD into escrow id 1, wallet recorded 3WSAJwTZ…; release; "The contract paid 1 CCD to 3WSAJwTZ…, the wallet
+it recorded at payment"; escrow state Released; module b1b62b091aac… The release transaction it linked:
+  https://ccdexplorer.io/testnet/transaction/ffd54803cb15dae40e2332926c42dd53dd9536639fb8ae511a67602e21e27221
+CCDExplorer: sender 19528; "Updated contract <12802,0>, Contract: CIS-8004, Function: agentOf, Parameter 2105000000000000 /
+Transferred Ͼ1.000000 from <13171,0> to 19394 / veriflow_escrow.release, Parameter 1".
