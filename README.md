@@ -47,7 +47,7 @@ An EVM key that is not bound, a revoked binding, an authorization for another pa
 
 ## Next to other agent-identity schemes
 
-Checking who an agent is before paying is not new; where the check sits is what differs. Most schemes sign the *request*; few tie the *payout address* to a registered identity, and none we read re-checks the buyer's eligibility at the moment of payment with a zero-knowledge proof.
+Checking who an agent is before paying is not new; where the check sits is what differs. Most schemes sign the *request*; few tie the *payout address* to a registered identity, and none of the three below re-checks the buyer's eligibility at the moment of payment with a zero-knowledge proof. (Concordium's own x402 guide also puts an attribute-proof check in the payment flow, at the facilitator; ours runs in the seller's code at every payment.)
 
 | Scheme | What the other side checks | Trust root | Ties the payment to the identity? |
 |---|---|---|---|
