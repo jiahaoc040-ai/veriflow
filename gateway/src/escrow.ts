@@ -37,7 +37,7 @@ import { createGrpc } from "./grpc.js";
 import { NET, txLink } from "./network.js";
 
 export const ESCROW_NAME = "veriflow_escrow";
-export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/escrow-module/module.wasm.v1";
+export const MODULE_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/escrow-module/verified.wasm.v1";
 
 /** Rejection codes, in the order of the contract's Error enum (-1, -2, …) */
 export const ERRORS = [

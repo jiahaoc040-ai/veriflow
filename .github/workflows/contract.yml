@@ -68,22 +68,22 @@ jobs:
       - name: Verifiable build (escrow only)
         if: matrix.dir == 'contract-escrow'
         run: |
-          cargo concordium build --verifiable docker.io/concordium/verifiable-sc:1.85.0 --schema-embed --out concordium-out/verified.wasm.v1
+          cargo concordium build --verifiable \
+            --source-link https://github.com/${{ github.repository }}/releases/download/escrow-module/verified.wasm.v1.tar \
+            --schema-embed --out concordium-out/verified.wasm.v1
           ls -la concordium-out
           sha256sum concordium-out/verified.wasm.v1
 
-      - name: Publish verifiable module with its source link (escrow only)
+      - name: Publish the verifiable module and its sources (escrow only)
         if: matrix.dir == 'contract-escrow' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view escrow-module >/dev/null 2>&1 || \
             gh release create escrow-module --title "VeriFlow escrow module" --notes "Verifiable build of contract-escrow/, made by CI."
-          gh release upload escrow-module concordium-out/verified.wasm.v1.tar --clobber
-          cargo concordium edit-build-info --module concordium-out/verified.wasm.v1 \
-            --source-link https://github.com/${{ github.repository }}/releases/download/escrow-module/verified.wasm.v1.tar --verify
-          sha256sum concordium-out/verified.wasm.v1
-          gh release upload escrow-module concordium-out/verified.wasm.v1 --clobber
+          gh release upload escrow-module concordium-out/verified.wasm.v1.tar concordium-out/verified.wasm.v1 --clobber
+          # Rebuild from the published sources and compare, as a verifier would
+          cargo concordium verify-build --module concordium-out/verified.wasm.v1
 
       - name: Upload module artifact
         uses: actions/upload-artifact@v7
