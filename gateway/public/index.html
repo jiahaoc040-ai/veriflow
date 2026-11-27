@@ -104,6 +104,7 @@
     <p class="muted lead">The same buyer pays agent <b>#1313</b> 1 testnet CCD through our escrow contract <a id="escrowLink" class="mono" target="_blank" rel="noopener"></a>. The contract calls the CIS-8004 Agent Registry itself: when the CCD comes in (held only for an Active agent with an <span class="mono">agentWallet</span>, which it records), and again at release (paid only to that recorded wallet, only if the registry still names it). First it is asked about three agents it must refuse; those are read-only calls, nothing is sent. You pay and sign nothing. <span id="escrowLeft"></span></p>
     <p><button class="primary" id="escrowGo">Pay #1313 through the escrow</button></p>
     <div id="escrowOut"></div>
+    <p class="small muted">This button is our own buyer paying our own seller. Done by others: an outside tester's account (19836) <a href="https://ccdexplorer.io/testnet/transaction/33bc24f4685ff27aa8f8158f94efd5eca88732fc9e04c8a45f74a27158e7587a" target="_blank" rel="noopener">paid #1313 into the escrow</a> and never released it; after the window #1313's own wallet <a href="https://ccdexplorer.io/testnet/transaction/e07f525d0887f910764de8798953eb1e3c1e292ad2088f9db6e373602e3d4e34" target="_blank" rel="noopener">claimed it</a>, the contract reading the registry again. And when a test agent's wallet was swapped after payment, the release was <a href="https://testnet.ccdscan.io/?dcount=1&amp;dentity=transaction&amp;dhash=ce9420ab9bb1beea81691ba39bfd1864337da596b2845f1bc8a3692fb03d0af3" target="_blank" rel="noopener">refused on-chain (−22)</a> and the buyer <a href="https://ccdexplorer.io/testnet/transaction/4ec9064e34cf03f62db480fd4075641375535181f4c919a458c79df68b8d8088" target="_blank" rel="noopener">refunded</a>.</p>
   </div>
 
   <div class="card try" id="guardCard">
@@ -287,6 +288,7 @@
       if (j.seller_checked_eligibility) {
         const el = j.seller_checked_eligibility;
         lines.push(`<li class="ok">✅ The seller re-checked our buyer's zero-knowledge proof (age ≥ 18, not resident in a restricted country; nothing revealed) on its server for this payment. The proof itself was made and anchored on ${esc(String(el.proven_at || "").slice(0, 10))}: ${txa(el.verification_request_tx, "proof request")} · ${txa(el.audit_record_tx, "audit record")} <span class="muted">· valid until ${esc(String(el.valid_until || "").slice(0, 10))}</span></li>`);
+        if (j.seller_recheck_record_tx) lines.push(`<li class="ok">✅ The seller recorded this re-check on Concordium for this payment, today: ${txa(j.seller_recheck_record_tx, "re-check record")} <span class="muted">(payment, payer, the audit record checked against, policy)</span></li>`);
         show(); await sleep(350);
       }
       if (j.seller_checked_buyer) { lines.push(step(true, `The seller checked us back: agent #${j.seller_checked_buyer.token_id}`, j.seller_checked_buyer.checked)); show(); await sleep(350); }

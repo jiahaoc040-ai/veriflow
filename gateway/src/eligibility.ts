@@ -31,6 +31,10 @@ import { dirname } from "node:path";
 import {
   AccountAddress,
   CredentialRegistrationId,
+  DataBlob,
+  SequenceNumber,
+  Transaction,
+  TransactionExpiry,
   IdentityProviderDID,
   TransactionHash,
   VerifiableCredentialV1,
@@ -40,7 +44,7 @@ import {
 } from "@concordium/web-sdk";
 import { createGrpc } from "./grpc.js";
 import { loadAccount } from "./config.js";
-import { serialize, waitForNode } from "./txqueue.js";
+import { forgetNonce, pickNonce, serialize, waitForNode } from "./txqueue.js";
 
 export const MIN_AGE = 18;
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000; // the proof must be completed within 10 minutes
@@ -292,7 +296,16 @@ export type Chain = {
    * credential still valid, request still on-chain), and confirm the anchored audit record (VAA) is this record. Throws otherwise.
    */
   recheckAudit(challengeId: string, requestJson: unknown, presentationJson: string, auditAnchorTx: string): Promise<void>;
+  /** Register a short record on-chain from the anchoring account (returns the transaction hash once submitted). Optional for test chains */
+  registerData?(text: string): Promise<string>;
 };
+
+/** The on-chain record of one payment's re-check: which payment, which payer, which audit record (VAA) it was checked against, under which policy */
+export function recheckRecord(paymentTx: string, payer: string, auditAnchorTx: string, policy: string): string {
+  if (!/^[0-9a-f]{64}$/.test(paymentTx) || !/^[0-9a-f]{64}$/.test(auditAnchorTx)) throw new Error("bad transaction hash");
+  if (!/^[1-9A-HJ-NP-Za-km-z]{50}$/.test(payer)) throw new Error("bad account");
+  return `veriflow:recheck:v1:${paymentTx}:${payer}:${auditAnchorTx}:${policy}`;
+}
 
 /** gRPC status NOT_FOUND only, by its code (the SDK's RpcError carries "NOT_FOUND" or 5), never a message that merely says "not found" */
 export function isGrpcNotFound(e: unknown): boolean {
@@ -383,6 +396,23 @@ export function concordiumChain(anchorKeyFile: string): Chain {
       });
       if (r.type === "failed") throw new Error(`official verification failed: ${r.error.message}`);
       return TransactionHash.toHexString(r.result.anchorTransactionRef);
+    },
+
+    async registerData(text) {
+      const data = new TextEncoder().encode(text);
+      if (data.length > 256) throw new Error("record longer than 256 bytes");
+      return serialize(anchor.address, async () => {
+        const fromNode = await nodeNonce();
+        const tx = Transaction.registerData({ data: new DataBlob(data.buffer as ArrayBuffer) })
+          .addMetadata({ sender: anchor.accountAddress, nonce: SequenceNumber.create(pickNonce(anchor.address, fromNode)), expiry: TransactionExpiry.futureMinutes(5) })
+          .build();
+        try {
+          return TransactionHash.toHexString(await grpc.sendTransaction(await Transaction.signAndFinalize(tx, anchor.signer)));
+        } catch (e) {
+          forgetNonce(anchor.address);
+          throw e;
+        }
+      });
     },
 
     async recheckAudit(challengeId, requestJson, presentationJson, auditAnchorTx) {
@@ -511,6 +541,17 @@ export class EligibilityService {
 
   status(account: string) {
     return this.store.status(account, this.policyId);
+  }
+
+  /**
+   * After a settled payment whose payer passed the re-check: put that fact on-chain the same day, so the proof record and the payment
+   * can be matched by anyone (payment tx, payer, the VAA checked against, policy). Returns the record's transaction, or null if not eligible
+   */
+  async anchorRecheck(paymentTx: string, payer: string): Promise<{ tx: string; data: string } | null> {
+    const rec = this.status(payer);
+    if (!rec || !this.chain.registerData) return null;
+    const data = recheckRecord(paymentTx, payer, rec.auditAnchorTx, this.policyId);
+    return { tx: await this.chain.registerData(data), data };
   }
 
   describe() {

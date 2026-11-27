@@ -203,7 +203,7 @@ resourceServer
     return { recovered: true as const, result: { success: true, transaction: e.transaction, network: requirements.network, payer } };
   })
   // A successful settlement whose transaction was already delivered against (by a recovery above) is not delivered again
-  .onAfterSettle(async ({ result }) => {
+  .onAfterSettle(async ({ result, requirements }) => {
     if (!result.transaction) return;
     let first: boolean;
     try { first = await ledger.claim(result.transaction); } catch (err) {
@@ -212,6 +212,8 @@ resourceServer
       return;
     }
     if (!first) throw new AfterSettleAbortError("already_delivered", "this payment was already delivered");
+    // The buyer's proof was re-checked before settlement: record that on-chain for this payment, without delaying delivery
+    if (REQUIRE_ELIGIBILITY && result.payer && !isEvmNetwork(requirements.network)) recordRecheck(result.transaction, result.payer);
   })
   // Read again before settling: if the agent was revoked or its wallet changed between verify and settle (the handler anchors in between), do not take the money
   .onBeforeSettle(async ({ paymentPayload, requirements, transportContext }) => {
@@ -448,6 +450,24 @@ async function refreshOperatorBalance() {
   }
 }
 
+// Per-payment re-check records: payment tx -> the registerData transaction that records it (also decodable from the chain alone)
+const recheckAnchors = new Map<string, { tx: string; data: string; at: string }>();
+function recordRecheck(paymentTx: string, payer: string) {
+  if (!/^[0-9a-f]{64}$/.test(paymentTx)) return;
+  eligibility.anchorRecheck(paymentTx, payer).then((r) => {
+    if (!r) return;
+    if (recheckAnchors.size >= 5000) recheckAnchors.delete(recheckAnchors.keys().next().value as string);
+    recheckAnchors.set(paymentTx, { ...r, at: new Date().toISOString() });
+  }).catch((e) => console.error(`re-check record for ${paymentTx} not anchored: ${e instanceof Error ? e.message : e}`));
+}
+app.get("/eligibility/recheck/:tx", limitRead, (req, res) => {
+  const tx = String(req.params.tx);
+  if (!/^[0-9a-f]{64}$/.test(tx)) return res.status(400).json({ error: "bad_tx" });
+  const r = recheckAnchors.get(tx);
+  if (!r) return res.status(404).json({ error: "not_recorded", message: "No re-check record for this payment on this server (yet, or since its last restart; the chain keeps it either way)." });
+  res.json({ payment_tx: tx, recheck_record_tx: r.tx, recheck_record_url: `${NET.explorer}/transaction/${r.tx}`, data: r.data, recorded_at: r.at });
+});
+
 // Which commit is live, so anyone can match the site to the code (Render sets RENDER_GIT_COMMIT)
 const DEPLOYED_COMMIT = (process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? "").slice(0, 7) || null;
 app.get("/health", limitRead, async (_req, res) => {
@@ -492,6 +512,7 @@ app.use(
         perIpPerHour: Number(env("DEMO_PER_IP_PER_HOUR", "3")),
         ipOf: (q) => clientKey(q.ip),
         lock: demoLock,
+        recheckOf: (tx) => recheckAnchors.get(tx) ?? null,
       })
     : demoDisabledRouter(),
 );

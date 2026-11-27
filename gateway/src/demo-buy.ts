@@ -97,7 +97,11 @@ export type DemoOptions = {
   ipOf?: (req: express.Request) => string;
   /** Shared with the escrow demo: both send from the same buyer account */
   lock?: { busy: boolean };
+  /** The on-chain record of the seller's re-check for a payment, once anchored (gateway.ts) */
+  recheckOf?: (paymentTx: string) => { tx: string; data: string } | null;
 };
+
+const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function demoBuyRouter(o: DemoOptions) {
   const r = express.Router();
@@ -108,6 +112,17 @@ export function demoBuyRouter(o: DemoOptions) {
   const counter = o.counter ?? memoryCounter();
   const log = o.log ?? ((m: string) => console.error(m));
   const lock = o.lock ?? { busy: false };
+  // The seller records each re-check on-chain right after settlement; wait briefly for it so the page can link it
+  const recheckRecord = async (paymentUrl?: string | null) => {
+    const tx = paymentUrl?.match(/[0-9a-f]{64}$/)?.[0];
+    if (!tx || !o.recheckOf) return null;
+    for (let i = 0; i < 20; i++) {
+      const r = o.recheckOf(tx);
+      if (r) return `${NET.explorer}/transaction/${r.tx}`;
+      await sleepMs(500);
+    }
+    return null;
+  };
   let agent: Agent | undefined;
   const today = () => new Date(now()).toISOString().slice(0, 10);
   const left = async () => Math.max(0, daily - (await counter.used(today()).catch(() => daily)));
@@ -140,6 +155,7 @@ export function demoBuyRouter(o: DemoOptions) {
         seller_checked_buyer: body.buyer_agent ?? null,
         // The seller's re-check of our buyer's zero-knowledge proof for this payment: two on-chain anchors and the validity
         seller_checked_eligibility: body.buyer_eligibility ?? null,
+        seller_recheck_record_tx: await recheckRecord(b.paymentExplorer),
         canonical: body.canonical ?? null,
         commitment: body.commitment ?? null,
         anchor_tx: body.anchor_tx ?? null,

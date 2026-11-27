@@ -32,6 +32,16 @@ if (r.status === 200 && body && typeof body === "object") {
   console.log("check it yourself: npm run check-call   (then paste the canonical string above)");
 } else console.log(typeof body === "string" ? body : JSON.stringify(body, null, 2));
 if (r.paymentExplorer) console.log("payment tx:", r.paymentExplorer);
+// The seller records its re-check of our proof on-chain for this payment, right after settlement
+const paidTx = r.paymentExplorer?.match(/[0-9a-f]{64}$/)?.[0];
+if (paidTx && body && typeof body === "object" && body.buyer_eligibility) {
+  const at = `${agent.gateway}/eligibility/recheck/${paidTx}`;
+  for (let i = 0; i < 15; i++) {
+    const rr = await fetch(at).catch(() => null);
+    if (rr?.ok) { const j = (await rr.json()) as { recheck_record_url: string }; console.log("re-check record (on-chain, for this payment):", j.recheck_record_url); break; }
+    await new Promise((ok) => setTimeout(ok, 1000));
+  }
+}
 // The transaction expiry is set from this computer's clock; if it runs fast the facilitator refuses it (nothing is charged)
 if (/expiry_too_far_in_future/.test(JSON.stringify(r.body ?? ""))) {
   console.log("\nhint: your computer's clock is probably ahead of real time. Sync it (Windows: Settings → Time & language → Date & time → Sync now; macOS: System Settings → General → Date & Time → set automatically) and run again. Nothing was charged.");
