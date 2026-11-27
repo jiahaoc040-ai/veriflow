@@ -1,0 +1,26 @@
+Seller guard, buy mode, on another team's seller: Oracle Scout (agent #1253), 2026-11-27 04:32 UTC
+Run by the developer: cd gateway && npx tsx --no-cache src/guard-cli.ts buy https://web-gilt-phi-11.vercel.app/api/packs/rehearsal-btc-150k
+Buyer: our agent #1478 (account 19528), testnet CCD only, at most 2 CCD per payment. Output as printed; the evidence pack body is cut.
+
+buyer 4Vf4qUg5jWyAJXJ3mR3RHvfu8YXjiNT5asveQFF52FgkjMQ16r · pays testnet CCD only, at most 2 CCD per payment
+
+Seller behind https://web-gilt-phi-11.vercel.app: agent #1253
+  ✓ 1. seller advertises a Verified by Concordium badge
+       badge JyP9YD4TswwGeC8X8An8Z
+  ✓ 2. registered and Active in the CIS-8004 Agent Registry
+       agent #1253, status Active, owner 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1 (read from a Concordium node)
+  ✓ 3. official badge check passes (identity-verified owner)
+       15 checks passed
+  ✓ 4. Agent Card unchanged since pinned on-chain (own SHA-256)
+       sha256 7498c8fc28bd4af1a094652077618b86540f1826e6a5f4a9f15ac4775c861193 vs on-chain 7498c8fc28bd4af1a094652077618b86540f1826e6a5f4a9f15ac4775c861193
+  ✓ 5. payTo is the agent's on-chain wallet
+       payTo 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1, on-chain agentWallet 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1
+  ✓ 6. independent delivery record (vet402, another team's service)
+       verdict "unproven" from 0 paid request(s): Seller ID: not proven (neutral) + delivery unproven (policy block-no)
+
+✅ seller verified: agent #1253 (JyP9YD4TswwGeC8X8An8Z), owner 3u319bYkSSU3CeoMqyzt5nd72VpL5qF4oqmZoVTQQPLdBEqyL1, paying its on-chain wallet; delivery record: unproven
+
+HTTP 200 · paid: https://ccdexplorer.io/testnet/transaction/d5c6e59428f7f3ddf58d929f65a02752dc71759a347c042f97095407a5ccf2db
+{"format":"oracle-scout/evidence-pack@1","marketId":"rehearsal-btc-150k","question":"Will Bitcoin close above $150,000 on December 31, 2026?","items":[{"id":"d6dd00adb25c2d245244f0d0","marketId":"rehearsal-btc-150k","question":"Will Bitcoin close above $150,000 on December 31, 2026?","stance":"NO","probability":0.001, … (cut)
+
+On-chain (CCDExplorer, read 2026-11-27): transfer, Ͼ2.000000 from 19528 to 19515 (Oracle Scout's wallet 3u319bYk…), sponsor 19516, block 51,347,667, 2026-11-27 04:32:48.
