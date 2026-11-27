@@ -67,3 +67,25 @@ it recorded at payment"; escrow state Released; module b1b62b091aac… The relea
   https://ccdexplorer.io/testnet/transaction/ffd54803cb15dae40e2332926c42dd53dd9536639fb8ae511a67602e21e27221
 CCDExplorer: sender 19528; "Updated contract <12802,0>, Contract: CIS-8004, Function: agentOf, Parameter 2105000000000000 /
 Transferred Ͼ1.000000 from <13171,0> to 19394 / veriflow_escrow.release, Parameter 1".
+
+An outside tester, on Windows 11 with his own testnet account 19836 (3GdS46Ep…VrveHz, eligible since 2026-11-25: VRA e1011651…,
+VAA 70df5beb…), following TRY_IT.md, same day (2026-11-27 ~11:50 UTC). Output as he reported it:
+> npm run escrow -- check 1313
+agent #1313: the escrow would accept a payment (nothing sent)
+> npm run escrow -- pay 1313 1 10 "friend escrow test"
+pay by 3GdS46Ep1g76SJKgFKt5kBBvUTk4wGcmnAuN932pUYfxVrveHz
+  tx https://ccdexplorer.io/testnet/transaction/15f9ab08299926abfd90712ff902403c6cdbc3c18c5e4309b5b7f0746122d573
+  ✅ finalized
+  escrow id 3
+> npm run escrow -- release 3
+release by 3GdS46Ep1g76SJKgFKt5kBBvUTk4wGcmnAuN932pUYfxVrveHz
+  tx https://ccdexplorer.io/testnet/transaction/240c23b2a3115a3f0bf090dc1056ffaeb46274f1cd23f27832b6a4f4c4c2cb72
+  ✅ finalized
+> npm run escrow -- release 3      (run twice by accident)
+the contract would reject release: -8 NotHeld
+nothing sent
+CCDExplorer, release 240c23b2… (2026-11-27 11:54:27): sender 19836; "Updated contract <12802,0>, CIS-8004.agentOf, Parameter
+2105000000000000 / Transferred Ͼ1.000000 from <13171,0> to 19394 / veriflow_escrow.release, Parameter 3".
+He also bought an ETH call the same session (payment 368aae2e…, commit 1d690202…). His two reports, both fixed:
+on Windows `npm run escrow` printed nothing (the "run main if this is the started script" check compared file:///D:/… with D:\…;
+now src/is-main.ts, for all eight CLIs); and `git pull` on a D: drive needed `git config --global --add safe.directory` (TRY_IT.md).

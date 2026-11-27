@@ -448,14 +448,16 @@ async function refreshOperatorBalance() {
   }
 }
 
+// Which commit is live, so anyone can match the site to the code (Render sets RENDER_GIT_COMMIT)
+const DEPLOYED_COMMIT = (process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? "").slice(0, 7) || null;
 app.get("/health", limitRead, async (_req, res) => {
   try {
     const r = await fetch(`${API_URL}/health`);
     const api = (await r.json()) as Record<string, unknown>;
-    res.status(r.status).json({ ...api, operator });
+    res.status(r.status).json({ ...api, operator, commit: DEPLOYED_COMMIT });
   } catch (e) {
     console.error("health:", e);
-    res.status(502).json({ ok: false, error: "api_unreachable", operator });
+    res.status(502).json({ ok: false, error: "api_unreachable", operator, commit: DEPLOYED_COMMIT });
   }
 });
 

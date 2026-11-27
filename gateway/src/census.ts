@@ -21,6 +21,7 @@ import { badgeTokenAddress, readCapped, MAX_CARD_BYTES } from "./counterparty.js
 import { sameAccount } from "./contract-v2.js";
 import { ownerOfKey, CIS8_REGISTRY } from "./cis8.js";
 import { NET } from "./network.js";
+import { isMain } from "./is-main.js";
 
 export type Row = {
   id: string;
@@ -281,4 +282,4 @@ async function main() {
   process.exit(0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => { console.error(e); process.exit(1); });
+if (isMain(import.meta.url)) main().catch((e) => { console.error(e); process.exit(1); });

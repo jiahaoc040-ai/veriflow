@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { env } from "./config.js";
 import { createV2Writer, RejectedError, v2Address, HORIZON_MS, type SlotV2 } from "./contract-v2.js";
 import { binanceDaily, canonicalV2, dayMs, dayOf, momentumE6, newNonce, ruleV2, SYMBOLS, type Candle } from "./signal-v2.js";
+import { isMain } from "./is-main.js";
 
 const DAY = 86_400_000;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -168,7 +169,7 @@ async function main() {
   if (out.errors.length) process.exit(1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().then(() => process.exit(0), (e) => {
     console.error("❌", e instanceof Error ? e.message : e);
     process.exit(1);

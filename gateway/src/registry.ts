@@ -37,6 +37,7 @@ import {
 } from "@concordium/web-sdk";
 import { env, loadAccount } from "./config.js";
 import { createGrpc } from "./grpc.js";
+import { isMain } from "./is-main.js";
 
 export const REGISTRY_MCP = env("REGISTRY_MCP_URL", "https://agent-registry-mcp.concordium.com/mcp");
 export const REGISTRY_NETWORK = NET.name;
@@ -263,7 +264,7 @@ async function main() {
   console.log("usage: npm run registry -- register | set-uri <tokenId> | set-wallet <tokenId> | status <tokenId>");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     console.error("❌", e instanceof Error ? e.message : e);
     process.exit(1);

@@ -35,6 +35,7 @@ import {
 import { env, loadAccount } from "./config.js";
 import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
 import { createGrpc } from "./grpc.js";
+import { isMain } from "./is-main.js";
 
 export const CONTRACT_NAME = "veriflow_registry";
 /** VeriFlow's v1 contract on testnet, <13094,0> (buyer agents accept commitment events only from this contract) */
@@ -238,7 +239,7 @@ async function main() {
   console.log("usage: npm run contract -- deploy [horizonDays] | status | show <commitment> | reveal <commitment>");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     console.error("❌", e instanceof Error ? e.message : e);
     process.exit(1);

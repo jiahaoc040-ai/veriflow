@@ -191,6 +191,7 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    Copy-Item .env.example .env
    New-Item -ItemType Directory -Force keys
    ```
+   If a later `git pull` stops with `detected dubious ownership` (a repo on a second Windows drive, such as `D:`, whose file system records no owner), run `git config --global --add safe.directory D:/path/to/veriflow` once.
    The buyer needs nothing else from `.env`. Leave `SELLER_ADDRESS`, `GATEWAY_SECRET` and the other seller settings empty; they are for running your own gateway.
    In the wallet, use *Accounts → your account → Private key → Export*. It downloads `<account address>.export`; find it first (`ls ~/Downloads/*.export`, or `Get-ChildItem $HOME\Downloads\*.export` in PowerShell), then move it into place:
    ```bash
@@ -217,6 +218,10 @@ Two steps take most of the time: getting a testnet identity, and exporting an ac
    - **You should see** the five ✓ lines, then `the seller checked us: agent #<id> — read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet`.
    - **To see an impersonation refused**, name someone else's agent: `BUYER_AGENT_TOKEN_ID=1313 npm run buyer -- BTC`. You get `status: 402`, `buyer_agent_check_failed:wallet_mismatch`, and nothing is charged, because #1313's on-chain `agentWallet` is not your account.
    - Our own run of both, on 2026-11-24: buyer agent #1478 was accepted and paid in [`515226b5…`](https://ccdexplorer.io/testnet/transaction/515226b587ccb056f3e1c406fe1a85e12382a6a19c61345ef41c821395289b88); the same account claiming #1313 was refused before its payment was submitted, so nothing was charged.
+
+   **The seller re-checks your eligibility proof at every payment** (before verification and again before settlement). A paid response shows it: `the seller re-checked our eligibility proof`, with the links to your proof request (VRA) and audit record (VAA) and how long the proof stays valid.
+
+   **Optional: pay through the escrow contract.** `npm run escrow -- check 1313`, then `npm run escrow -- pay 1313 1 10 "my test"` (1 CCD, a 10-minute window), then `npm run escrow -- release <the escrow id it printed>`. The release transaction on CCDExplorer shows the contract calling `CIS-8004.agentOf` and then paying 19394. An outside tester did this on Windows on 2026-11-27: pay [`15f9ab08…`](https://ccdexplorer.io/testnet/transaction/15f9ab08299926abfd90712ff902403c6cdbc3c18c5e4309b5b7f0746122d573), release [`240c23b2…`](https://ccdexplorer.io/testnet/transaction/240c23b2a3115a3f0bf090dc1056ffaeb46274f1cd23f27832b6a4f4c4c2cb72) (sender 19836).
 
 6. **Verify what you bought.** Run `npm run check-call` and paste your `canonical` string: it does Path A steps 1–3 for your call. Your `as_of` is the UTC day before the day you bought (the latest close). Or repeat Path A steps 1–3 by hand with your own values:
    - hash the `canonical` string exactly as printed;

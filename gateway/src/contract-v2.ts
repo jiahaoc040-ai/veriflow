@@ -33,6 +33,7 @@ import {
 import { env, loadAccount } from "./config.js";
 import { createGrpc } from "./grpc.js";
 import { forgetNonce, pickNonce, serialize } from "./txqueue.js";
+import { isMain } from "./is-main.js";
 
 export const CONTRACT_V2_NAME = "veriflow_registry_v2";
 export const MODULE_V2_URL = "https://github.com/jiahaoc040-ai/veriflow/releases/download/registry-module-v2/module.wasm.v1";
@@ -266,7 +267,7 @@ async function main() {
   console.log("usage: npm run contract2 -- deploy | set-committer <account> | revoke-committer | status | slot <BTC|ETH> <YYYY-MM-DD> | prove-rejection");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().then(() => process.exit(0), (e) => {
     console.error("❌", e instanceof Error ? e.message : e);
     process.exit(1);

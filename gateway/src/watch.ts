@@ -13,6 +13,7 @@ import { ContractAddress } from "@concordium/web-sdk";
 import { readAgent } from "./registry-node.js";
 import { PUBLIC_GATEWAY } from "./mcp-launch.js";
 import { createV2Reader, TESTNET_REGISTRY_V2_INDEX, v2Address } from "./contract-v2.js";
+import { isMain } from "./is-main.js";
 
 export const EXPECTED = {
   agent: {
@@ -59,7 +60,7 @@ async function main() {
   console.log("✅ agent #1313 and contract v2 are as expected");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main().then(() => process.exit(0), (e) => {
     console.error(`❌ ${e instanceof Error ? e.message : e}`);
     process.exit(1);

@@ -36,6 +36,7 @@ import {
 import { env, loadAccount } from "./config.js";
 import { createGrpc } from "./grpc.js";
 import { NET, txLink } from "./network.js";
+import { isMain } from "./is-main.js";
 
 export const ESCROW_NAME = "veriflow_escrow";
 /** The verifiable build CI made from contract-escrow/ (cargo concordium verify-build: "Source and module match") */
@@ -263,4 +264,4 @@ async function main() {
   process.exit(2);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+if (isMain(import.meta.url)) main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });

@@ -11,6 +11,7 @@ import "./env-file.js";
 import { AccountAddress, ContractAddress, Parameter, ReceiveName, ReturnValue } from "@concordium/web-sdk";
 import { createGrpc } from "./grpc.js";
 import { NET } from "./network.js";
+import { isMain } from "./is-main.js";
 
 export const AGENT_REGISTRY = ContractAddress.create(NET.agentRegistry.index, NET.agentRegistry.subindex);
 export const AGENT_REGISTRY_TEXT = `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`;
@@ -90,7 +91,7 @@ export async function readAgent(tokenId: string, grpc?: ReturnType<typeof create
   return a;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   readAgent(process.argv[2] ?? "1313").then(
     (a) => { console.log(JSON.stringify(a, null, 2)); process.exit(0); },
     (e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); },
