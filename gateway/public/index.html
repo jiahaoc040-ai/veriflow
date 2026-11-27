@@ -53,6 +53,12 @@
   .try h2 .step { display:inline-block; font-size:12px; font-weight:600; color:#fff; background:var(--accent); border-radius:999px; padding:2px 9px; margin-right:8px; vertical-align:middle; }
   .section-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:28px 0 10px; }
   footer { margin:32px 0 48px; }
+  .small-sub { font-size:15px; }
+  .cta { margin:0 0 22px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  a.button { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:8px; color:var(--accent); font-weight:600; text-decoration:none; }
+  a.button.primary { background:var(--accent); color:#fff; border:0; }
+  .info { color:var(--muted); }
+  .summary { margin:10px 0 6px; padding:10px 12px; border-radius:8px; background:var(--card); border:1px solid var(--line); font-weight:600; }
   .small { font-size:12px; } .lead { margin-top:0; font-size:13px; } .verdict { margin:6px 0 0; font-weight:600; }
 </style>
 </head>
@@ -69,12 +75,14 @@
   </div>
 
   <section class="hero">
-    <h1>Pay an AI agent only after Concordium vouches for it.</h1>
-    <p class="sub">When agents pay each other over x402, the buyer cannot tell who it is paying, the seller cannot tell who is buying, and nobody can prove what was sold was not changed later. VeriFlow closes all three on Concordium. Try both below: no wallet, nothing to install.</p>
+    <h1>Stop AI agents from paying impostors.</h1>
+    <p class="sub">Any x402 seller can copy another agent's name, card and badge and put its own wallet in <code>payTo</code>. VeriFlow checks every payment against Concordium before the buyer signs: the seller must be an Active agent in the on-chain Agent Registry, owned by an identity-verified person, and the money must go to that agent's own registered wallet. On mainnet today, <b>about 1 in 4 Active agents would fail this check</b> (<a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md#the-same-checks-across-mainnet" target="_blank" rel="noopener">census</a>).</p>
+    <p class="sub small-sub"><b>Why Concordium:</b> every agent owner is a verified identity; a buyer can prove "18+, allowed country" in zero knowledge; and a smart contract can read the Agent Registry inside the payment itself. VeriFlow uses all three. The BTC/ETH call sold here is only a sample product: the checks are the product, shipped as two npm packages and an escrow contract.</p>
+    <p class="cta"><a class="button primary" href="#demo">▶ Watch an agent buy (≈40 s)</a> <a class="button" href="#escrowDemo">Pay through the escrow (≈20 s)</a> <span class="muted small">No wallet, nothing to install.</span></p>
     <div class="pillars">
-      <div class="pillar"><div class="k">Buyer → seller</div><h3>Check before signing</h3><p>Agent Registry badge, Active, card hash, and payTo = the agent's own on-chain wallet. A guard any x402 agent can wrap around its client.</p></div>
-      <div class="pillar"><div class="k">Seller → buyer</div><h3>Prove, reveal nothing</h3><p>A Verify &amp; Access zero-knowledge proof (18+, allowed country), re-checked at every payment; the payer must be its agent's wallet.</p></div>
-      <div class="pillar"><div class="k">The record</div><h3>Cannot be rewritten</h3><p>Every call is committed on-chain before its outcome, one per asset and day, under a scoring rule registered first.</p></div>
+      <div class="pillar"><div class="k">Before paying</div><h3>Is this really the seller?</h3><p>Registered and Active in the Agent Registry, Agent Card unchanged, and <code>payTo</code> = the agent's own on-chain wallet. A guard any x402 buyer wraps around its client.</p></div>
+      <div class="pillar"><div class="k">Before delivering</div><h3>Is this buyer allowed?</h3><p>A Verify &amp; Access zero-knowledge proof (18+, allowed country) that reveals nothing else, re-checked by the seller at every payment.</p></div>
+      <div class="pillar"><div class="k">Afterwards</div><h3>Was what I bought changed later?</h3><p>Every call is committed on-chain before its outcome, one per asset and day, under a scoring rule registered first. Your browser checks it.</p></div>
     </div>
   </section>
 
@@ -256,7 +264,9 @@
       $("demoLeft").textContent = `(${st.left_today} of ${st.daily_limit} demo purchases left today, UTC.)`;
     } catch (e) { /* demo stays hidden */ }
   }
-  const step = (ok, text, detail) => `<li class="${ok === null ? "muted" : ok ? "ok" : "bad"}">${ok === null ? "…" : ok ? "✅" : "❌"} ${esc(text)}${detail ? ` <span class="muted mono">${esc(String(detail).slice(0, 300))}</span>` : ""}</li>`;
+  const step = (ok, text, detail) => `<li class="${ok === null ? "muted" : ok === "info" ? "info" : ok ? "ok" : "bad"}">${ok === null ? "…" : ok === "info" ? "ℹ️" : ok ? "✅" : "❌"} ${esc(text)}${detail ? ` <span class="muted mono">${esc(String(detail).slice(0, 300))}</span>` : ""}</li>`;
+  // Another team's reputation service (vet402) with no record for this seller: passed because it does not block, not because it vouched
+  const infoOnly = (c) => c.ok && /independent delivery record/.test(c.name) && /unproven|not proven/i.test(String(c.detail));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   document.querySelectorAll("#demo button").forEach((b) => b.onclick = async () => {
     const asset = b.dataset.asset;
@@ -270,13 +280,13 @@
       const lines = [];
       const show = () => (out.innerHTML = `<ul class="checks">${lines.join("")}</ul>`);
       lines.push(step(true, `Buyer: agent #${j.buyer.agent}, account ${j.buyer.account.slice(0, 8)}…`)); show();
-      for (const c of (j.seller_check ? j.seller_check.checks : [])) { await sleep(350); lines.push(step(c.ok, c.name, c.detail)); show(); }
+      for (const c of (j.seller_check ? j.seller_check.checks : [])) { await sleep(350); lines.push(step(infoOnly(c) ? "info" : c.ok, infoOnly(c) ? `${c.name}: no delivery record yet, which does not block a payment` : c.name, c.detail)); show(); }
       await sleep(350);
       if (j.refused || (j.seller_check && !j.seller_check.ok)) { lines.push(step(false, "Seller failed a check: nothing was signed or paid")); show(); return; }
       if (!j.seller_check) { lines.push(step(false, "No seller check was reported", j.payment_tx ? "a payment was made anyway" : "")); show(); if (!j.payment_tx) return; }
       if (j.seller_checked_eligibility) {
         const el = j.seller_checked_eligibility;
-        lines.push(`<li class="ok">✅ The seller re-checked our buyer's zero-knowledge proof (age ≥ 18, not resident in a restricted country; nothing revealed) for this payment: ${txa(el.verification_request_tx, "proof request")} · ${txa(el.audit_record_tx, "audit record")} <span class="muted">· valid until ${esc(String(el.valid_until || "").slice(0, 10))}</span></li>`);
+        lines.push(`<li class="ok">✅ The seller re-checked our buyer's zero-knowledge proof (age ≥ 18, not resident in a restricted country; nothing revealed) on its server for this payment. The proof itself was made and anchored on ${esc(String(el.proven_at || "").slice(0, 10))}: ${txa(el.verification_request_tx, "proof request")} · ${txa(el.audit_record_tx, "audit record")} <span class="muted">· valid until ${esc(String(el.valid_until || "").slice(0, 10))}</span></li>`);
         show(); await sleep(350);
       }
       if (j.seller_checked_buyer) { lines.push(step(true, `The seller checked us back: agent #${j.seller_checked_buyer.token_id}`, j.seller_checked_buyer.checked)); show(); await sleep(350); }
@@ -285,7 +295,12 @@
       lines.push(`<li class="ok">✅ Received the call: <span class="mono">${esc(j.canonical)}</span></li>`); show(); await sleep(350);
       lines.push(`<li class="muted">Now your browser checks it: SHA-256 of the call, the commit transaction on Concordium, and when it was committed…</li>`); show();
       const onchain = await get(`/onchain/${j.anchor_tx}`);
-      out.innerHTML = `<ul class="checks">${lines.slice(0, -1).join("")}</ul><p class="mono small">Committed in <a href="${esc(j.commit_tx_url)}" target="_blank" rel="noopener">${esc(j.anchor_tx)}</a></p>` + render(await check(j.commitment, onchain, j.canonical));
+      const browserChecks = await check(j.commitment, onchain, j.canonical);
+      const allOk = browserChecks.every((c) => c.ok);
+      const head = allOk
+        ? `<p class="summary ok">✅ Verified: the seller passed every check before we signed, we paid 1 testnet CCD (${txa(j.payment_tx, "payment")}), and the call we got is exactly what was committed on Concordium before its outcome.</p>`
+        : `<p class="summary bad">❌ The call does not match its on-chain commitment.</p>`;
+      out.innerHTML = head + `<details><summary class="small muted">Every step (${lines.length - 1 + browserChecks.length})</summary><ul class="checks">${lines.slice(0, -1).join("")}</ul><p class="mono small">Committed in <a href="${esc(j.commit_tx_url)}" target="_blank" rel="noopener">${esc(j.anchor_tx)}</a></p>` + render(browserChecks) + `</details>`;
       $("demoLeft").textContent = `(${j.left_today} demo purchases left today, UTC.)`;
     } catch (e) {
       out.innerHTML = `<p class="bad">${esc(e.message)}</p>`;
@@ -345,7 +360,7 @@
       const list = await get("/guard/presets");
       $("guardButtons").innerHTML = list.map((p, i) => `<button data-id="${esc(p.id)}" ${i === 0 ? 'class="primary"' : ""}>${esc(p.name)}</button>`).join(" ");
       $("guardButtons").querySelectorAll("button").forEach((b) => (b.onclick = async () => {
-        $("guardButtons").querySelectorAll("button").forEach((x) => (x.disabled = true));
+        $("guardButtons").querySelectorAll("button").forEach((x) => { x.disabled = true; x.classList.toggle("primary", x === b); });
         $("guardOut").innerHTML = '<p class="muted">Calling the seller and reading Concordium…</p>';
         try {
           const j = await get(`/guard/check/${encodeURIComponent(b.dataset.id)}`);
@@ -353,7 +368,7 @@
           $("guardOut").innerHTML =
             `<p class="small muted">${esc(j.name)} · ${esc(j.who)} · asks for ${esc(j.asks.asset === "CCD" ? `${Number(j.asks.amount) / 1e6} CCD` : `${j.asks.amount} ${j.asks.asset} (smallest unit)`)} to <span class="mono">${esc(String(j.asks.payTo).slice(0, 14))}…</span> · checked ${esc(j.checked_at)}</p>` +
             `<ul class="checks">${j.checks.map((c) => step(c.ok, c.name, c.detail)).join("")}</ul>` +
-            `<p class="verdict ${j.ok ? "ok" : "bad"}">${j.ok ? "Would pay: every check passes." : "Would not pay: " + esc(j.summary.replace(/^refused to pay: /, ""))}</p>`;
+            `<p class="verdict ${j.ok ? "ok" : "bad"}">${j.ok ? "Would pay: every check passes." : failedLine(j.checks, j.summary)}</p>`;
         } catch (e) {
           $("guardOut").innerHTML = `<p class="bad">${esc(e.message)}</p>`;
         } finally {
@@ -361,6 +376,12 @@
         }
       }));
     } catch (e) { $("guardCard").hidden = true; }
+  }
+  // "payTo is the agent's on-chain wallet" is the check's name, a statement that held for a passing seller: say it failed
+  function failedLine(checks, summary) {
+    const f = (checks || []).find((c) => !c.ok);
+    if (!f) return "Would not pay: " + esc(String(summary || "").replace(/^refused to pay: /, ""));
+    return `Would not pay. Failed check: “${esc(f.name)}” is not true for this seller <span class="muted mono">${esc(String(f.detail || "").slice(0, 200))}</span>`;
   }
   guardPresets();
 
