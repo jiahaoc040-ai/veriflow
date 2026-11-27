@@ -14,6 +14,7 @@ export type { PaidOnChain } from "./recovery.js";
 export { memoryLedger, sqlLedger } from "./ledger.js";
 export type { PaymentLedger } from "./ledger.js";
 export { payerOf } from "./payer.js";
+export { inFlight, paymentKeyOf, type InFlight } from "./inflight.js";
 export { eligibilityHandlers } from "./http.js";
 export type { HttpResult } from "./http.js";
 export { NETWORKS, network } from "./networks.js";

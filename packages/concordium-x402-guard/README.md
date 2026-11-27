@@ -14,7 +14,7 @@ Exit code 0 means every check passed, 1 means refused, 2 means it could not run.
 **In your agent:**
 
 ```bash
-npm install concordium-x402-guard @x402/fetch @x402/core @x402/concordium
+npm install concordium-x402-guard @x402/fetch @x402/core @x402/concordium @concordium/web-sdk@^12
 ```
 
 `@x402/fetch` and `@x402/core` are peer dependencies, so the guard wraps the very `x402Client` your agent already has (one copy, your version). `@x402/concordium` is only for the payment scheme in the example below.
@@ -25,7 +25,11 @@ The package is **ESM only** and needs Node 22 or newer: use a `.mjs` file or `"t
 import { x402Client } from "@x402/fetch";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { protect, concordiumGuardDeps } from "concordium-x402-guard";
+import { AccountAddress, buildBasicAccountSigner } from "@concordium/web-sdk";
 
+// Your agent's paying account (keep the key out of your code and repository)
+const accountAddress = AccountAddress.fromBase58(process.env.CCD_ADDRESS!);
+const signer = buildBasicAccountSigner(process.env.CCD_PRIVATE_KEY!);
 const TESTNET = "ccd:4221332d34e1694168c2a0c0b3fd0f27";
 // Your client as today: at least one scheme registered for the network you pay on, or no payment can be made at all
 const client = x402Client.fromConfig({
@@ -89,7 +93,13 @@ The site the agent called is the one checked (never the 402's own `resource.url`
 
 Output of those runs: <https://github.com/jiahaoc040-ai/veriflow/tree/main/docs/evidence>.
 
+**Testing against your own local seller?** The checks fail closed: a seller with no registered agent, no Agent Card or no badge is always refused (`verdict.ok === false`, nothing signed). That is the guard working, not a bug in your code. To exercise a real payment, the seller needs a registered CIS-8004 agent and `sellerAgentExtension(...)` on its route ([concordium-x402-seller](https://www.npmjs.com/package/concordium-x402-seller)).
+
+**Only `exact` payments.** A 402 offering any other scheme is refused: with EVM `auth-capture`, for example, an operator-chosen fee recipient can take up to all of the amount, so checking `payTo` would prove nothing.
+
 ## Changes
+
+0.2.3: only the `exact` scheme is paid (an outside review showed an `auth-capture` 402 could send the whole amount to a fee recipient while `payTo` passed every check); README: the signer, `@concordium/web-sdk` in the install line, testing against a local seller.
 
 0.2.2: `NETWORKS.*.caip2` is typed as a CAIP-2 template string, so it can be passed to `x402ResourceServer.register` and routes directly; README shows the `X-Concordium-Agent` header.
 
@@ -99,7 +109,7 @@ Output of those runs: <https://github.com/jiahaoc040-ai/veriflow/tree/main/docs/
 
 0.1.1: payment network pinned to the configured network; badge sub-checks enforced; Agent Card fetched only from public https hosts and only after the record is confirmed; payTo compared alias-aware; CIS-8 owner compared in code (owner or agentWallet); strict secp256k1 key types; retries see `error.cause`, timeouts and HTTP status; registry responses capped, no redirects; clear error for a wrong `network`; delivery verdicts case-insensitive and capped. Thanks to an outside review for every one of these.
 
-Tests: 28 unit tests (`npm test`, no network: fake registry, node, cards and delivery records), run in CI.
+Tests: 29 unit tests (`npm test`, no network: fake registry, node, cards and delivery records), run in CI.
 
 ## Networks
 

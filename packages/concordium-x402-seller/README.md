@@ -3,10 +3,28 @@
 The seller side of x402 on Concordium: before you take an agent's money, check **who is paying** on Concordium. Attach it to the `x402ResourceServer` you already have:
 
 ```ts
+import express from "express";
+import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
+import { paymentMiddleware } from "@x402/express";
+import { ExactConcordiumScheme } from "@x402/concordium/exact/server"; // server, not /exact/client
+import { concordiumSeller, NETWORKS } from "concordium-x402-seller";
+
+const facilitator = new HTTPFacilitatorClient({ url: process.env.FACILITATOR_URL! }); // must support Concordium: see below
 const server = new x402ResourceServer(facilitator).register(NETWORKS.testnet.caip2, new ExactConcordiumScheme());
-concordiumSeller(server, { network: "testnet", grpc, eligibility, verifyUrl, buyerAgent: "optional" });
+concordiumSeller(server, { network: "testnet" }); // the minimum; eligibility, verifyUrl and grpc are optional (below)
+
+const routes = {
+  "GET /premium": {
+    accepts: { scheme: "exact", network: NETWORKS.testnet.caip2, payTo: process.env.PAY_TO!, price: { asset: "CCD", amount: "1000000" } }, // 1 CCD
+  },
+};
+const app = express();
 app.use(paymentMiddleware(routes, server));
+app.get("/premium", (_req, res) => res.json({ ok: true }));
+app.listen(4021);
 ```
+
+Options: `network` (`"testnet"` default), `eligibility` and `verifyUrl` (buyer proofs, below), `buyerAgent` (`"optional"` default), `grpc` (your node), `ledger` (default in memory), `recover` (default on), `inFlight`. All optional.
 
 **A complete seller that compiles** (Express, one paid route, the eligibility endpoints, all imports): [`examples/express-seller.ts`](https://github.com/jiahaoc040-ai/veriflow/blob/main/packages/concordium-x402-seller/examples/express-seller.ts). It is type-checked in CI.
 
@@ -84,6 +102,8 @@ Buyers name their agent with the `X-Concordium-Agent: <token id>` header; with [
 
 ## Changes
 
+0.1.2: from an outside review. The same signed payment sent in parallel no longer runs the route handler more than once (each (sender, nonce) is held from verify to the end of settlement; `inFlight`, `paymentKeyOf`); with buyer checks on, a payment offered on another network is refused (`network_not_checked`) instead of skipping the checks; a recovery is not made when the ledger is unavailable; a Concordium settlement with no transaction is not delivered. README: a complete minimal seller with imports.
+
 0.1.1: the buyer's proof is also re-checked before settlement; the identity provider list is read fresh at payment; recovery accepts only a plain CCD transfer or a token update sent by the payer, counts PLT by net amount, finds the hash in the error message, and delivers when the ledger is down; the memory ledger never forgets while running; "no such account" only on gRPC NOT_FOUND; a broken expiry date counts as expired; anchors wait for the node's nonce or refuse; an unreadable X-Concordium-Agent header refuses; `buyerRequirementsExtra`; `NETWORKS.*.caip2` typed for `register()`; a complete example. Thanks to an outside review for each.
 
-Tests: 39 unit tests, no network (`npm test`), plus the example type-checked (`npm run check:examples`), in CI. MIT.
+Tests: 40 unit tests, no network (`npm test`), plus the example type-checked (`npm run check:examples`), in CI. MIT.

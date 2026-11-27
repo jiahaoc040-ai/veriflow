@@ -123,11 +123,12 @@ What it does not check: the hosted badge service, endpoints not linked from the 
 
 ## Built to fail closed
 
-Tests, run in CI on every push (the contract's whenever it changes): 178 for the gateway (TypeScript), 28 for the guard package, 39 for the seller package, 25 for the Python API and verifier, 10 for the v2 contract and 14 for the escrow contract (Rust).
+Tests, run in CI on every push (the contract's whenever it changes): 179 for the gateway (TypeScript), 29 for the guard package, 40 for the seller package, 25 for the Python API and verifier, 10 for the v2 contract and 14 for the escrow contract (Rust).
 
 - A node error, an unreachable registry, a changed card or a revoked binding stops the payment before it settles.
 - The buyer's checks run in an x402 client hook, so a failing seller is never signed for.
 - When a facilitator reports a failure for a transfer that did go through, the gateway reads the transaction itself (CCD and PLT transfers from a node, USDC from the Base receipt) and delivers only on an exact match of payer, `payTo`, token and amount.
+- Outside reviews, and what they changed. Escrow v1 → v2 (payout only to the wallet recorded at payment, nothing can stay stuck), shown on-chain above. The two npm packages, 2026-11-27, read line by line against `@x402/core` 2.32: the guard now pays only the `exact` scheme (an EVM `auth-capture` 402 could have sent the whole amount to a fee recipient while `payTo` passed every check); the seller holds each signed payment, by sender and nonce, from verify to the end of settlement, so parallel copies cannot each run the handler; with buyer checks on, a payment offered on another network is refused rather than unchecked; a recovery is not made while the payment ledger is unavailable. Guard 0.2.3, seller 0.1.2, and the gateway the same. Not changed, and why: a copied badge on an impostor site still routes the money only to the real agent's registered wallet.
 - Details: [THREAT_MODEL.md](docs/THREAT_MODEL.md), [GO_LIVE.md](docs/GO_LIVE.md).
 
 ## Keys and roles, stated plainly

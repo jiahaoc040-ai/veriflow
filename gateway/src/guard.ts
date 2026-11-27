@@ -105,6 +105,9 @@ export async function checkSellerFor(
   policy: GuardPolicy = {},
 ): Promise<GuardVerdict> {
   const { origin, req } = target;
+  // Only "exact" moves the whole amount to payTo. Another scheme can route money elsewhere (EVM auth-capture pays an operator-chosen
+  // fee recipient, up to 100%), so checking payTo would prove nothing. Reported by an outside review
+  if ((req.scheme ?? "exact") !== "exact") return { origin, ok: false, payTo: req.payTo, checks: [{ name: "payment scheme is exact (all of the amount goes to payTo)", ok: false, detail: `scheme ${req.scheme}: the guard checks only exact payments` }] };
   const evm = deps.isEvmNetwork?.(req.network) ?? req.network.startsWith("eip155:");
   // The payment must be on the network these checks read: a testnet agent proves nothing about a mainnet or other-chain payout
   const wrongNetwork = evm

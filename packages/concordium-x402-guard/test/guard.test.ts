@@ -126,3 +126,9 @@ test("vet402 is testnet-only: with no policy it is off on mainnet, so a testnet 
   assert.equal(v.checks.length, 5);
   assert.ok(!asked.some((u) => u.includes("/check?agent=")));
 });
+
+test("only the exact scheme: auth-capture or anything else is refused before any other check", async () => {
+  const v = await checkSellerFor({ origin: "https://x.example", req: { scheme: "auth-capture", network: "eip155:8453", payTo: "0x0000000000000000000000000000000000000001", extra: { feeRecipient: "0xattacker" } } }, {} as never);
+  assert.equal(v.ok, false);
+  assert.match(v.checks[0].name, /exact/);
+});

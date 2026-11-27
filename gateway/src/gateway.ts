@@ -42,6 +42,7 @@ import { guardPresetRouter } from "./guard-presets.js";
 import { guardDeps } from "./guard-deps.js";
 import { paidOnChain, paidOnEvm } from "./settle-recovery.js";
 import { BUYER_AGENT_HEADER, checkBuyerAgent, parsePolicy, type BuyerAgentResult } from "./buyer-agent.js";
+import { inFlight, paymentKeyOf } from "./inflight.js";
 import { EligibilityService, EligibilityStore, filePersistence, postgresPersistence, MIN_AGE, concordiumChain, parseCountries, payerOf } from "./eligibility.js";
 
 const API_URL = env("API_URL", "http://127.0.0.1:8000");
@@ -137,15 +138,32 @@ async function payerAccount(paymentPayload: { payload: unknown }, requirements: 
   return r.ok ? { ok: true as const, account: r.account, evm: r.from } : r;
 }
 
+// One signed Concordium payment in flight at a time, from verify to the end of settlement: (sender, nonce) is unique on-chain,
+// and a facilitator's verify only checks the nonce is next, so parallel copies would each run the handler (outside review)
+const paymentsInFlight = inFlight();
+
 resourceServer
   // Before the payment is sent for settlement: if the sender is not eligible, refuse (the transaction never reaches the chain, the buyer is not charged)
   .onBeforeVerify(async ({ paymentPayload, requirements, transportContext }) => {
     // Until a node has confirmed it is on the expected chain, take no payment (the site stays up, the shop is closed)
     if (!networkConfirmed) return { abort: true, reason: "node_unconfirmed", message: "This seller has not yet reached a Concordium node; no payment is taken. Try again in a minute." };
+    // The same signed Concordium payment sent in parallel: only one may be verified and run the handler until its settlement ends
+    const key = isEvmNetwork(requirements.network) ? undefined : paymentKeyOf(paymentPayload.payload);
+    if (key && !paymentsInFlight.take(key)) return { abort: true, reason: "payment_in_flight", message: "this signed payment is already being processed" };
+    const refused = await beforeVerifyChecks(paymentPayload, requirements, transportContext);
+    if (refused && key) paymentsInFlight.release(key);
+    return refused;
+  })
+  .onVerifyFailure(async ({ paymentPayload, requirements }) => {
+    const key = isEvmNetwork(requirements.network) ? undefined : paymentKeyOf(paymentPayload.payload);
+    if (key) paymentsInFlight.release(key);
+  });
+
+async function beforeVerifyChecks(paymentPayload: { payload: unknown }, requirements: Parameters<typeof payerAccount>[1], transportContext: unknown): Promise<{ abort: true; reason: string; message?: string } | undefined> {
     const who = await payerAccount(paymentPayload, requirements);
     if (!who.ok) {
       console.log(`refused payment on ${requirements.network}: ${who.reason}`);
-      return { abort: true, reason: who.code, message: who.reason };
+      return { abort: true as const, reason: who.code, message: who.reason };
     }
     const sender = who.account;
     // Trust in both directions: if the buyer names its agent in a header, the seller confirms from a node that it is Active and that the paying account is its on-chain agentWallet
@@ -154,7 +172,7 @@ resourceServer
     if (!buyerAgent.ok) {
       console.log(`refused buyer agent from ${sender}: ${buyerAgent.reason}`);
       // The reason code goes in reason: x402 returns only reason to the buyer (message is dropped)
-      return { abort: true, reason: `buyer_agent_check_failed:${buyerAgent.code}`, message: buyerAgent.reason };
+      return { abort: true as const, reason: `buyer_agent_check_failed:${buyerAgent.code}`, message: buyerAgent.reason };
     }
     if (buyerAgent.named && req?.res) req.res.locals.buyerAgent = buyerAgent;
     if (req?.res && "evm" in who) req.res.locals.evmPayer = { address: who.evm, account: who.account };
@@ -167,16 +185,20 @@ resourceServer
     } catch (e) {
       console.log(`refused buyer ${sender}: ${e instanceof Error ? e.message : e}`);
       return {
-        abort: true,
+        abort: true as const,
         reason: "buyer_proof_required",
         message: `Account ${sender} has no current eligibility proof that passes the check at payment time. Verify at ${PUBLIC_URL}/verify?account=${sender}`,
       };
     }
-  })
+}
+
+resourceServer
   // When the facilitator reports a settlement failure: log the reason; if it returned a transaction hash, read it from the chain ourselves and deliver if the money really arrived
   .onSettleFailure(async ({ error, paymentPayload, requirements }) => {
     const e = error as Error & { errorReason?: string; errorMessage?: string; transaction?: string };
     const evm = isEvmNetwork(requirements.network);
+    const held = evm ? undefined : paymentKeyOf(paymentPayload.payload);
+    if (held) paymentsInFlight.release(held);
     const payer = evm ? (paymentPayload.payload as { authorization?: { from?: string } }).authorization?.from : payerOf(paymentPayload.payload);
     console.warn(`settlement reported failure: ${e.errorReason ?? e.message}${e.errorMessage && e.errorMessage !== e.errorReason ? ` (${e.errorMessage})` : ""} tx=${e.transaction || "-"} payer=${payer ?? "-"}`);
     // The hash from the error's field or, failing that, its message ("transaction <hash> not found")
@@ -192,9 +214,9 @@ resourceServer
       return;
     }
     // The same signed payment sent many times at once: only one request may be delivered against this transaction
-    let first = true;
-    // The money is on-chain: if the ledger is down, deliver (as after a normal settlement); only a recorded earlier delivery stops it
-    try { first = await ledger.claim(e.transaction); } catch (err) { console.error(`payment ledger unavailable, delivering ${e.transaction}: ${err instanceof Error ? err.message : err}`); }
+    let first: boolean;
+    // Recovery acts on a report of failure: without the ledger it cannot tell a first delivery from a repeat, so it does not recover (outside review)
+    try { first = await ledger.claim(e.transaction); } catch (err) { console.error(`not recovered: payment ledger unavailable for ${e.transaction}: ${err instanceof Error ? err.message : err}`); return; }
     if (!first) {
       console.warn(`not recovered: ${e.transaction} was already delivered against`);
       return;
@@ -206,7 +228,13 @@ resourceServer
   })
   // A successful settlement whose transaction was already delivered against (by a recovery above) is not delivered again
   .onAfterSettle(async ({ result, requirements, paymentPayload }) => {
-    if (!result.transaction) return;
+    const held = isEvmNetwork(requirements.network) ? undefined : paymentKeyOf(paymentPayload.payload);
+    if (held) paymentsInFlight.release(held);
+    if (!result.transaction) {
+      // A Concordium settlement with no transaction cannot be recorded, so it cannot be delivered once only
+      if (!isEvmNetwork(requirements.network)) throw new AfterSettleAbortError("no_transaction", "the settlement named no transaction");
+      return;
+    }
     let first: boolean;
     try { first = await ledger.claim(result.transaction); } catch (err) {
       // The money has moved: a buyer who paid gets the call even if the ledger is down (the ledger only stops duplicates)

@@ -8,6 +8,7 @@
  *   after settle    each settlement transaction is delivered against once (see ledger.ts)
  * Only payments on this Concordium network (CCD or a PLT) are touched; other networks' payments pass through unchanged.
  */
+import { inFlight, paymentKeyOf, type InFlight } from "./inflight.js";
 import { ContractAddress, type ConcordiumGRPCClient } from "@concordium/web-sdk";
 import { ConcordiumGRPCNodeClient, credentials } from "@concordium/web-sdk/nodejs";
 import { AfterSettleAbortError } from "@x402/core/server";
@@ -45,6 +46,8 @@ export type SellerOptions = {
   log?: (msg: string) => void;
   /** Override how an agent record is read (default: CIS-8004 agentOf from the node, retried) */
   readAgent?: (tokenId: string) => Promise<AgentOnChain | null>;
+  /** Hold each signed payment from verify to the end of settlement, so parallel copies do not each run the handler (default: in-process) */
+  inFlight?: InFlight;
 };
 
 /** The request header, from any x402 HTTP adapter (Express, Hono, Next), asked in both spellings for adapters that match case.
@@ -77,6 +80,11 @@ export function concordiumSeller<S extends SellerServer>(server: S, o: SellerOpt
   const ledger = o.ledger ?? memoryLedger();
   const log = o.log ?? ((m: string) => console.log(m));
   const ours = (r: Ctx["requirements"]) => r.network === net.caip2;
+  // A route that also accepts another network would sell to unchecked buyers there: refuse it while buyer checks are on
+  const checksBuyers = !!o.eligibility || policy === "required";
+  const otherNetwork = (r: Ctx["requirements"]): Abort | undefined =>
+    checksBuyers ? { abort: true, reason: "network_not_checked", message: `this seller checks buyers only on ${net.caip2}; pay there` } : undefined;
+  const flight = o.inFlight ?? inFlight();
 
   const agentCheck = async (ctx: Ctx, when: string): Promise<void | Abort> => {
     const payer = payerOf(ctx.paymentPayload.payload);
@@ -102,22 +110,33 @@ export function concordiumSeller<S extends SellerServer>(server: S, o: SellerOpt
   };
 
   server.onBeforeVerify(async (ctx: Ctx) => {
-    if (!ours(ctx.requirements)) return;
+    if (!ours(ctx.requirements)) return otherNetwork(ctx.requirements);
     const payer = payerOf(ctx.paymentPayload.payload);
     if (!payer) return { abort: true, reason: "no_payer", message: "the payment names no Concordium sender" };
-    return (await proofCheck(payer, "before verification")) ?? agentCheck(ctx, "before verification");
+    const key = paymentKeyOf(ctx.paymentPayload.payload);
+    if (!key) return { abort: true, reason: "no_nonce", message: "the payment has no transaction nonce" };
+    if (!flight.take(key)) return { abort: true, reason: "payment_in_flight", message: "this signed payment is already being processed" };
+    const refused = (await proofCheck(payer, "before verification")) ?? (await agentCheck(ctx, "before verification"));
+    if (refused) flight.release(key);
+    return refused;
   });
 
   // Again just before the money moves: a credential revoked or an agent re-pointed after verification is refused here
   server.onBeforeSettle(async (ctx: Ctx) => {
-    if (!ours(ctx.requirements)) return;
+    if (!ours(ctx.requirements)) return otherNetwork(ctx.requirements);
     const payer = payerOf(ctx.paymentPayload.payload);
     if (!payer) return { abort: true, reason: "no_payer" };
-    return (await proofCheck(payer, "before settlement")) ?? agentCheck(ctx, "before settlement");
+    const refused = (await proofCheck(payer, "before settlement")) ?? (await agentCheck(ctx, "before settlement"));
+    if (refused) { const key = paymentKeyOf(ctx.paymentPayload.payload); if (key) flight.release(key); }
+    return refused;
   });
 
   server.onSettleFailure(async (ctx: Ctx & { error: unknown }) => {
-    if (o.recover === false || !ours(ctx.requirements)) return;
+    if (!ours(ctx.requirements)) return;
+    // Settlement ended: the same signed payment may be tried again (its nonce is either used on-chain or still free)
+    const key = paymentKeyOf(ctx.paymentPayload.payload);
+    if (key) flight.release(key);
+    if (o.recover === false) return;
     const e = ctx.error as { transaction?: string; errorReason?: string; message?: string };
     const payer = payerOf(ctx.paymentPayload.payload);
     const tx = txHashOf(e);
@@ -127,18 +146,21 @@ export function concordiumSeller<S extends SellerServer>(server: S, o: SellerOpt
     const { payTo, amount, asset } = ctx.requirements;
     const paid = await paidOnChain(grpc(), tx, payer, payTo, amount, asset);
     if (!paid.ok) { log(`not recovered: ${paid.why}`); return; }
-    let first = true;
-    // The money is on-chain: if the ledger is down, deliver (as after a normal settlement); only a recorded earlier delivery stops it
-    try { first = await ledger.claim(tx); } catch (err) { log(`payment ledger unavailable, delivering ${tx}: ${err instanceof Error ? err.message : err}`); }
+    let first: boolean;
+    // Recovery acts on a report of failure: without the ledger it cannot tell a first delivery from a repeat, so it does not recover
+    try { first = await ledger.claim(tx); } catch (err) { log(`not recovered: payment ledger unavailable for ${tx}: ${err instanceof Error ? err.message : err}`); return; }
     if (!first) { log(`not recovered: ${tx} was already delivered against`); return; }
     log(`recovered: ${tx} is finalized and pays ${amount} ${asset} to ${payTo}`);
     return { recovered: true as const, result: { success: true, transaction: tx, network: ctx.requirements.network, payer } };
   });
 
-  server.onAfterSettle(async (ctx: { result: { transaction?: string }; requirements?: Ctx["requirements"] }) => {
+  server.onAfterSettle(async (ctx: { result: { transaction?: string }; requirements?: Ctx["requirements"]; paymentPayload?: Ctx["paymentPayload"] }) => {
     if (ctx.requirements && !ours(ctx.requirements)) return;
+    const key = ctx.paymentPayload ? paymentKeyOf(ctx.paymentPayload.payload) : undefined;
+    if (key) flight.release(key);
     const tx = ctx.result?.transaction;
-    if (!tx) return;
+    // A Concordium settlement with no transaction cannot be recorded, so it cannot be delivered once only
+    if (!tx) throw new AfterSettleAbortError("no_transaction", "the settlement named no transaction");
     let first: boolean;
     // The money has moved: if the ledger is down, deliver (it only stops duplicates)
     try { first = await ledger.claim(tx); } catch (err) { log(`payment ledger unavailable, delivering ${tx}: ${err instanceof Error ? err.message : err}`); return; }

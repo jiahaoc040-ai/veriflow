@@ -25,8 +25,9 @@ function fakeServer() {
   };
   return { server, h };
 }
-const ctx = (o: { payer?: string; header?: string; network?: string; asset?: string; amount?: string } = {}) => ({
-  paymentPayload: { payload: { signedTransaction: { header: { sender: o.payer ?? PAYER } } } },
+let nextNonce = 1;
+const ctx = (o: { payer?: string; header?: string; network?: string; asset?: string; amount?: string; nonce?: number } = {}) => ({
+  paymentPayload: { payload: { signedTransaction: { header: { sender: o.payer ?? PAYER, nonce: String(o.nonce ?? nextNonce++) } } } },
   requirements: { network: o.network ?? NET, payTo: PAYTO, amount: o.amount ?? "1000000", asset: o.asset ?? "CCD" },
   transportContext: { request: { adapter: { getHeader: (n: string) => (n.toLowerCase() === "x-concordium-agent" ? o.header : undefined) } } },
 });
@@ -46,10 +47,28 @@ test("eligibility is re-checked for every payment; a failed re-check refuses bef
   assert.match(r.message, /seller\.test\/verify/);
 });
 
-test("payments on another network are left alone", async () => {
+test("another network: left alone when no buyer checks are on, refused when they are (they could not be applied there)", async () => {
+  const a = fakeServer();
+  concordiumSeller(a.server, { log: quiet });
+  assert.equal(await a.h.verify(ctx({ network: "eip155:8453" })), undefined);
+  const b = fakeServer();
+  concordiumSeller(b.server, { log: quiet, eligibility: { async recheck() { throw new Error("must not run"); } } });
+  assert.equal((await b.h.verify(ctx({ network: "eip155:8453" }))).reason, "network_not_checked");
+  assert.equal((await b.h.settle(ctx({ network: "eip155:8453" }))).reason, "network_not_checked");
+  const c = fakeServer();
+  concordiumSeller(c.server, { log: quiet, buyerAgent: "required" });
+  assert.equal((await c.h.verify(ctx({ network: "eip155:8453" }))).reason, "network_not_checked");
+});
+
+test("the same signed payment in parallel: only the first passes verify, until its settlement ends", async () => {
   const { server, h } = fakeServer();
-  concordiumSeller(server, { log: quiet, eligibility: { async recheck() { throw new Error("must not run"); } } });
-  assert.equal(await h.verify(ctx({ network: "eip155:8453" })), undefined);
+  concordiumSeller(server, { log: quiet, grpc: fakeGrpc(ccdTransfer(PAYER, PAYTO, 1_000_000n)) });
+  assert.equal(await h.verify(ctx({ nonce: 77 })), undefined);
+  assert.equal((await h.verify(ctx({ nonce: 77 }))).reason, "payment_in_flight");
+  assert.equal(await h.verify(ctx({ nonce: 78 })), undefined, "another nonce is another payment");
+  await h.after({ result: { transaction: "ab".repeat(32) }, requirements: ctx().requirements, paymentPayload: ctx({ nonce: 77 }).paymentPayload });
+  assert.equal(await h.verify(ctx({ nonce: 77 })), undefined, "free again once settlement ended");
+  assert.equal((await h.verify({ ...ctx(), paymentPayload: { payload: { signedTransaction: { header: { sender: PAYER } } } } })).reason, "no_nonce");
 });
 
 test("buyer agent: named agent must be Active with the payer as agentWallet, checked before verify and again before settle", async () => {
@@ -152,15 +171,19 @@ test("review fixes: proof re-checked before settle too; unreadable header refuse
   assert.equal((await h.verify(bad)).reason, "buyer_agent_check_failed:header_unreadable");
   await h.after({ result: { transaction: "ee".repeat(32) }, requirements: { ...ctx().requirements, network: "eip155:8453" } });
   await h.after({ result: { transaction: "ee".repeat(32) }, requirements: { ...ctx().requirements, network: "eip155:8453" } });
+  await assert.rejects(h.after({ result: {}, requirements: ctx().requirements }), /no transaction|named no transaction/, "a Concordium settlement with no transaction is not delivered");
 });
 
-test("review fixes: hash found in the error message; ledger down still delivers a matching recovery", async () => {
+test("review fixes: hash found in the error message; with the ledger down a recovery is not made", async () => {
   const { server, h } = fakeServer();
-  const down = { async claim(): Promise<boolean> { throw new Error("db down"); } };
-  concordiumSeller(server, { log: quiet, ledger: down, grpc: fakeGrpc(ccdTransfer(PAYER, PAYTO, 1_000_000n)) });
+  concordiumSeller(server, { log: quiet, grpc: fakeGrpc(ccdTransfer(PAYER, PAYTO, 1_000_000n)) });
   const r = await h.failure({ ...ctx(), error: { transaction: "", errorReason: `transaction ${TX} not found` } });
   assert.equal(r.recovered, true);
   assert.equal(r.result.transaction, TX);
+  const d = fakeServer();
+  const down = { async claim(): Promise<boolean> { throw new Error("db down"); } };
+  concordiumSeller(d.server, { log: quiet, ledger: down, grpc: fakeGrpc(ccdTransfer(PAYER, PAYTO, 1_000_000n)) });
+  assert.equal(await d.h.failure({ ...ctx(), error: { transaction: TX } }), undefined, "recovery without the ledger could deliver twice");
   assert.equal(await h.failure({ ...ctx(), error: { errorReason: "timeout" } }), undefined, "no hash: nothing to read, nothing delivered");
 });
 
