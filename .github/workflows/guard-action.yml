@@ -18,7 +18,7 @@ jobs:
         with:
           url: https://mainsmarker.sites.tab.bot/x402/review
           method: POST
-          body: '{"question":"Why is the sky blue?","answer":"Rayleigh scattering.","marks":10}'
+          body: '{"question":"Explain why the sky appears blue during the day.","answer":"Sunlight is scattered by air molecules, and short blue wavelengths scatter far more than red ones (Rayleigh scattering), so blue light reaches us from every direction.","marks":10}'
       - id: mainnet
         uses: ./packages/guard-action
         with:

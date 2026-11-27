@@ -7,7 +7,7 @@ Before your agent pays an x402 seller, check that seller on Concordium, in CI: i
   with:
     url: https://mainsmarker.sites.tab.bot/x402/review
     method: POST
-    body: '{"question":"q","answer":"a","marks":10}'
+    body: '{"question":"Explain why the sky appears blue during the day.","answer":"Rayleigh scattering of sunlight by air molecules.","marks":10}'
 ```
 
 On mainnet, checking a seller's Base payout:
