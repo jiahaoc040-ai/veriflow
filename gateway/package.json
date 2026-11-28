@@ -33,7 +33,7 @@
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@noble/curves": "^1.9.7",
     "@types/pg": "^8.23.1",
-    "@x402/concordium": "^2.31.0",
+    "@x402/concordium": "^2.32.0",
     "@x402/core": "^2.31.0",
     "@x402/evm": "^2.31.0",
     "@x402/express": "^2.31.0",
