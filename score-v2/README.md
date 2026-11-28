@@ -1,6 +1,6 @@
 ## VeriFlow scoring rule v2 — contract `<13115,0>`
 
-Run 2026-11-28T01:40:51.202Z, valid until 2026-11-29T03:40:51.202Z.
+Run 2026-11-28T15:50:46.762Z, valid until 2026-11-29T17:50:46.762Z.
 
 **Rule anchor:** verified — the scripts run here are byte-identical to the rule registered on-chain before the first commit, and the contract is the named deployment
 
@@ -32,4 +32,4 @@ No failures.
 | 2026-11-26 | BTC | `063e789ddee816cea3e19f7609e926ea5ce590ffbc0fa1c66a56fd26f4c3e996` | 2026-11-27T00:41:18.936Z | not yet |
 | 2026-11-26 | ETH | `6be71920ab5a41006fd2443dac49e1f4ed8c88f4e1e2f54be91e9d20b490dfce` | 2026-11-27T00:41:24.936Z | not yet |
 
-Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/46094301335 · code at commit de9ba71ea4f60b08fbc1ad7dcce0bc6d25cf7ef7
+Run: https://github.com/jiahaoc040-ai/veriflow/actions/runs/46161974150 · code at commit f6def1546550a9c310ed2f1774d51c565ab1b0f4
