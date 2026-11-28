@@ -47,6 +47,12 @@ export type EscrowDemoOptions = {
   now?: () => number;
   ipOf?: (req: express.Request) => string;
   log?: (m: string) => void;
+  /** When set, the run is a real purchase: the memo comes from a quote for this buyer, and after release the signal is collected */
+  sale?: {
+    quote: (asset: string, buyer: string) => Promise<{ ok: true; quote: { memo: string; claim_token: string; minutes: number } } | { ok: false; status: number; error: string; message: string }>;
+    deliver: (asset: string, id: string, claim: string) => Promise<{ status: number; body: Record<string, unknown> }>;
+  };
+  asset?: string;
 };
 
 export const DEFAULT_REFUSED: [bigint, string][] = [
@@ -114,9 +120,20 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
         refusals.push({ agent: id.toString(), why, refused: !w.ok, code: w.code ?? null, error: w.error ?? null });
       }
 
-      // 2. pay: the contract reads agentOf(#1313) and holds the CCD for its agentWallet
-      const memo = `site demo ${randomBytes(6).toString("hex")}`;
-      const pay = await c.pay(seller, amount, 10, memo);
+      // 2. pay: the contract reads agentOf(#1313) and holds the CCD for its agentWallet.
+      //    With a sale: the memo is a quote for this buyer and asset, so what is bought is a signal, collected after release
+      const asset = o.asset ?? "BTC";
+      let memo = `site demo ${randomBytes(6).toString("hex")}`;
+      let claim: string | undefined;
+      let minutes = 10;
+      if (o.sale) {
+        const q = await o.sale.quote(asset, c.buyer);
+        if (!q.ok) return res.json({ ok: false, step: "quote", refusals, quote: { error: q.error, message: q.message }, ms: now() - started, left_today: await left() });
+        memo = q.quote.memo;
+        claim = q.quote.claim_token;
+        minutes = q.quote.minutes;
+      }
+      const pay = await c.pay(seller, amount, minutes, memo);
       if (!pay.ok) {
         return res.json({ ok: false, step: "pay", refusals, pay: { tx: link(pay.hex), code: pay.code ?? null, error: pay.error ?? null }, ms: now() - started, left_today: await left() });
       }
@@ -131,7 +148,7 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
       const rel = await c.release(id);
       const after = await c.read(id).catch(() => null);
       const paidTo = rel.transfers[0]?.to ?? after?.paidTo ?? null;
-      const out = {
+      const out: Record<string, unknown> = {
         ok: rel.ok,
         contract: c.contract,
         module,
@@ -146,6 +163,11 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
         ms: now() - started,
         left_today: await left(),
       };
+      // 4. With a sale: collect the signal. The server reads the escrow back and hands it over only now that the contract has paid
+      if (o.sale && claim && rel.ok) {
+        const d = await o.sale.deliver(asset, id.toString(), claim).catch((e) => ({ status: 502, body: { error: "delivery_failed", message: e instanceof Error ? e.message : String(e) } as Record<string, unknown> }));
+        Object.assign(out, { asset, memo, delivered: d.status === 200, signal_purchase: d.status === 200 ? d.body : { status: d.status, ...d.body } });
+      }
       if (rel.ok) lastRun = { at: new Date(now()).toISOString(), body: out };
       res.json(out);
     } catch (e) {

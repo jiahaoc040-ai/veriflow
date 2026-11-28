@@ -78,7 +78,7 @@
     <h1>Stop AI agents from paying impostors.</h1>
     <p class="sub">Any x402 seller can copy another agent's name, card and badge and put its own wallet in <code>payTo</code>. VeriFlow checks every payment against Concordium before the buyer signs: the seller must be an Active agent in the on-chain Agent Registry, owned by an identity-verified person, and the money must go to that agent's own registered wallet. On mainnet today, <b>1 in 4 Active agents (1,269 of 5,393) could not be paid under this rule</b>, mostly because they never bound a wallet on-chain (1,114): a readiness gap, not a count of impostors (<a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md#the-same-checks-across-mainnet" target="_blank" rel="noopener">census</a>).</p>
     <p class="sub small-sub"><b>Why Concordium:</b> every agent owner is a verified identity; a buyer can prove "18+, allowed country" in zero knowledge; and a smart contract can read the Agent Registry inside the payment itself. VeriFlow uses all three. The BTC/ETH call sold here is only a sample product: the checks are the product, shipped as two npm packages and an escrow contract.</p>
-    <p class="cta"><a class="button primary" href="#demo">▶ Watch an agent buy (≈35 s)</a> <a class="button" href="#escrowDemo">Pay through the escrow (≈20 s)</a> <span class="muted small">No wallet, nothing to install.</span></p>
+    <p class="cta"><a class="button primary" href="#demo">▶ Watch an agent buy (≈35 s)</a> <a class="button" href="#escrowDemo">Buy through the escrow (≈25 s)</a> <span class="muted small">No wallet, nothing to install.</span></p>
     <div class="pillars">
       <div class="pillar"><div class="k">Before paying</div><h3>Is this really the seller?</h3><p>Registered and Active in the Agent Registry, Agent Card unchanged, and <code>payTo</code> = the agent's own on-chain wallet. A guard any x402 buyer wraps around its client.</p></div>
       <div class="pillar"><div class="k">Before delivering</div><h3>Is this buyer allowed?</h3><p>A Verify &amp; Access zero-knowledge proof (18+, allowed country) that reveals nothing else, re-checked by the seller at every payment.</p></div>
@@ -100,9 +100,9 @@
   </div>
 
   <div class="card try" id="escrowDemo" hidden>
-    <h2><span class="step">Try 2</span>Pay through the escrow contract</h2>
-    <p class="muted lead">The same buyer pays agent <b>#1313</b> 1 testnet CCD through our escrow contract <a id="escrowLink" class="mono" target="_blank" rel="noopener"></a>. The contract calls the CIS-8004 Agent Registry itself: when the CCD comes in (held only for an Active agent with an <span class="mono">agentWallet</span>, which it records), and again at release (paid only to that recorded wallet, only if the registry still names it). First it is asked about three agents it must refuse; those are read-only calls, nothing is sent. You pay and sign nothing. <span id="escrowLeft"></span></p>
-    <p><button class="primary" id="escrowGo">Pay #1313 through the escrow</button></p>
+    <h2><span class="step">Try 2</span>Buy a BTC call through the escrow contract</h2>
+    <p class="muted lead">The same buyer buys a BTC call, but the money goes through our escrow contract <a id="escrowLink" class="mono" target="_blank" rel="noopener"></a> instead of a direct transfer, so the chain, not our server, decides whether it reaches agent <b>#1313</b>. The seller quotes a memo bound to this buyer (whose zero-knowledge proof is re-checked first); the signal is handed over only after the contract has paid, read back from the contract. The contract calls the CIS-8004 Agent Registry itself: when the CCD comes in (held only for an Active agent with an <span class="mono">agentWallet</span>, which it records), and again at release (paid only to that recorded wallet, only if the registry still names it). First it is asked about three agents it must refuse; those are read-only calls, nothing is sent. You pay and sign nothing. <span id="escrowLeft"></span></p>
+    <p><button class="primary" id="escrowGo">Buy BTC through the escrow</button></p>
     <div id="escrowOut"></div>
     <p class="small muted">This button is our own buyer paying our own seller. Done by someone else: a friend of the developer, on his own account (19836), <a href="https://ccdexplorer.io/testnet/transaction/33bc24f4685ff27aa8f8158f94efd5eca88732fc9e04c8a45f74a27158e7587a" target="_blank" rel="noopener">paid #1313 into the escrow</a> and never released it; after the window #1313's own wallet <a href="https://ccdexplorer.io/testnet/transaction/e07f525d0887f910764de8798953eb1e3c1e292ad2088f9db6e373602e3d4e34" target="_blank" rel="noopener">claimed it</a>, the contract reading the registry again. And when a test agent's wallet was swapped after payment, the release was <a href="https://testnet.ccdscan.io/?dcount=1&amp;dentity=transaction&amp;dhash=ce9420ab9bb1beea81691ba39bfd1864337da596b2845f1bc8a3692fb03d0af3" target="_blank" rel="noopener">refused on-chain (−22)</a> and the buyer <a href="https://ccdexplorer.io/testnet/transaction/4ec9064e34cf03f62db480fd4075641375535181f4c919a458c79df68b8d8088" target="_blank" rel="noopener">refunded</a>.</p>
   </div>
@@ -352,6 +352,7 @@
       [0, "Asking the escrow contract about three agents it must refuse (read-only, nothing sent)"],
       [3, "Paying 1 testnet CCD into the escrow for #1313: the contract reads the Agent Registry and records its wallet"],
       [10, "Releasing: the contract reads the registry again and pays only the wallet it recorded"],
+      [17, "Collecting the signal: the seller reads the escrow back from the contract before handing it over"],
     ]);
     try {
       const r = await fetch("/demo/escrow", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).finally(stopTicker);
@@ -363,6 +364,8 @@
         lines.push(step(f.refused, `Refused ${f.why} (#${f.agent})`, f.refused ? `${f.code} ${f.error} · read-only, nothing sent` : "the contract would have accepted it"));
         show(); await sleep(300);
       }
+      if (!j.ok && j.step === "quote") { lines.push(step(false, "The seller gave no quote", `${j.quote.error}: ${j.quote.message}`)); show(); return; }
+      if (j.memo) { lines.push(`<li class="ok">✅ 0 · Quote from the seller: 1 CCD for agent #1313, memo <span class="mono">${esc(j.memo)}</span> <span class="muted">— bound to this buyer, after its zero-knowledge proof was re-checked</span></li>`); show(); await sleep(300); }
       if (!j.ok && j.step === "pay") { lines.push(step(false, "The contract refused the payment to #1313", `${j.pay.code} ${j.pay.error}`)); show(); return; }
       lines.push(`<li class="ok">✅ 1 · Paid 1 CCD into the escrow (id ${esc(j.escrow_id)}): ${txa(j.pay.tx, "pay transaction")} <span class="muted">— the contract read <span class="mono">agentOf(1313)</span> from the registry and recorded wallet <span class="mono">${esc(acct(j.pay.wallet_at_pay))}</span></span></li>`); show(); await sleep(400);
       lines.push(`<li class="ok">✅ 2 · At release the contract read the registry again <span class="muted">(the <span class="mono">CIS-8004.agentOf</span> call is in the release transaction's trace on CCDExplorer)</span></li>`); show(); await sleep(400);
@@ -370,6 +373,14 @@
       const t = (j.release.transfers || [])[0];
       lines.push(step(j.paid_recorded_wallet, `3 · The contract paid ${t ? Number(t.micro_ccd) / 1e6 : "?"} CCD to ${acct(t && t.to)}${j.paid_recorded_wallet ? ", the wallet it recorded at payment" : ", NOT the recorded wallet"}`)); show();
       lines.push(`<li class="muted">${txa(j.release.tx, "release transaction")} · escrow state now <b>${esc(j.after ? j.after.state : "?")}</b> · module <span class="mono">${esc(String(j.module).slice(0, 12))}…</span> (verified build) · ${Math.round(j.ms / 1000)} s</li>`); show();
+      if (j.signal_purchase) {
+        const sp = j.signal_purchase, sig = sp.signal || {};
+        if (j.delivered) {
+          const anchor = sp.anchor_tx ? ` · ${txa(`https://ccdexplorer.io/testnet/transaction/${sp.anchor_tx}`, "committed on-chain before sale")}` : "";
+          lines.push(`<li class="ok">✅ 4 · Delivered: <b>${esc(sig.asset || "BTC")} ${esc(sig.regime || sig.signal || "")}</b> <span class="muted">— handed over only after the seller read escrow ${esc(j.escrow_id)} back: Released, to the wallet the registry named</span>${anchor}</li>`);
+        } else lines.push(step(false, "The signal was not collected yet", `${sp.error || sp.status}: ${sp.message || sp.detail || ""}`));
+        show();
+      }
       $("escrowLeft").textContent = `(${j.left_today} escrow demos left today, UTC.)`;
     } catch (e) {
       out.innerHTML = `<p class="bad">${esc(e.message)}</p>`;

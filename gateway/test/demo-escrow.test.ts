@@ -43,6 +43,36 @@ test("one run: three read-only refusals, pay, release to the wallet recorded at 
   assert.equal(j.escrow_id, "7");
 });
 
+test("with a sale: the memo is the quote's, and the signal is collected only after release", async () => {
+  const calls: string[] = [];
+  let quotedFor = "";
+  const sale = {
+    quote: async (asset: string, buyer: string) => { quotedFor = `${asset} ${buyer}`; return { ok: true as const, quote: { memo: "vf1:BTC:abc:0123456789ab", claim_token: "f".repeat(32), minutes: 10 } }; },
+    deliver: async (asset: string, id: string, claim: string) => { calls.push(`deliver ${asset} ${id} ${claim.length}`); return { status: 200, body: { signal: { asset } } }; },
+  };
+  const s = await serve(escrowDemoRouter({ makeChain: () => fakeChain(calls), expectedModule: "good", lock: { busy: false }, sale }));
+  const j = await (await post(s.url)).json();
+  s.close();
+  assert.equal(quotedFor, "BTC 4Vf4");
+  assert.deepEqual(calls.slice(3), ["pay 1313 1000000", "release 7", "deliver BTC 7 32"]);
+  assert.equal(j.memo, "vf1:BTC:abc:0123456789ab");
+  assert.equal(j.delivered, true);
+  assert.equal(j.signal_purchase.signal.asset, "BTC");
+});
+
+test("with a sale: no quote (buyer not eligible), nothing is paid", async () => {
+  const calls: string[] = [];
+  const sale = {
+    quote: async () => ({ ok: false as const, status: 403, error: "buyer_proof_required", message: "verify" }),
+    deliver: async () => ({ status: 500, body: {} }),
+  };
+  const s = await serve(escrowDemoRouter({ makeChain: () => fakeChain(calls), expectedModule: "good", lock: { busy: false }, sale }));
+  const j = await (await post(s.url)).json();
+  s.close();
+  assert.equal(j.step, "quote");
+  assert.ok(!calls.some((c) => c.startsWith("pay")));
+});
+
 test("a payout to any other account is reported, not hidden", async () => {
   const s = await serve(escrowDemoRouter({ makeChain: () => fakeChain([], { payTo: "4Hga" }), expectedModule: "good", lock: { busy: false } }));
   const j = await (await post(s.url)).json();

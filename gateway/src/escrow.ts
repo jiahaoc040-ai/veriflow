@@ -241,6 +241,44 @@ async function main() {
     await send(key, cmd, u64(BigInt(id)), 0n);
     return;
   }
+  if (cmd === "buy") {
+    // Buy a signal through the escrow: quote from the seller, pay into the contract, release, collect (escrow-sale.ts)
+    const asset = (rest[0] ?? "").toUpperCase();
+    const gateway = (rest[1] ?? process.env.GATEWAY_URL ?? "https://veriflow-yrhp.onrender.com").replace(/\/$/, "");
+    if (!/^[A-Z]{2,10}$/.test(asset)) throw new Error("usage: buy <asset> [gateway url]   e.g. buy BTC");
+    const buyer = loadAccount(env("BUYER_KEY_FILE"));
+    const qr = await fetch(`${gateway}/escrow-sale/${asset}/quote?buyer=${buyer.address}`);
+    const q = await qr.json() as any;
+    if (!qr.ok) throw new Error(`no quote (${qr.status} ${q.error}): ${q.message}`);
+    const max = BigInt(env("ESCROW_MAX_MICROCCD", "5000000"));
+    if (BigInt(q.amount_micro_ccd) > max) throw new Error(`the seller asks ${Number(q.amount_micro_ccd) / 1e6} CCD, above ESCROW_MAX_MICROCCD`);
+    if (q.contract !== `<${env("ESCROW_CONTRACT")},0>`) throw new Error(`the seller names escrow ${q.contract}, not ESCROW_CONTRACT=${env("ESCROW_CONTRACT")}; nothing sent`);
+    // The contract must run the reviewed module: otherwise "the contract checks the registry" is only a claim
+    const mod = ModuleReference.toHexString((await grpc.getInstanceInfo(contractOf())).sourceModule);
+    if (mod !== (process.env.EXPECTED_ESCROW_MODULE ?? EXPECTED_MODULE)) throw new Error(`escrow runs module ${mod}, not the reviewed ${EXPECTED_MODULE}; nothing sent`);
+    console.log(`quote: ${Number(q.amount_micro_ccd) / 1e6} CCD for agent #${q.token_id} through ${q.contract}, memo ${q.memo}`);
+    console.log("1/3 pay (the contract reads CIS-8004 agentOf and records the agent's wallet)…");
+    const p = await send(env("BUYER_KEY_FILE"), "pay", encodePay(BigInt(q.token_id), Number(q.minutes), q.memo), BigInt(q.amount_micro_ccd));
+    if (!p.ok) throw new Error(`pay failed: ${p.code} ${p.error}`);
+    const id = await escrowIdOf(grpc, contractOf(), buyer.address, q.memo);
+    if (id === null) throw new Error("paid, but the escrow id could not be read back; find it with: npm run escrow -- status");
+    console.log(`  escrow id ${id}\n2/3 release (the contract reads agentOf again and pays the recorded wallet)…`);
+    const r = await send(env("BUYER_KEY_FILE"), "release", u64(id), 0n);
+    if (!r.ok) throw new Error(`release failed: ${r.code} ${r.error}. The CCD are still held; you can refund: npm run escrow -- refund ${id}`);
+    for (const t of r.transfers) console.log(`  paid ${Number(t.microCcd) / 1e6} CCD to ${t.to}`);
+    console.log("3/3 collect the signal…");
+    for (let i = 0; i < 3; i++) {
+      const d = await fetch(`${gateway}/escrow-sale/${asset}/deliver`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ escrow_id: id.toString(), claim_token: q.claim_token }) });
+      const body = await d.json() as any;
+      if (d.ok) { console.log(JSON.stringify(body, null, 2)); return; }
+      console.log(`  ${d.status} ${body.error}: ${body.message ?? body.detail ?? ""}`);
+      if (d.status < 500) break;
+      await new Promise((ok) => setTimeout(ok, 5000));
+    }
+    console.log(`not collected yet; try again later (within 24 h): curl -X POST ${gateway}/escrow-sale/${asset}/deliver -H 'content-type: application/json' -d '{"escrow_id":"${id}","claim_token":"<the claim token above>"}'`);
+    console.log(`claim token (keep private): ${q.claim_token}`);
+    process.exit(1);
+  }
   if (cmd === "check") {
     const id = rest[0];
     if (!/^\d+$/.test(id ?? "")) throw new Error("usage: check <token id>");
@@ -260,7 +298,7 @@ async function main() {
     }
     return;
   }
-  console.log("usage: npm run escrow -- deploy | pay <token id> <ccd> [minutes] [memo] | release|refund|claim <escrow id> | check <token id> | status [escrow id]  (add --send-anyway to send a call the contract would reject)");
+  console.log("usage: npm run escrow -- deploy | buy <asset> [gateway url] | pay <token id> <ccd> [minutes] [memo] | release|refund|claim <escrow id> | check <token id> | status [escrow id]  (add --send-anyway to send a call the contract would reject)");
   process.exit(2);
 }
 

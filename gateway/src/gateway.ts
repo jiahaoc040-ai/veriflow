@@ -14,6 +14,7 @@
  */
 import { AGENT_REGISTRY, readAgent } from "./registry-node.js";
 import { AGENT_EXTENSION, cardHostIsPublic, cardUrlAllowed } from "./counterparty.js";
+import { buyerProofExtension } from "./buyer-proof.js";
 import { checkSellerAt, summarize } from "./guard.js";
 import { NET, checkGenesis } from "./network.js";
 import { createGrpc } from "./grpc.js";
@@ -38,7 +39,8 @@ import { mountA2A } from "./a2a.js";
 import { RateLimiter, clientKey, inlineScriptHashes, isSelfCall, publicMessage, rateLimit, scrubDetail, securityHeaders, trustProxySetting } from "./security.js";
 import { demoBuyRouter, demoDisabledRouter, postgresCounter } from "./demo-buy.js";
 import { escrowChain, escrowDemoDisabledRouter, escrowDemoRouter } from "./demo-escrow.js";
-import { EXPECTED_MODULE as ESCROW_MODULE } from "./escrow.js";
+import { EXPECTED_MODULE as ESCROW_MODULE, escrowRead, type EscrowRecord } from "./escrow.js";
+import { escrowSale } from "./escrow-sale.js";
 import { guardPresetRouter } from "./guard-presets.js";
 import { checkSellerAt as pkgCheckSellerAt, concordiumGuardDeps as pkgGuardDeps, NETWORKS as PKG_NETWORKS } from "concordium-x402-guard";
 import { guardDeps } from "./guard-deps.js";
@@ -362,6 +364,8 @@ app.use(
         mimeType: "application/json",
         // Names the agent being paid (CIS-8004 registry and token id). No wallet here: the buyer reads agentWallet from the chain and compares it with payTo
         extensions: {
+          // The same requirement as extra.buyerProof, as one entry covering every accepts entry (the shape x402 #4182 is moving to)
+          ...buyerProofExtension({ facts: buyerExtra.buyerProof, policy: buyerExtra.buyerProofPolicy, verifyUrl: buyerExtra.buyerProofUrl, network: NETWORK }),
           [AGENT_EXTENSION]: {
             info: { network: NETWORK, registry: `${AGENT_REGISTRY.index}.${AGENT_REGISTRY.subindex}`, badge: AGENT_BADGE, tokenId: AGENT_TOKEN_ID },
             schema: {
@@ -401,19 +405,19 @@ const anchorer = createAnchorer(env("ANCHOR_KEY_FILE", env("FACILITATOR_KEY_FILE
 // Requests arriving together for the same not-yet-anchored signal share one anchor transaction
 const anchorOnce = singleFlight<string>();
 
-app.get("/signal/:asset", async (req, res) => {
-  try {
-    const r = await fetch(`${API_URL}/signal/${encodeURIComponent(req.params.asset)}`, {
+/** The signal for a paid request (x402 or escrow): fetched from the API, committed on-chain first if it is not yet */
+async function serveSignal(asset: string): Promise<{ status: number; body: any }> {
+    const r = await fetch(`${API_URL}/signal/${encodeURIComponent(asset)}`, {
       headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET },
     });
     const body = await r.json();
-    if (!r.ok) return res.status(r.status).json(body);
+    if (!r.ok) return { status: r.status, body };
 
     // Today's official signal is already on-chain (daily job or an earlier buyer): sell that same one, do not anchor again
     if (!body.anchor_tx) {
       try {
         const tx = await anchorOnce(String(body.commitment), async () => {
-          const t = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? req.params.asset).toUpperCase());
+          const t = await anchorer.anchor(body.commitment, String(body.signal?.asset ?? asset).toUpperCase());
           await fetch(`${API_URL}/commitments/${body.commitment}/anchor`, {
             method: "POST",
             headers: { "X-VeriFlow-Gateway": GATEWAY_SECRET, "Content-Type": "application/json" },
@@ -426,9 +430,17 @@ app.get("/signal/:asset", async (req, res) => {
       } catch (e) {
         // A signal that is not on-chain cannot be shown to predate the outcome: return an error; x402 settles only on success, so the buyer is not charged
         console.error("anchor failed:", e);
-        return res.status(503).json({ error: "anchor_failed", detail: "The signal could not be committed on-chain, so it was not sold and you were not charged. Try again shortly." });
+        return { status: 503, body: { error: "anchor_failed", detail: "The signal could not be committed on-chain, so it was not sold. An x402 payment is not settled; an escrow purchase can be collected again with the same escrow_id. Try again shortly." } };
       }
     }
+    return { status: 200, body };
+}
+
+app.get("/signal/:asset", async (req, res) => {
+  try {
+    const s = await serveSignal(String(req.params.asset));
+    if (s.status !== 200) return res.status(s.status).json(s.body);
+    const body = s.body;
     const ba = res.locals.buyerAgent as Extract<BuyerAgentResult, { named: true }> | undefined;
     if (ba) body.buyer_agent = { token_id: ba.tokenId, registry: `<${AGENT_REGISTRY.index},${AGENT_REGISTRY.subindex}>`, owner: ba.owner, agent_wallet: ba.wallet, checked: "read from a Concordium node before verification and again before settlement: Active, and the payer is its agentWallet" };
     // The buyer's zero-knowledge proof, re-checked for this payment: the record any buyer can show a third party
@@ -569,10 +581,47 @@ app.use(
 );
 // Second demo button: the same buyer pays #1313 through the escrow contract, which checks CIS-8004 itself (demo-escrow.ts)
 const ESCROW_CONTRACT = process.env.ESCROW_CONTRACT?.trim();
+const ESCROW_ON = !!ESCROW_CONTRACT && /^\d+$/.test(ESCROW_CONTRACT);
+// Selling the signal through that contract (escrow-sale.ts): the contract decides whether the money reaches #1313's wallet
+const sale = ESCROW_ON
+  ? (() => {
+      let ready: Promise<{ read: (id: bigint) => Promise<EscrowRecord | null> }> | undefined;
+      const reader = () =>
+        (ready ??= (async () => {
+          const { ContractAddress, ModuleReference } = await import("@concordium/web-sdk");
+          const g = createGrpc();
+          const c = ContractAddress.create(BigInt(ESCROW_CONTRACT!), 0n);
+          const mod = ModuleReference.toHexString((await g.getInstanceInfo(c)).sourceModule);
+          const want = process.env.EXPECTED_ESCROW_MODULE ?? ESCROW_MODULE;
+          if (mod !== want) throw new Error(`escrow <${ESCROW_CONTRACT},0> runs module ${mod}, expected ${want}`);
+          return { read: (id: bigint) => escrowRead(g, c, id) };
+        })().catch((e) => { ready = undefined; throw e; }));
+      return escrowSale({
+        contract: `<${ESCROW_CONTRACT},0>`,
+        explorer: NET.explorer,
+        tokenId: BigInt(AGENT_TOKEN_ID),
+        payTo: PAY_TO,
+        priceMicroCcd: BigInt(PRICE_MICROCCD),
+        secret: process.env.ESCROW_SALE_SECRET ? Buffer.from(process.env.ESCROW_SALE_SECRET) : undefined,
+        readEscrow: async (id) => (await reader()).read(id),
+        serveSignal,
+        isAccount: (a) => { try { return /^[1-9A-HJ-NP-Za-km-z]{50}$/.test(a) && !!AccountAddress.fromBase58(a); } catch { return false; } },
+        checkBuyer: REQUIRE_ELIGIBILITY
+          ? async (account) => {
+              try { await eligibility.recheck(account); return { ok: true }; }
+              catch (e) { return { ok: false, reason: "buyer_proof_required", message: `Prove eligibility first (nothing is revealed): ${PUBLIC_URL}/verify  (${publicMessage(e)})` }; }
+            }
+          : undefined,
+        ipOf: ip,
+      });
+    })()
+  : undefined;
+if (sale) app.use(sale.router);
 app.use(
-  DEMO_KEY && ESCROW_CONTRACT && /^\d+$/.test(ESCROW_CONTRACT)
+  DEMO_KEY && ESCROW_ON
     ? escrowDemoRouter({
-        makeChain: () => escrowChain(DEMO_KEY, BigInt(ESCROW_CONTRACT)),
+        sale,
+        makeChain: () => escrowChain(DEMO_KEY, BigInt(ESCROW_CONTRACT!)),
         expectedModule: process.env.EXPECTED_ESCROW_MODULE ?? ESCROW_MODULE,
         lock: demoLock,
         counter: demoCounter,
