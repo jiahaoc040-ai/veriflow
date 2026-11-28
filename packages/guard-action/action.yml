@@ -1,5 +1,5 @@
 name: Concordium x402 Seller Check
-description: Before an agent pays an x402 seller, check it on Concordium (Agent Registry, badge, Agent Card hash, payTo = on-chain wallet). No wallet; nothing is paid.
+description: Check an x402 seller on Concordium before paying it (Agent Registry, badge, card hash, payTo). Pays nothing.
 author: VeriFlow
 branding:
   icon: shield
