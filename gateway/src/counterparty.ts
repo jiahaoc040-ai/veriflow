@@ -213,8 +213,10 @@ export function summarize(v: SellerVerdict): string {
 export function isPrivateAddress(host: string): boolean {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
   if (h === "localhost" || h.endsWith(".localhost") || h === "::1" || h === "::" || h === "0.0.0.0") return true;
-  if (/^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)) return true;
-  return h.includes(":") && (/^(fc|fd|fe8|fe9|fea|feb)/.test(h) || h.startsWith("::ffff:"));
+  if (/^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|198\.1[89]\.|2(2[4-9]|[3-5]\d)\.)/.test(h)) return true;
+  if (!h.includes(":")) return false;
+  // unique-local, link-local, site-local; IPv4-mapped and IPv4-compatible; NAT64 (64:ff9b::/96 and 64:ff9b:1::/48), which can reach IPv4 inside
+  return /^(fc|fd|fe[89a-f])/.test(h) || h.startsWith("::ffff:") || /^::[0-9a-f.]+(:[0-9a-f]+)?$/.test(h) || h.startsWith("64:ff9b:");
 }
 
 /**
@@ -235,13 +237,18 @@ export function cardUrlAllowed(url: string, allowLocalHttp = false): void {
  * A host name in an on-chain agent_uri must not resolve to a private address either (the owner can point its name anywhere).
  * A name that does not resolve is left to the fetch, which then fails. (DNS can still change between this lookup and the fetch.)
  */
-export async function cardHostIsPublic(url: string): Promise<void> {
+export async function cardHostIsPublic(url: string, strict = false): Promise<void> {
   const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
   if (/^[\d.]+$/.test(host) || host.includes(":")) return; // literals were checked by cardUrlAllowed
-  let addrs: { address: string }[];
-  try { addrs = await (await import("node:dns/promises")).lookup(host, { all: true, verbatim: true }); } catch { return; }
-  const bad = addrs.find((a) => isPrivateAddress(a.address));
-  if (bad) throw new Error(`agent_uri host ${host} resolves to a private address`);
+  // c-ares with a short timeout, not getaddrinfo: a name server that never answers must not tie up libuv's small thread pool.
+  // A name that does not resolve is refused (it used to be left to the fetch). Outside review
+  const { Resolver } = await import("node:dns/promises");
+  const r = new Resolver({ timeout: 2000, tries: 1 });
+  const [a, b] = await Promise.allSettled([r.resolve4(host), r.resolve6(host)]);
+  const addrs = [...(a.status === "fulfilled" ? a.value : []), ...(b.status === "fulfilled" ? b.value : [])];
+  if (addrs.some((x) => isPrivateAddress(x))) throw new Error("host is not public");
+  // strict (a URL a visitor typed): a name that does not resolve is refused too; otherwise the fetch itself fails on it
+  if (strict && !addrs.length) throw new Error("host is not public");
 }
 
 /** Same Concordium account, aliases included; false for anything that is not an account address */

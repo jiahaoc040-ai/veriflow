@@ -65,7 +65,7 @@
 <body>
 <main>
   <div class="top">
-    <div class="brand"><span class="dot"></span>VeriFlow <span class="net">Concordium testnet</span></div>
+    <div class="brand"><span class="dot"></span>VeriFlow <span class="net">testnet payments · mainnet read-only checks</span></div>
     <nav class="nav">
       <a href="https://youtu.be/UO6d-opQ56o" target="_blank" rel="noopener">Demo video</a>
       <a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md" target="_blank" rel="noopener">JUDGES.md</a>
@@ -76,9 +76,9 @@
 
   <section class="hero">
     <h1>Stop AI agents from paying impostors.</h1>
-    <p class="sub">Any x402 seller can copy another agent's name, card and badge and put its own wallet in <code>payTo</code>. VeriFlow checks every payment against Concordium before the buyer signs: the seller must be an Active agent in the on-chain Agent Registry, owned by an identity-verified person, and the money must go to that agent's own registered wallet. On mainnet today, <b>about 1 in 4 Active agents would fail this check</b> (<a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md#the-same-checks-across-mainnet" target="_blank" rel="noopener">census</a>).</p>
+    <p class="sub">Any x402 seller can copy another agent's name, card and badge and put its own wallet in <code>payTo</code>. VeriFlow checks every payment against Concordium before the buyer signs: the seller must be an Active agent in the on-chain Agent Registry, owned by an identity-verified person, and the money must go to that agent's own registered wallet. On mainnet today, <b>1 in 4 Active agents (1,269 of 5,393) could not be paid under this rule</b>, mostly because they never bound a wallet on-chain (1,114): a readiness gap, not a count of impostors (<a href="https://github.com/jiahaoc040-ai/veriflow/blob/main/JUDGES.md#the-same-checks-across-mainnet" target="_blank" rel="noopener">census</a>).</p>
     <p class="sub small-sub"><b>Why Concordium:</b> every agent owner is a verified identity; a buyer can prove "18+, allowed country" in zero knowledge; and a smart contract can read the Agent Registry inside the payment itself. VeriFlow uses all three. The BTC/ETH call sold here is only a sample product: the checks are the product, shipped as two npm packages and an escrow contract.</p>
-    <p class="cta"><a class="button primary" href="#demo">▶ Watch an agent buy (≈40 s)</a> <a class="button" href="#escrowDemo">Pay through the escrow (≈20 s)</a> <span class="muted small">No wallet, nothing to install.</span></p>
+    <p class="cta"><a class="button primary" href="#demo">▶ Watch an agent buy (≈35 s)</a> <a class="button" href="#escrowDemo">Pay through the escrow (≈20 s)</a> <span class="muted small">No wallet, nothing to install.</span></p>
     <div class="pillars">
       <div class="pillar"><div class="k">Before paying</div><h3>Is this really the seller?</h3><p>Registered and Active in the Agent Registry, Agent Card unchanged, and <code>payTo</code> = the agent's own on-chain wallet. A guard any x402 buyer wraps around its client.</p></div>
       <div class="pillar"><div class="k">Before delivering</div><h3>Is this buyer allowed?</h3><p>A Verify &amp; Access zero-knowledge proof (18+, allowed country) that reveals nothing else, re-checked by the seller at every payment.</p></div>
@@ -104,7 +104,7 @@
     <p class="muted lead">The same buyer pays agent <b>#1313</b> 1 testnet CCD through our escrow contract <a id="escrowLink" class="mono" target="_blank" rel="noopener"></a>. The contract calls the CIS-8004 Agent Registry itself: when the CCD comes in (held only for an Active agent with an <span class="mono">agentWallet</span>, which it records), and again at release (paid only to that recorded wallet, only if the registry still names it). First it is asked about three agents it must refuse; those are read-only calls, nothing is sent. You pay and sign nothing. <span id="escrowLeft"></span></p>
     <p><button class="primary" id="escrowGo">Pay #1313 through the escrow</button></p>
     <div id="escrowOut"></div>
-    <p class="small muted">This button is our own buyer paying our own seller. Done by others: an outside tester's account (19836) <a href="https://ccdexplorer.io/testnet/transaction/33bc24f4685ff27aa8f8158f94efd5eca88732fc9e04c8a45f74a27158e7587a" target="_blank" rel="noopener">paid #1313 into the escrow</a> and never released it; after the window #1313's own wallet <a href="https://ccdexplorer.io/testnet/transaction/e07f525d0887f910764de8798953eb1e3c1e292ad2088f9db6e373602e3d4e34" target="_blank" rel="noopener">claimed it</a>, the contract reading the registry again. And when a test agent's wallet was swapped after payment, the release was <a href="https://testnet.ccdscan.io/?dcount=1&amp;dentity=transaction&amp;dhash=ce9420ab9bb1beea81691ba39bfd1864337da596b2845f1bc8a3692fb03d0af3" target="_blank" rel="noopener">refused on-chain (−22)</a> and the buyer <a href="https://ccdexplorer.io/testnet/transaction/4ec9064e34cf03f62db480fd4075641375535181f4c919a458c79df68b8d8088" target="_blank" rel="noopener">refunded</a>.</p>
+    <p class="small muted">This button is our own buyer paying our own seller. Done by someone else: a friend of the developer, on his own account (19836), <a href="https://ccdexplorer.io/testnet/transaction/33bc24f4685ff27aa8f8158f94efd5eca88732fc9e04c8a45f74a27158e7587a" target="_blank" rel="noopener">paid #1313 into the escrow</a> and never released it; after the window #1313's own wallet <a href="https://ccdexplorer.io/testnet/transaction/e07f525d0887f910764de8798953eb1e3c1e292ad2088f9db6e373602e3d4e34" target="_blank" rel="noopener">claimed it</a>, the contract reading the registry again. And when a test agent's wallet was swapped after payment, the release was <a href="https://testnet.ccdscan.io/?dcount=1&amp;dentity=transaction&amp;dhash=ce9420ab9bb1beea81691ba39bfd1864337da596b2845f1bc8a3692fb03d0af3" target="_blank" rel="noopener">refused on-chain (−22)</a> and the buyer <a href="https://ccdexplorer.io/testnet/transaction/4ec9064e34cf03f62db480fd4075641375535181f4c919a458c79df68b8d8088" target="_blank" rel="noopener">refunded</a>.</p>
   </div>
 
   <div class="card try" id="guardCard">
@@ -200,7 +200,7 @@
         $("issued").textContent = tr.issued;
         if (tr.matured > 0) {
           $("scored").textContent = tr.matured;
-          $("scoredLabel").textContent = `calls past the ${tr.horizon_days}-day horizon, revealable and scored by the anchored rule`;
+          $("scoredLabel").textContent = `calls past the ${tr.horizon_days}-day horizon, so revealable. Not a score: the anchored rule publishes one only once every call in its window is revealed (first v2 reveal 29 Nov)`;
         } else {
           // Nothing has matured yet: show when the first call can be revealed instead of a bare 0
           firstReveal.then((d) => {
@@ -268,18 +268,37 @@
   const step = (ok, text, detail) => `<li class="${ok === null ? "muted" : ok === "info" ? "info" : ok ? "ok" : "bad"}">${ok === null ? "…" : ok === "info" ? "ℹ️" : ok ? "✅" : "❌"} ${esc(text)}${detail ? ` <span class="muted mono">${esc(String(detail).slice(0, 300))}</span>` : ""}</li>`;
   // Another team's reputation service (vet402) with no record for this seller: passed because it does not block, not because it vouched
   const infoOnly = (c) => c.ok && /independent delivery record/.test(c.name) && /unproven|not proven/i.test(String(c.detail));
+  // Today's runs used up (or this visitor's): the server returns its most recent successful run, marked, with its time
+  const replayNote = (j) => (j && j.replay ? `<p class="summary muted">↺ Today's demo runs are used up${j.replay.reason === "per_ip_limit" ? " for you" : ""}, so this is the most recent run, from ${esc(String(j.replay.at).replace("T", " ").slice(0, 16))} UTC. Every link below opens on-chain.</p>` : "");
+  // While a demo runs: the step it is probably on, and the seconds so far (the server answers once, at the end)
+  function ticker(out, phases) {
+    const t0 = Date.now();
+    const draw = () => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      const cur = phases.filter(([at]) => s >= at).pop();
+      out.innerHTML = `<ul class="checks">${phases.filter(([at]) => s >= at).map(([, text]) => `<li class="muted">${text === cur[1] ? "…" : "·"} ${esc(text)}</li>`).join("")}</ul><p class="small muted">${s} s</p>`;
+    };
+    draw();
+    const id = setInterval(draw, 1000);
+    return () => clearInterval(id);
+  }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   document.querySelectorAll("#demo button").forEach((b) => b.onclick = async () => {
     const asset = b.dataset.asset;
     document.querySelectorAll("#demo button").forEach((x) => (x.disabled = true));
     const out = $("demoOut");
-    out.innerHTML = `<ul class="checks">${step(null, `Agent #1478 asks for the ${asset} call, gets HTTP 402, and checks the seller on Concordium before signing… This takes about a minute (two node reads, the payment, and the seller checking us back).`)}</ul>`;
+    const stopTicker = ticker(out, [
+      [0, `Agent #1478 asks for the ${asset} call and gets HTTP 402: who to pay, how much`],
+      [3, "Checking the seller on Concordium before signing: Agent Registry, badge, Agent Card hash, payTo"],
+      [12, "Signing and paying 1 testnet CCD; the seller re-checks our buyer's zero-knowledge proof and agent"],
+      [24, "Waiting for the payment to finalize on Concordium, then the seller records its re-check on-chain"],
+    ]);
     try {
-      const r = await fetch("/demo/buy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ asset }) });
+      const r = await fetch("/demo/buy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ asset }) }).finally(stopTicker);
       const j = await readJson(r);
       if (!r.ok) { out.innerHTML = `<p class="bad">${esc(j.message || j.error || ("HTTP " + r.status))}</p>`; return; }
       const lines = [];
-      const show = () => (out.innerHTML = `<ul class="checks">${lines.join("")}</ul>`);
+      const show = () => (out.innerHTML = replayNote(j) + `<ul class="checks">${lines.join("")}</ul>`);
       lines.push(step(true, `Buyer: agent #${j.buyer.agent}, account ${j.buyer.account.slice(0, 8)}…`)); show();
       for (const c of (j.seller_check ? j.seller_check.checks : [])) { await sleep(350); lines.push(step(infoOnly(c) ? "info" : c.ok, infoOnly(c) ? `${c.name}: no delivery record yet, which does not block a payment` : c.name, c.detail)); show(); }
       await sleep(350);
@@ -302,7 +321,7 @@
       const head = allOk
         ? `<p class="summary ok">✅ Verified: the seller passed every check before we signed, we paid 1 testnet CCD (${txa(j.payment_tx, "payment")}), and the call we got is exactly what was committed on Concordium before its outcome.</p>`
         : `<p class="summary bad">❌ The call does not match its on-chain commitment.</p>`;
-      out.innerHTML = head + `<details><summary class="small muted">Every step (${lines.length - 1 + browserChecks.length})</summary><ul class="checks">${lines.slice(0, -1).join("")}</ul><p class="mono small">Committed in <a href="${esc(j.commit_tx_url)}" target="_blank" rel="noopener">${esc(j.anchor_tx)}</a></p>` + render(browserChecks) + `</details>`;
+      out.innerHTML = replayNote(j) + head + `<details><summary class="small muted">Every step (${lines.length - 1 + browserChecks.length})</summary><ul class="checks">${lines.slice(0, -1).join("")}</ul><p class="mono small">Committed in <a href="${esc(j.commit_tx_url)}" target="_blank" rel="noopener">${esc(j.anchor_tx)}</a></p>` + render(browserChecks) + `</details>`;
       $("demoLeft").textContent = `(${j.left_today} demo purchases left today, UTC.)`;
     } catch (e) {
       out.innerHTML = `<p class="bad">${esc(e.message)}</p>`;
@@ -329,9 +348,13 @@
   $("escrowGo").onclick = async () => {
     $("escrowGo").disabled = true;
     const out = $("escrowOut");
-    out.innerHTML = `<ul class="checks">${step(null, "Asking the contract about three agents it must refuse, then paying #1313 into the escrow and releasing it. Two transactions on Concordium: about 20–40 seconds.")}</ul>`;
+    const stopTicker = ticker(out, [
+      [0, "Asking the escrow contract about three agents it must refuse (read-only, nothing sent)"],
+      [3, "Paying 1 testnet CCD into the escrow for #1313: the contract reads the Agent Registry and records its wallet"],
+      [10, "Releasing: the contract reads the registry again and pays only the wallet it recorded"],
+    ]);
     try {
-      const r = await fetch("/demo/escrow", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const r = await fetch("/demo/escrow", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).finally(stopTicker);
       const j = await readJson(r);
       if (!r.ok) { out.innerHTML = `<p class="bad">${esc(j.message || j.error || ("HTTP " + r.status))}</p>`; return; }
       const lines = [];
@@ -370,7 +393,11 @@
           $("guardOut").innerHTML =
             `<p class="small muted">${j.network === "mainnet" ? '<b class="ok">Concordium mainnet</b> · ' : ""}${esc(j.name)} · ${esc(j.who)} · asks for ${esc(j.asks.asset === "CCD" ? `${Number(j.asks.amount) / 1e6} CCD` : `${j.asks.amount} ${j.asks.asset} (smallest unit)`)} to <span class="mono">${esc(String(j.asks.payTo).slice(0, 14))}…</span> · checked ${esc(j.checked_at)}</p>` +
             `<ul class="checks">${j.checks.map((c) => step(c.ok, c.name, c.detail)).join("")}</ul>` +
-            `<p class="verdict ${j.ok ? "ok" : "bad"}">${j.ok ? "Would pay: every check passes." : failedLine(j.checks, j.summary)}</p>`;
+            `<p class="verdict ${j.ok ? "ok" : "bad"}">${j.ok ? "Would pay: every check passes." : failedLine(j.checks, j.summary)}</p>` +
+            (j.ok ? "" : `<p class="small muted">A refusal is not a claim of fraud: it means a paying agent could not confirm this payment on Concordium, and says which check to fix.</p>`) +
+            (j.network === "mainnet" && String(j.asks.network || "").startsWith("eip155:")
+              ? `<p class="small muted">This seller is paid on Base (${esc(j.asks.network)}${j.asks.asset && /^0x833589/i.test(j.asks.asset) ? `, ${Number(j.asks.amount) / 1e6} USDC` : ""}). A Base address cannot be an <span class="mono">agentWallet</span>, so the last check is that this key is bound to the agent's owner in CIS-8. Mainnet registries read: <a href="https://ccdexplorer.io/mainnet/contract/10082/0" target="_blank" rel="noopener">Agent Registry &lt;10082,0&gt;</a> · <a href="https://ccdexplorer.io/mainnet/contract/10081/0" target="_blank" rel="noopener">CIS-8 &lt;10081,0&gt;</a>.</p>`
+              : "");
         } catch (e) {
           $("guardOut").innerHTML = `<p class="bad">${esc(e.message)}</p>`;
         } finally {

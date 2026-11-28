@@ -70,11 +70,13 @@ test("limits: same-origin JSON only, shared lock with the other demo, per visito
   assert.equal((await post(s.url)).status, 429);
   lock.busy = false;
   assert.equal((await post(s.url)).status, 200);
-  assert.equal((await post(s.url)).status, 429); // same visitor
+  const again = await post(s.url); // same visitor: the last run again, marked, nothing sent
+  assert.equal(again.status, 200);
+  assert.equal((await again.json()).replay.reason, "per_ip_limit");
   assert.equal((await post(s.url, { "x-test-ip": "b" })).status, 200);
   const day = await post(s.url, { "x-test-ip": "c" });
-  assert.equal(day.status, 429);
-  assert.equal((await day.json()).error, "daily_limit");
+  assert.equal(day.status, 200);
+  assert.equal((await day.json()).replay.reason, "daily_limit");
   t += 24 * 3600_000;
   assert.equal((await post(s.url, { "x-test-ip": "c" })).status, 200);
   assert.equal(lock.busy, false);

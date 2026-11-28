@@ -72,6 +72,8 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
   const today = () => `escrow:${new Date(now()).toISOString().slice(0, 10)}`;
   const left = async () => Math.max(0, daily - (await counter.used(today()).catch(() => daily)));
   let chain: EscrowDemoChain | undefined;
+  let lastRun: { at: string; body: Record<string, unknown> } | undefined;
+  const replay = (reason: string) => (lastRun ? { ...lastRun.body, replay: { at: lastRun.at, reason } } : undefined);
 
   r.get("/demo/escrow/status", async (_req, res) => {
     try {
@@ -86,12 +88,13 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
     if (!req.is("application/json") || req.get("sec-fetch-site") === "cross-site") return res.status(403).json({ error: "same_origin_json_only" });
     if (o.lock.busy) return res.status(429).json({ error: "busy", message: "Another visitor's demo is running. Try again in a few seconds." });
     const key = (o.ipOf ?? ((q) => q.ip ?? "unknown"))(req);
-    if (!perIp.take(key)) return res.status(429).json({ error: "per_ip_limit", message: `At most ${ipLimit} escrow demos per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) });
+    if (!perIp.take(key)) { const rp = replay("per_ip_limit"); if (rp) return res.json(rp); return res.status(429).json({ error: "per_ip_limit", message: `At most ${ipLimit} escrow demos per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) }); }
     o.lock.busy = true;
     const started = now();
     try {
       let ok: boolean;
       try { ok = await counter.reserve(today(), daily); } catch (e) { log(`escrow demo: daily counter failed: ${e instanceof Error ? e.message : e}`); ok = false; }
+      if (!ok) { const rp = replay("daily_limit"); if (rp) return res.json(rp); }
       if (!ok) return res.status(429).json({ error: "daily_limit", message: `The escrow demo runs at most ${daily} times per UTC day. Try again tomorrow, or run it yourself: npm run escrow -- pay 1313 1.` });
       chain ??= await o.makeChain();
       const c = chain;
@@ -128,7 +131,7 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
       const rel = await c.release(id);
       const after = await c.read(id).catch(() => null);
       const paidTo = rel.transfers[0]?.to ?? after?.paidTo ?? null;
-      res.json({
+      const out = {
         ok: rel.ok,
         contract: c.contract,
         module,
@@ -142,7 +145,9 @@ export function escrowDemoRouter(o: EscrowDemoOptions) {
         paid_recorded_wallet: paidTo !== null && sameAccount(paidTo, held.walletAtPay),
         ms: now() - started,
         left_today: await left(),
-      });
+      };
+      if (rel.ok) lastRun = { at: new Date(now()).toISOString(), body: out };
+      res.json(out);
     } catch (e) {
       log(`escrow demo failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
       res.status(502).json({ error: "demo_failed", message: "The escrow demo failed. Nothing more is shown here; please try again later." });

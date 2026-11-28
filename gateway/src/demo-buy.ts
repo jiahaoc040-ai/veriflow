@@ -112,6 +112,10 @@ export function demoBuyRouter(o: DemoOptions) {
   const counter = o.counter ?? memoryCounter();
   const log = o.log ?? ((m: string) => console.error(m));
   const lock = o.lock ?? { busy: false };
+  // The most recent successful run: shown (marked as a replay, with its time) when today's runs are used up, so a judge always sees
+  // a complete purchase whose every link opens on-chain
+  let lastRun: { at: string; body: Record<string, unknown> } | undefined;
+  const replay = (reason: string) => (lastRun ? { ...lastRun.body, replay: { at: lastRun.at, reason } } : undefined);
   // The seller records each re-check on-chain right after settlement; wait briefly for it so the page can link it
   const recheckRecord = async (paymentUrl?: string | null) => {
     const tx = paymentUrl?.match(/[0-9a-f]{64}$/)?.[0];
@@ -136,17 +140,18 @@ export function demoBuyRouter(o: DemoOptions) {
     if (asset !== "BTC" && asset !== "ETH") return res.status(400).json({ error: "asset must be BTC or ETH" });
     if (lock.busy) return res.status(429).json({ error: "busy", message: "Another visitor's purchase is running. Try again in a few seconds." });
     const key = (o.ipOf ?? ((q) => q.ip ?? "unknown"))(req);
-    if (!perIp.take(key)) return res.status(429).json({ error: "per_ip_limit", message: `At most ${ipLimit} demo purchases per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) });
+    if (!perIp.take(key)) { const rp = replay("per_ip_limit"); if (rp) return res.json(rp); return res.status(429).json({ error: "per_ip_limit", message: `At most ${ipLimit} demo purchases per hour per visitor.`, retry_after_s: perIp.retryAfterSec(key) }); }
     lock.busy = true;
     const started = now();
     try {
       let ok: boolean;
       try { ok = await counter.reserve(today(), daily); } catch (e) { log(`demo: daily counter failed: ${e instanceof Error ? e.message : e}`); ok = false; }
+      if (!ok) { const rp = replay("daily_limit"); if (rp) return res.json(rp); }
       if (!ok) return res.status(429).json({ error: "daily_limit", message: `The demo buys at most ${daily} calls per UTC day. Try again tomorrow, or buy one yourself (TRY_IT.md, Path B).` });
       agent ??= await o.makeAgent();
       const b = await agent.buySignal(asset);
       const body = (b.body && typeof b.body === "object" ? b.body : {}) as { canonical?: string; commitment?: string; anchor_tx?: string; buyer_agent?: { token_id: string; checked: string }; buyer_eligibility?: Record<string, unknown> };
-      res.json({
+      const out = {
         buyer: { account: agent.address, agent: agent.agentTokenId },
         seller_check: b.sellerCheck ? { ok: b.sellerCheck.ok, agent: b.sellerCheck.tokenId, payTo: b.sellerCheck.payTo, checks: b.sellerCheck.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })) } : null,
         refused: b.refused,
@@ -164,7 +169,9 @@ export function demoBuyRouter(o: DemoOptions) {
         error: b.status !== 200 && !b.refused ? safeErrorCode(b.body) ?? `http_${b.status}` : null,
         ms: now() - started,
         left_today: await left(),
-      });
+      };
+      if (b.status === 200 && out.payment_tx) lastRun = { at: new Date(now()).toISOString(), body: out };
+      res.json(out);
     } catch (e) {
       // The real reason goes to the server log only (it can name files or hosts)
       log(`demo: purchase failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);

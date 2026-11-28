@@ -24,9 +24,9 @@ export const REMOTE_INSTRUCTIONS =
   "rely on VeriFlow at all, verify in the buyer's own agent or the public dashboard. Not investment advice.";
 
 /** Runs the buyer's guard on a seller URL for the hosted check_seller tool (gateway.ts wires testnet and mainnet) */
-export type SellerCheck = (url: string, init: RequestInit, network: "testnet" | "mainnet", payNetwork?: string) => Promise<unknown>;
+export type SellerCheck = (url: string, init: RequestInit, network: "testnet" | "mainnet", payNetwork: string | undefined, client: string) => Promise<unknown>;
 
-export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl: string; checkSeller?: SellerCheck }) {
+export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl: string; checkSeller?: SellerCheck; clientOf?: (req: Request) => string }) {
   const api: PublicApi = {
     gateway: opts.publicUrl,
     async get(path) {
@@ -37,7 +37,7 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
   };
   const readSettled = createChainReader(api, "read by VeriFlow's hosted MCP server (for a check independent of VeriFlow, run the local MCP server or the public dashboard)");
 
-  function build() {
+  function build(client: string) {
     const server = new McpServer({ name: "veriflow-hosted", version: "0.4.0" }, { instructions: REMOTE_INSTRUCTIONS });
     registerPublicTools(server, api, readSettled);
     const ops = publicOps(api, readSettled);
@@ -81,10 +81,11 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
         },
         async ({ url, network, method, body, pay_network }) => {
           try {
-            const init: RequestInit = { method, redirect: "manual", ...(body ? { body, headers: { "content-type": "application/json" } } : {}) };
-            return json(await check(url, init, network, pay_network));
+            const init: RequestInit = { method, ...(body ? { body, headers: { "content-type": "application/json" } } : {}) };
+            return json(await check(url, init, network, pay_network, client));
           } catch (e) {
-            return fail(errText(e));
+            // The same shape as a verdict, so an agent reading would_pay never mistakes an error for a pass
+            return { ...json({ would_pay: false, paid: false, error: errText(e) }), isError: true };
           }
         },
       );
@@ -93,7 +94,9 @@ export function mountRemoteMcp(app: Express, opts: { selfUrl: string; publicUrl:
   }
 
   app.post("/mcp", async (req: Request, res: Response) => {
-    const server = build();
+    // One JSON-RPC message per request: a batch would run up to 100 calls behind one rate-limit count (MCP 2025-06-18 has no batches)
+    if (Array.isArray(req.body)) return res.status(400).json({ jsonrpc: "2.0", error: { code: -32600, message: "batches are not accepted: one JSON-RPC message per request" }, id: null });
+    const server = build(opts.clientOf?.(req) ?? req.ip ?? "unknown");
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => {
       void transport.close();

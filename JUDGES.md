@@ -163,7 +163,7 @@ Tests, run in CI on every push (the contract's whenever it changes): 179 for the
 
 **322 mainnet cards mention x402 and one endpoint is live. Who is protected?** Few today; the census says so. The checks are cheap to add before agents pay each other at volume, which is why they ship as packages rather than as a service to call.
 
-**Who pays the fees at scale?** On testnet Concordium's hosted facilitator sponsors buyers' fees. With our own facilitator each sale costs us about Ͼ4–5, so a mainnet price must sit above that; the running cost of the daily record is about Ͼ15,000 a year ([GO_LIVE.md](docs/GO_LIVE.md#costs)). The guard, the seller package and the escrow charge no fee.
+**Who pays the fees at scale?** On testnet Concordium's hosted facilitator sponsors buyers' fees. With our own facilitator each sale costs us about Ͼ5 in sponsored fees (testnet showed Ͼ5.0–5.5 per transaction), so a mainnet price must sit above that; the running cost of the daily record is about Ͼ15,000 a year ([GO_LIVE.md](docs/GO_LIVE.md#costs)). The guard, the seller package and the escrow charge no fee.
 
 ## What it does not claim
 

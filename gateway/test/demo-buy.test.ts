@@ -41,12 +41,14 @@ test("limits: unknown asset, per visitor per hour, site-wide per day, one at a t
   assert.equal((await post(s.url, "DOGE")).status, 400);
   assert.equal((await post(s.url)).status, 200);
   assert.equal((await post(s.url)).status, 200);
-  assert.equal((await post(s.url)).status, 429); // third from the same visitor this hour
+  const third = await post(s.url); // third from the same visitor this hour: no new purchase, the last run is shown again, marked
+  assert.equal(third.status, 200);
+  assert.equal((await third.json()).replay.reason, "per_ip_limit");
   const other = (ip: string) => fetch(`${s.url}/demo/buy`, { method: "POST", headers: { "content-type": "application/json", "x-test-ip": ip }, body: JSON.stringify({ asset: "BTC" }) });
   assert.equal((await other("b")).status, 200);
   const r = await other("c");
-  assert.equal(r.status, 429); // site-wide daily limit reached
-  assert.equal((await r.json()).error, "daily_limit");
+  assert.equal(r.status, 200); // site-wide daily limit reached: the most recent run, marked as a replay
+  assert.equal((await r.json()).replay.reason, "daily_limit");
   t += 24 * 3600_000; // next UTC day
   assert.equal((await other("c")).status, 200);
   s.close();

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
 WORKDIR /app
 COPY requirements.txt .
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+ENV UV_THREADPOOL_SIZE=16
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY gateway/package.json gateway/package-lock.json gateway/

@@ -487,6 +487,7 @@ async function refreshOperatorBalance() {
 const recheckAnchors = new Map<string, { tx: string; data: string; at: string }>();
 const RECHECK_PER_DAY = Number(env("RECHECK_RECORDS_PER_DAY", "15"));
 const RECHECK_MIN_CCD = Number(env("RECHECK_MIN_OPERATOR_CCD", "150"));
+const CHALLENGE_MIN_CCD = Number(env("CHALLENGE_MIN_OPERATOR_CCD", "120"));
 const recheckDay = { day: "", n: 0 };
 function recordRecheck(rawTx: string, payer: string) {
   const paymentTx = rawTx.replace(/^0x/i, "").toLowerCase();
@@ -495,7 +496,7 @@ function recordRecheck(rawTx: string, payer: string) {
   const day = new Date().toISOString().slice(0, 10);
   if (recheckDay.day !== day) Object.assign(recheckDay, { day, n: 0 });
   if (recheckDay.n >= RECHECK_PER_DAY) return console.warn(`re-check record for ${paymentTx} skipped: ${RECHECK_PER_DAY} already today`);
-  if (operator.balance_ccd !== null && operator.balance_ccd < RECHECK_MIN_CCD) return console.warn(`re-check record for ${paymentTx} skipped: operator balance ${operator.balance_ccd} CCD < ${RECHECK_MIN_CCD}`);
+  if (operator.balance_ccd === null || operator.balance_ccd < RECHECK_MIN_CCD) return console.warn(`re-check record for ${paymentTx} skipped: operator balance ${operator.balance_ccd} CCD < ${RECHECK_MIN_CCD}`);
   recheckDay.n++;
   eligibility.anchorRecheck(paymentTx, payer).then((r) => {
     if (!r) return console.warn(`re-check record for ${paymentTx}: ${payer} has no eligibility record`);
@@ -543,10 +544,10 @@ const limitGuard = rateLimit([{ limiter: new RateLimiter(20, MIN), key: ip, what
 app.use("/guard", limitGuard);
 // One seller on Concordium mainnet, checked live by the published npm package (read-only: no wallet, nothing paid). Its Base payout
 // is checked against the key bound to its owner in CIS-8 on mainnet
-const mainnetGuard = (() => {
-  let deps: ReturnType<typeof pkgGuardDeps> | undefined;
-  return (url: string, init: RequestInit) => pkgCheckSellerAt(url, init, (deps ??= pkgGuardDeps({ network: "mainnet" })), {}, PKG_NETWORKS.mainnet.evmNetwork);
-})();
+// One set of mainnet deps (one gRPC client) for the life of the process
+let mainnetDepsOnce: ReturnType<typeof pkgGuardDeps> | undefined;
+const mainnetDeps = () => (mainnetDepsOnce ??= pkgGuardDeps({ network: "mainnet" }));
+const mainnetGuard = (url: string, init: RequestInit) => pkgCheckSellerAt(url, init, mainnetDeps(), {}, PKG_NETWORKS.mainnet.evmNetwork);
 app.use(guardPresetRouter({ publicUrl: PUBLIC_URL, deps: guardDeps, mainnet: process.env.MAINNET_GUARD_PRESET === "off" ? undefined : mainnetGuard }));
 
 // Live demo button: our buyer agent #1478 buys one call from this seller, on the server (demo-buy.ts). Off unless a key file is configured
@@ -583,6 +584,8 @@ app.use(
 );
 
 app.post("/eligibility/challenge", limitChallenge, async (req, res) => {
+  // Each challenge anchors on-chain from the operator account, which also commits the daily calls: never below the reserve
+  if (operator.balance_ccd === null || operator.balance_ccd < CHALLENGE_MIN_CCD) return res.status(503).json({ error: "anchoring_paused", message: "Verification is paused for a moment (the anchoring account is being topped up). Try again later." });
   try {
     const r = await eligibility.challenge(String(req.body?.account ?? ""));
     console.log(`verification request anchored (VRA) ${r.requestAnchorTx}`);
@@ -622,23 +625,76 @@ const limitAgentApi = rateLimit([{ limiter: new RateLimiter(Number(env("AGENT_AP
 app.use(["/mcp", "/a2a"], limitAgentApi);
 // Hosted check_seller: any public https seller, testnet (this gateway's guard) or mainnet (the published package). Only public hosts are
 // fetched, redirects are not followed, results are cached for a minute per request, and /mcp is rate-limited per visitor
-const sellerChecks = new Map<string, { at: number; body: unknown }>();
+// Guarded (outside review): per-visitor and site-wide limits, at most two checks running at once, the cache consulted before any
+// DNS, identical concurrent requests merged, failures cached too, our own host refused, and only the payment terms passed back
+const sellerChecks = new Map<string, { at: number; body: unknown; ok: boolean }>();
+const sellerInFlight = new Map<string, Promise<unknown>>();
+const sellerCheckPerVisitor = new RateLimiter(6, 60_000);
+const sellerCheckSiteWide = new RateLimiter(60, 60_000);
+let sellerChecksRunning = 0;
+const OWN_HOSTS = new Set([PUBLIC_URL, SELF_URL].map((u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } }));
+const CHECK_NOTE = "Holds only for the payment terms in `asks` (payTo, amount, asset, network). Before paying, compare them with the 402 your own client received: a seller can answer differently to different callers.";
+async function runSellerCheck(url: string, init: RequestInit, network: "testnet" | "mainnet", payNetwork?: string) {
+  const r = network === "mainnet" ? await pkgCheckSellerAt(url, init, mainnetDeps(), {}, payNetwork) : await checkSellerAt(url, init, guardDeps(), {}, payNetwork);
+  const a = r.picked as { scheme?: string; network?: string; asset?: string; amount?: string; payTo?: string; maxTimeoutSeconds?: number };
+  const failed = r.verdict.checks.find((c) => !c.ok);
+  return {
+    network,
+    would_pay: r.verdict.ok,
+    agent: r.verdict.tokenId ?? null,
+    summary: r.verdict.ok ? scrubDetail(summarize(r.verdict)) : `would not pay. Failed check: "${failed?.name ?? "unknown"}" is not true for this seller`,
+    checks: r.verdict.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })),
+    asks: { scheme: a.scheme, network: a.network, asset: a.asset, amount: a.amount, payTo: a.payTo, maxTimeoutSeconds: a.maxTimeoutSeconds },
+    note: CHECK_NOTE,
+    paid: false,
+  };
+}
 mountRemoteMcp(app, {
   selfUrl: SELF_URL,
   publicUrl: PUBLIC_URL,
-  checkSeller: async (url, init, network, payNetwork) => {
-    cardUrlAllowed(url);
-    await cardHostIsPublic(url);
+  clientOf: (q) => clientKey(q.ip),
+  checkSeller: async (rawUrl, init, network, payNetwork, client) => {
+    cardUrlAllowed(rawUrl);
+    const u = new URL(rawUrl);
+    u.hash = "";
+    if (OWN_HOSTS.has(u.host.toLowerCase())) throw new Error("check another seller: this server does not check itself (use VeriFlow's /guard/check/veriflow)");
+    const url = u.href;
     const key = JSON.stringify([url, init.method, init.body ?? "", network, payNetwork ?? ""]);
     const hit = sellerChecks.get(key);
-    if (hit && Date.now() - hit.at < 60_000) return hit.body;
-    const r = network === "mainnet"
-      ? await pkgCheckSellerAt(url, init, pkgGuardDeps({ network: "mainnet" }), {}, payNetwork)
-      : await checkSellerAt(url, init, guardDeps(), {}, payNetwork);
-    const body = { network, would_pay: r.verdict.ok, agent: r.verdict.tokenId ?? null, summary: scrubDetail(summarize(r.verdict)), checks: r.verdict.checks.map((c) => ({ ...c, detail: scrubDetail(c.detail) })), asks: r.picked, paid: false };
-    if (sellerChecks.size > 500) sellerChecks.clear();
-    sellerChecks.set(key, { at: Date.now(), body });
-    return body;
+    if (hit && Date.now() - hit.at < (hit.ok ? 60_000 : 30_000)) {
+      if (!hit.ok) throw new Error(String(hit.body));
+      return hit.body;
+    }
+    const running = sellerInFlight.get(key);
+    if (running) return running;
+    if (!sellerCheckPerVisitor.take(client)) throw new Error("at most 6 seller checks a minute per visitor");
+    if (!sellerCheckSiteWide.take("all")) throw new Error("this server is busy checking sellers; try again in a minute");
+    if (sellerChecksRunning >= 2) throw new Error("two seller checks are already running; try again in a few seconds");
+    sellerChecksRunning++;
+    const job = (async () => {
+      try {
+        await cardHostIsPublic(url, true);
+        const body = await runSellerCheck(url, init, network, payNetwork);
+        return body;
+      } catch (e) {
+        const msg = scrubDetail(e instanceof Error ? e.message : String(e));
+        const hint = /got HTTP 4\d\d/.test(msg) ? " (the seller rejected the request itself: check the method, body and content type it expects)" : "";
+        throw new Error(msg + hint);
+      }
+    })();
+    sellerInFlight.set(key, job);
+    try {
+      const body = await job;
+      sellerChecks.set(key, { at: Date.now(), body, ok: true });
+      return body;
+    } catch (e) {
+      sellerChecks.set(key, { at: Date.now(), body: e instanceof Error ? e.message : String(e), ok: false });
+      throw e;
+    } finally {
+      sellerChecksRunning--;
+      sellerInFlight.delete(key);
+      while (sellerChecks.size > 500) sellerChecks.delete(sellerChecks.keys().next().value as string);
+    }
   },
 });
 // A2A (the Agent Card's url points here): read-only skills as well

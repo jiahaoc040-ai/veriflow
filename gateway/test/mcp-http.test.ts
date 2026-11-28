@@ -39,7 +39,7 @@ before(async () => {
   mountRemoteMcp(app, {
     selfUrl: sellerUrl,
     publicUrl: "https://veriflow.example",
-    checkSeller: async (url, init, network, payNetwork) => ({ url, method: init.method, redirect: init.redirect, network, payNetwork: payNetwork ?? null, would_pay: false, paid: false }),
+    checkSeller: async (url, init, network, payNetwork, client) => ({ url, method: init.method, network, payNetwork: payNetwork ?? null, client: typeof client, would_pay: false, paid: false }),
   });
   hosted = createServer(app);
   mcpUrl = `${await listen(hosted)}/mcp`;
@@ -95,7 +95,10 @@ test("hosted MCP: GET is not allowed (stateless, no SSE stream)", async () => {
 test("hosted MCP: check_seller passes the seller URL, network and option to the guard, never follows redirects, pays nothing", async () => {
   const client = await connect();
   const r = JSON.parse(text(await client.callTool({ name: "check_seller", arguments: { url: "https://x402-doctor.fizzl.eu/api/v1/preflight", network: "mainnet", pay_network: "eip155:8453" } })));
-  assert.deepEqual(r, { url: "https://x402-doctor.fizzl.eu/api/v1/preflight", method: "GET", redirect: "manual", network: "mainnet", payNetwork: "eip155:8453", would_pay: false, paid: false });
+  assert.deepEqual(r, { url: "https://x402-doctor.fizzl.eu/api/v1/preflight", method: "GET", network: "mainnet", payNetwork: "eip155:8453", client: "string", would_pay: false, paid: false });
   assert.equal((await client.callTool({ name: "check_seller", arguments: { url: "not a url" } })).isError, true);
   await client.close();
+  // A JSON-RPC batch is refused outright: it would run many calls behind one rate-limit count
+  const batch = await fetch(mcpUrl, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "tools/list" }, { jsonrpc: "2.0", id: 2, method: "tools/list" }]) });
+  assert.equal(batch.status, 400);
 });
