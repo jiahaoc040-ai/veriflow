@@ -16,7 +16,7 @@ Everything below is live on Concordium testnet at <https://veriflow-yrhp.onrende
 - Identities come from testnet identity providers.
 - Since 2026-11-24, payments settle through Concordium's hosted testnet x402 facilitator (API key issued to the team), which also pays buyers' fees ([`f0ec0ca6…`](https://ccdexplorer.io/testnet/transaction/f0ec0ca61ce29add3166f10a35e8814108d9da5e730c4256c3f7e6d635d4ed14), sponsor 19003). On testnet it reports `finalization_failed: transaction not found` for transfers that do finalize, so the gateway reads the reported transaction from a node and delivers only if it is finalized, sent by the payer, and pays exactly the price to `payTo` (`gateway/src/settle-recovery.ts`). Without the key, the gateway falls back to its own facilitator.
 - Eligibility is cached in our database after the proof; settlement re-checks the stored proof and its on-chain anchors, but buyers still rely on our server to run that check.
-- One buyer outside the team so far (a friend of the developer, own testnet identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1)); every other purchase was ours.
+- Two buyer accounts outside the team so far: 19760, a tester from the hackathon Discord, and 19836, a friend of the developer (own testnet identity and wallet: [`1f904fb3…`](https://ccdexplorer.io/testnet/transaction/1f904fb3fbeac7c77891d535c77aec585059447d438a3bd6a9953b8b5b3b4af1)); every other purchase was ours or a demo button.
 
 ## Already usable on mainnet
 
@@ -54,7 +54,7 @@ The signal itself is a public 30-day momentum rule and carries no edge. The prod
 | M0 | Dec 2026 | The testnet system above, with the first reveals (from 2026-11-29) and the first published score (after 2026-11-30). | Reveal transactions on CCDExplorer; a green `score-v2` run with numbers |
 | M1 | Q1 2027 | Contract review; mainnet agent, contract and anchored rule; hardware-wallet owner. | First mainnet sale bought by an agent we do not run |
 | M2 | Q1 2027 | Stable pricing in a euro PLT stablecoin with real liquidity (EURR and USDR are frozen since May 2026). Testnet done: 2026-11-26 with our own test dollar `hh-VFUSD`, and 2026-11-27 with Concordium's allow-listed test euro `EUDemo` ([`2faa32b1…`](https://ccdexplorer.io/testnet/transaction/2faa32b102cb68365f64feef63245f2ef625aeb4a94a7018855ad5aee93866ab)); buyer and seller passed the allow list's EU-nationality proof first. | A buyer pays a fixed stablecoin price on mainnet |
-| M3 | Q2 2027 | One agent platform integration; MCP Registry listing. | 10 distinct paying buyer accounts |
+| M3 | Q2 2027 | One agent platform integration (the MCP Registry listing and the GitHub Marketplace Action are done, 28 Nov 2026). | 10 distinct paying buyer accounts |
 | M4 | Q2 2027 | More assets; 90 days of uninterrupted commits. Publish only what the anchored rule prints, against always-on and always-off. No hit rate. | 90-day public record |
 
 ## Costs
